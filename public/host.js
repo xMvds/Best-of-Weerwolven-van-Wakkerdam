@@ -5,6 +5,8 @@ let rolesDetailsTouched=false;
 let rolesDetailsProgrammatic=false;
 let lastActiveGame = false;
 let forceWolfNextArmed = false;
+let pendingKickKey = null;
+let pendingKickTimer = null;
 window.__hostConsole = [];
 (function captureConsole(){
   const push=(level,args)=>{
@@ -98,7 +100,7 @@ function renderPhase(){
   const total=state.selectedRoleTotal, players=state.players.length;
   let phaseLabel={lobby:"Lobby",night:"Nacht",day:"Dag",mayor:"Burgemeester",voting:"Stemming",hunter:"Jager",ended:"Einde"}[state.phase]||state.phase;
   if(state.phase === "mayor") phaseLabel = state.mayorElection?.stage === "candidates" ? "Burgemeester: kandidaatstelling" : "Burgemeester: stemmen";
-  $("phasePills").innerHTML=`<span class="pill ${state.phase==='night'?'red':state.phase==='day'?'green':state.phase==='ended'?'gold':''}">${esc(phaseLabel)}</span><span class="pill">Nacht ${state.nightNumber}</span><span class="pill ${total===players?'green':'red'}">rollen ${total}/${players}</span><span class="pill">levend ${state.aliveCount}</span>${state.specialPowersDisabled?'<span class="pill red">burgerkrachten verzwakt</span>':''}`;
+  $("phasePills").innerHTML=`<span class="pill ${state.phase==='night'?'red':state.phase==='day'?'green':state.phase==='ended'?'gold':''}">${esc(phaseLabel)}</span><span class="pill">Nacht ${state.nightNumber}</span><span class="pill ${total===players?'green':'red'}">rollen ${total}/${players}</span><span class="pill">Levend: ${state.aliveCount} van ${state.players.length}</span>${state.specialPowersDisabled?'<span class="pill red">burgerkrachten verzwakt</span>':''}`;
 
   const inLobby=state.phase==="lobby";
   const inNight=state.phase==="night";
@@ -108,6 +110,7 @@ function renderPhase(){
   const ended=state.phase==="ended";
   const hasLivingMayor=(state.players||[]).some(p=>p.alive && p.isMayor);
   const dayAftermath=!!state.dayAftermath?.active;
+  const pendingWinner=!!state.pendingWinner;
   const remaining=hasRemainingNightStep();
   const isWolfStep=inNight && state.currentStep?.kind === "wolves";
   const canAdvanceNight=inNight && (!state.currentStep || state.currentStep.ready || isWolfStep);
@@ -127,8 +130,8 @@ function renderPhase(){
   const mayorStage = state.mayorElection?.stage || "idle";
   const candidateCount = (state.mayorElection?.candidates || []).length;
   const mayorResultReady = !!(state.started && inMayor && mayorStage === "result" && !state.dayVote?.open);
-  const normalDayVoteReady = !!(state.started && inDay && !ended && !state.dayVote?.open && !state.dayVote?.result && ((state.players||[]).filter(p=>p.alive).length >= 2));
-  showButton("mayorBtn", state.started && inDay && !state.mayorElection?.open && !hasLivingMayor);
+  const normalDayVoteReady = !!(!pendingWinner && state.started && inDay && !ended && !state.dayVote?.open && !state.dayVote?.result && ((state.players||[]).filter(p=>p.alive).length >= 2));
+  showButton("mayorBtn", !pendingWinner && state.started && inDay && !state.mayorElection?.open && !hasLivingMayor);
   showButton("startMayorVoteBtn", inMayor && mayorStage === "candidates");
   $("startMayorVoteBtn").disabled = !(inMayor && mayorStage === "candidates" && candidateCount > 0);
   showButton("closeMayorBtn", inMayor && mayorStage === "voting");
@@ -140,8 +143,9 @@ function renderPhase(){
   $("voteBtn").classList.toggle("majorDayVoteBtn", mayorResultReady);
   showButton("closeVoteBtn", inVoting);
   if(inVoting) $("closeVoteBtn").textContent = "Forceer / rond dagstemming af";
-  showButton("nextNightBtn", state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open);
-  $("nextNightBtn").disabled=!(state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open);
+  showButton("nextNightBtn", pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open));
+  $("nextNightBtn").disabled=!(pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open));
+  $("nextNightBtn").textContent = pendingWinner ? "Toon winnaar" : "Start volgende nacht";
 
   if ($("voteCard")) $("voteCard").classList.add("hidden");
 }
@@ -159,6 +163,7 @@ function renderStep(){
   const s=state.currentStep;
   if(!s){
     const next=(state.nightSteps||[]).find(x=>!x.done&&!x.skipped);
+    if(state.pendingWinner){ $("currentStep").innerHTML=`<h3>Winnaar klaar</h3><p class="muted">Het Infoscherm toont nu eerst wie de avond niet heeft overleefd. Klik op “Toon winnaar” om het eindscherm te tonen.</p>`; return; }
     $("currentStep").innerHTML=state.phase==="night"?`${timeline}<h3>Nacht actief</h3><p class="muted">Volgende stap: ${next?esc(next.label):"nacht oplossen"}</p>`:(state.phase==="day"&&state.dayAftermath?.active?`<h3>Dag</h3><p class="muted">Het Infoscherm toont nu eerst wie de avond niet heeft overleefd. Klik daarna door naar burgemeesterverkiezing of dagstemming.</p>`:`<p class="muted">Geen nachtstap actief.</p>`);
     return;
   }
@@ -178,34 +183,57 @@ function renderStep(){
 function renderHostMayorStep(stage){
   if(stage === "candidates"){
     const rows = state.mayorElection?.candidates || [];
-    return `<h3>Burgemeester kandidaatstelling</h3>${renderCandidateListHtml(rows)}<p class="muted small">Als de kandidaten klaar zijn, klik je op “Laat spelers stemmen”.</p>`;
+    const responses = state.mayorElection?.candidateResponses || [];
+    const responseRows = responses.length ? `<div class="candidateResponseGrid">${responses.map(r=>{
+      const label = r.response === "yes" ? "wil burgemeester worden" : r.response === "no" ? "wil niet" : "wacht";
+      const cls = r.response === "yes" ? "green" : r.response === "no" ? "ghost" : "gold";
+      return `<div class="candidateResponse ${cls}"><strong>${esc(r.name)}</strong><span>${label}</span></div>`;
+    }).join("")}</div>` : "";
+    return `<h3>Burgemeester kandidaatstelling</h3>${renderCandidateListHtml(rows)}${responseRows}<p class="muted small">Als iemand te lang wacht, klik je op “Laat spelers stemmen”. Niet-reageerders worden dan geen kandidaat.</p>`;
   }
   if(stage === "voting"){
     const voters = state.mayorElection?.voters || [];
     const voted = voters.filter(v=>v.voted).length;
-    return `<h3>Burgemeester stemmen</h3><div class="voteProgressText">${voted}/${voters.length} spelers hebben gestemd</div><div class="hostVoterGrid">${voters.map(v=>`<span class="pill ${v.voted?'green':'ghost'}">${esc(v.name)}${v.voted?' ✓':''}</span>`).join('')}</div><p class="muted small">Stemmen blijven verborgen op het Infoscherm. Als iedereen gestemd heeft, gaat de uitslag automatisch open. Duurt het te lang, forceer je via het controlepaneel.</p>`;
+    const rows = state.mayorElection?.liveCounts || state.mayorElection?.candidates || [];
+    return `<h3>Burgemeester stemmen</h3><div class="voteProgressText">${voted}/${voters.length} spelers hebben gestemd</div>${renderVoteBarsHtml(rows, "burgemeester")}`;
   }
   if(stage === "result"){
     const result = state.mayorElection?.result;
     const winner = result?.winnerName;
     const counts = result?.counts || state.mayorElection?.candidates || [];
-    return `<h3>Burgemeester uitslag</h3>${winner?`<div class="resultBox wolfConsensusGood"><div class="resultBig"><strong>${esc(winner)}</strong> is burgemeester</div></div>`:`<div class="resultBox wolfConsensusBad"><div class="resultBig">Geen burgemeester gekozen</div></div>`}<div class="hostMayorBars">${counts.map(c=>`<div class="voteBar"><div class="voteBarTop"><strong>${esc(c.name)}</strong><span>${c.votes||0}</span></div><div class="progress"><div class="voteFill" style="width:${Math.max(6,Math.round(((c.votes||0)/Math.max(1,...counts.map(x=>x.votes||0)))*100))}%"></div></div></div>`).join('')}</div>`;
+    return `<h3>Burgemeester uitslag</h3>${winner?`<div class="resultBox wolfConsensusGood"><div class="resultBig"><strong>${esc(winner)}</strong> is burgemeester</div></div>`:`<div class="resultBox wolfConsensusBad"><div class="resultBig">${result?.tied?"geen burgemeester gekozen door gelijke score":"Geen burgemeester gekozen"}</div></div>`}<div class="hostMayorBars">${renderVoteBarsHtml(counts, "burgemeester")}</div>`;
   }
   return `<p class="muted">Burgemeesterfase.</p>`;
 }
+
 function renderCandidateListHtml(rows){
   return rows.length
     ? `<div class="candidateList">${rows.map(r=>`<span class="candidatePill">${esc(r.name)}</span>`).join('')}</div>`
     : '<p class="muted">Nog niemand heeft zich kandidaat gesteld.</p>';
 }
 function renderHostDayVoteStep(){
-  const voters = state.players.filter(p=>p.alive).map(p=>({name:p.name, voted: !!state.dayVote?.votes?.[p.key]}));
+  const voters = state.dayVote?.voters || state.players.filter(p=>p.alive).map(p=>({name:p.name, voted: !!state.dayVote?.votes?.[p.key]}));
   const done = voters.filter(v=>v.voted).length;
-  return `<h3>Open dagstemming</h3><div class="voteProgressText">${done}/${voters.length} spelers hebben gestemd</div><div class="hostVoterGrid">${voters.map(v=>`<span class="pill ${v.voted?'green':'ghost'}">${esc(v.name)}${v.voted?' ✓':''}</span>`).join('')}</div><p class="muted small">Stemmen blijven verborgen op het Infoscherm tot iedereen heeft gestemd of jij de stemming forceert.</p>`;
+  const rows = state.dayVote?.liveCounts || state.dayVote?.counts || [];
+  return `<h3>Open dagstemming</h3><div class="voteProgressText">${done}/${voters.length} spelers hebben gestemd</div>${renderVoteBarsHtml(rows, "dagstemming")}`;
 }
-function renderVoteBarsHtml(rows){
-  const max=Math.max(1,...rows.map(r=>r.votes||0));
-  return rows.length?`<div class="voteBars">${rows.map(r=>`<div class="voteBar"><div class="voteBarTop"><strong>${esc(r.name)}</strong><span>${r.votes||0}</span></div><div class="progress"><div class="voteFill" style="width:${Math.round((r.votes||0)/max*100)}%"></div></div></div>`).join('')}</div>`:'<p class="muted">Nog geen stemmen.</p>';
+
+
+function renderHostVotingRows(voters, type){
+  const rows = (voters || []).map(v=>{
+    const target = v.targetName || v.confirmedTargetName || null;
+    const status = v.voted ? 'bevestigd' : (target ? 'geselecteerd' : 'wacht');
+    const cls = v.voted ? 'green' : (target ? 'gold' : 'ghost');
+    const targetHtml = target ? `<div class="hostVoteTarget">→ ${esc(target)}</div>` : '<div class="hostVoteTarget muted">nog geen keuze</div>';
+    return `<div class="hostVoteRow ${cls}"><strong>${esc(v.name)}</strong>${targetHtml}<span class="pill ${cls}">${status}${v.voted?' ✓':''}</span></div>`;
+  }).join('');
+  return `<div class="hostVoteLiveList">${rows}</div><p class="muted small">Je ziet hier live wie een keuze selecteert en wie definitief bevestigd heeft. Het Infoscherm toont de uitslag pas na afronden.</p>`;
+}
+function renderVoteBarsHtml(rows, type="stemming"){
+  const sorted = (rows || []).slice().sort((a,b)=>(b.votes||0)-(a.votes||0)||String(a.name||"").localeCompare(String(b.name||"")));
+  const max=Math.max(1,...sorted.map(r=>r.votes||0));
+  const leadText = type === "burgemeester" ? "Live stand burgemeester" : "Live stand dagstemming";
+  return sorted.length?`<div class="liveVoteBars"><div class="resultLabel">${leadText}</div>${sorted.map((r,i)=>`<div class="voteBar liveRank ${i===0&&r.votes>0?'leader':''}"><div class="voteBarTop"><strong>${esc(r.name)}</strong><span>${r.votes||0}</span></div><div class="progress"><div class="voteFill" style="width:${Math.max(3,Math.round((r.votes||0)/max*100))}%"></div></div></div>`).join('')}</div>`:'<p class="muted">Nog geen stemmen.</p>';
 }
 function renderTimeline(){
   const steps=state.nightSteps||[];
@@ -285,8 +313,23 @@ function formatNightPreview(n){
   return rows.length ? `<div class="nightPreview"><div class="resultLabel">Nachtpreview</div>${rows.map(r=>`<span class="pill red">${r}</span>`).join(" ")}</div>` : "";
 }
 function renderPlayers(){
-  $("players").innerHTML=(state.players||[]).map(p=>`<div class="playerRow ${p.alive?'':'dead'}"><div class="playerMain"><div class="avatar">${esc(p.roleEmoji||initials(p.name))}</div><div><strong>${esc(p.name)}${p.isMayor?' 👑':''}</strong><div class="roleName">${esc(p.roleSummary||p.roleName)} · ${p.alive?'levend':'dood'} · ${p.isBot?'testspeler':(p.connected?'online':'offline')}</div></div></div><div class="btnrow playerActions"><button class="btn danger smallBtn" title="Verwijder speler uit lobby/game" data-kick="${esc(p.key)}">Kick</button></div></div>`).join("") || '<p class="muted">Geen spelers.</p>';
-  document.querySelectorAll("[data-kick]").forEach(b=>b.addEventListener("click",()=>{ if(confirm("Deze speler echt uit de lobby/game verwijderen?")) socket.emit("host_kick_player", {key:b.dataset.kick}); }));
+  $("players").innerHTML=(state.players||[]).map(p=>{
+    const armed = pendingKickKey === p.key;
+    return `<div class="playerRow ${p.alive?'':'dead'}"><div class="playerMain"><div class="avatar">${esc(p.roleEmoji||initials(p.name))}</div><div><strong>${esc(p.name)}${p.isMayor?' 👑':''}</strong><div class="roleName">${esc(p.roleSummary||p.roleName)} · ${p.alive?'levend':'dood'} · ${p.isBot?'testspeler':(p.connected?'online':'offline')}</div></div></div><div class="btnrow playerActions"><button class="btn danger smallBtn ${armed?'pulseConfirm':''}" title="Verwijder speler uit lobby/game" data-kick="${esc(p.key)}">${armed?'Klik nog een keer':'Kick'}</button></div></div>`;
+  }).join("") || '<p class="muted">Geen spelers.</p>';
+  document.querySelectorAll("[data-kick]").forEach(b=>b.addEventListener("click",()=>{
+    const key = b.dataset.kick;
+    if(pendingKickKey === key){
+      clearTimeout(pendingKickTimer);
+      pendingKickKey = null;
+      socket.emit("host_kick_player", {key});
+      return;
+    }
+    pendingKickKey = key;
+    clearTimeout(pendingKickTimer);
+    pendingKickTimer = setTimeout(()=>{ pendingKickKey = null; renderPlayers(); }, 5000);
+    renderPlayers();
+  }));
 }
 function renderRoles(){
   const playerCount=state.players.length;

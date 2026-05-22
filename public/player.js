@@ -147,7 +147,9 @@ function renderAction(){
   const a=state.action;
   const box=$("actionBox");
   if(state.winner){
-    box.innerHTML = `<div class="playerCenter"><h1>${esc(state.winner.title)}</h1><p>${esc(state.winner.text||"")}</p>${roleCard(true)}</div>`;
+    const isWolfLoss = state.winner.team === "village" && state.me.wolfLike;
+    const winnerText = isWolfLoss ? "helaas, het wolvenras is uitgeroeid." : (state.winner.text || "");
+    box.innerHTML = `<div class="playerCenter"><h1>${esc(state.winner.title)}</h1><p>${esc(winnerText)}</p>${roleCard(true)}</div>`;
     return;
   }
 
@@ -334,6 +336,9 @@ function bindActionButtons(a){
       socket.emit("player_action", { kind:"wolves", targetKey:key });
     } else {
       selectedSingle = key;
+      if(a.kind === "mayor_vote" || a.kind === "day_vote") {
+        socket.emit("player_preview", { kind:a.kind, targetKey:key });
+      }
       renderAction();
     }
   }));

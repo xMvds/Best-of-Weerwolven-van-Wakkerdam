@@ -3,7 +3,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 
-const VERSION = "0.3.31";
+const VERSION = "0.3.36";
 const PORT = process.env.PORT || 3000;
 
 const app = express();
@@ -258,11 +258,12 @@ function newGame() {
     night: null,
     lastDeaths: [],
     recentPublicLog: [],
-    mayorElection: { open: false, stage: "idle", votes: {}, responses: {}, result: null },
-    dayVote: { open: false, votes: {}, result: null },
+    mayorElection: { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null },
+    dayVote: { open: false, votes: {}, selections: {}, result: null },
     dayAftermath: { active: false, fromNight: false },
     pendingHunter: null,
     pendingContinue: null,
+    pendingWinner: null,
     winner: null,
     specialPowersDisabled: false,
     wolfishEverDied: false,
@@ -529,6 +530,7 @@ function hostState() {
     lastDeaths: game.lastDeaths,
     recentPublicLog: game.recentPublicLog,
     winner: game.winner,
+    pendingWinner: game.pendingWinner,
     specialPowersDisabled: game.specialPowersDisabled,
     wolfishEverDied: game.wolfishEverDied,
     hostNote: "",
@@ -554,6 +556,10 @@ function publicState() {
       isCandidate: p.isCandidate,
       enchanted: p.enchanted,
       isBot: !!p.isBot,
+      roleName: (game.phase === "ended" || game.winner) && p.roleId ? roleDef(p.roleId).name : null,
+      roleEmoji: (game.phase === "ended" || game.winner) && p.roleId ? roleDef(p.roleId).emoji : null,
+      wolfLike: (game.phase === "ended" || game.winner) ? isWolfLike(p) : false,
+      team: (game.phase === "ended" || game.winner) ? effectiveTeam(p) : null,
     })),
     aliveCount: alivePlayers().length,
     mayorElection: publicMayorElectionView(),
@@ -572,7 +578,13 @@ function publicState() {
 function publicMayorElectionView() {
   const view = mayorElectionView();
   if (view.stage === "voting") {
-    return { ...view, candidates: view.candidates.map(c => ({ ...c, votes: 0 })), votes: {} };
+    return {
+      ...view,
+      candidates: view.candidates.map(c => ({ ...c, votes: 0 })),
+      votes: {},
+      selections: {},
+      voters: view.voters.map(v => ({ key: v.key, name: v.name, voted: v.voted, selected: v.voted }))
+    };
   }
   return view;
 }
@@ -647,6 +659,7 @@ function playerState(p) {
 
 function mayorElectionView(selfKey = null) {
   const votes = game.mayorElection.votes || {};
+  const selections = game.mayorElection.selections || {};
   const stage = game.mayorElection.stage || (game.mayorElection.open ? "voting" : "idle");
   const candidates = alivePlayers().filter(p => p.isCandidate).map(p => ({ key: p.key, name: p.name, votes: 0 }));
   const byKey = new Map(candidates.map(c => [c.key, c]));
@@ -654,16 +667,38 @@ function mayorElectionView(selfKey = null) {
     if (byKey.has(targetKey)) byKey.get(targetKey).votes += 1;
   }
   candidates.sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
-  const voters = alivePlayers().map(p => ({ key: p.key, name: p.name, voted: !!votes[p.key] }));
+  const voters = alivePlayers().map(p => {
+    const confirmedTargetKey = votes[p.key] || null;
+    const selectedTargetKey = confirmedTargetKey || selections[p.key] || null;
+    return {
+      key: p.key,
+      name: p.name,
+      voted: !!confirmedTargetKey,
+      selected: !!selectedTargetKey,
+      targetKey: selectedTargetKey,
+      targetName: selectedTargetKey ? game.players[selectedTargetKey]?.name || null : null,
+      confirmedTargetKey,
+      confirmedTargetName: confirmedTargetKey ? game.players[confirmedTargetKey]?.name || null : null,
+    };
+  });
   const responses = game.mayorElection.responses || {};
   const candidateResponses = alivePlayers().map(p => ({ key: p.key, name: p.name, response: responses[p.key] || (p.isCandidate ? "yes" : null), candidate: !!p.isCandidate }));
+  const liveCounts = candidates.map(c => ({ ...c, votes: 0 }));
+  const liveByKey = new Map(liveCounts.map(c => [c.key, c]));
+  for (const voter of voters) {
+    const targetKey = voter.confirmedTargetKey || voter.targetKey;
+    if (targetKey && liveByKey.has(targetKey)) liveByKey.get(targetKey).votes += 1;
+  }
+  liveCounts.sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
   return {
     open: game.mayorElection.open,
     stage,
     candidates,
     votes,
+    selections,
     voters,
     candidateResponses,
+    liveCounts,
     responses,
     result: game.mayorElection.result || null,
     selfVote: selfKey ? votes[selfKey] || null : null,
@@ -672,6 +707,7 @@ function mayorElectionView(selfKey = null) {
 
 function dayVoteView(selfKey = null) {
   const votes = game.dayVote.votes || {};
+  const selections = game.dayVote.selections || {};
   const counts = alivePlayers().map(p => ({ key: p.key, name: p.name, votes: 0 }));
   const byKey = new Map(counts.map(c => [c.key, c]));
   for (const [voterKey, targetKey] of Object.entries(votes)) {
@@ -680,12 +716,37 @@ function dayVoteView(selfKey = null) {
     if (byKey.has(targetKey)) byKey.get(targetKey).votes += weight;
   }
   counts.sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
+  const voters = alivePlayers().map(p => {
+      const confirmedTargetKey = votes[p.key] || null;
+      const selectedTargetKey = confirmedTargetKey || selections[p.key] || null;
+      return {
+        key: p.key,
+        name: p.name,
+        voted: !!confirmedTargetKey,
+        selected: !!selectedTargetKey,
+        targetKey: selectedTargetKey,
+        targetName: selectedTargetKey ? game.players[selectedTargetKey]?.name || null : null,
+        confirmedTargetKey,
+        confirmedTargetName: confirmedTargetKey ? game.players[confirmedTargetKey]?.name || null : null,
+      };
+    });
+  const liveCounts = alivePlayers().map(p => ({ key: p.key, name: p.name, votes: 0 }));
+  const liveByKey = new Map(liveCounts.map(c => [c.key, c]));
+  for (const voter of voters) {
+    const targetKey = voter.confirmedTargetKey || voter.targetKey;
+    const sourcePlayer = game.players[voter.key];
+    const weight = sourcePlayer?.isMayor ? 2 : 1;
+    if (targetKey && liveByKey.has(targetKey)) liveByKey.get(targetKey).votes += weight;
+  }
+  liveCounts.sort((a, b) => b.votes - a.votes || a.name.localeCompare(b.name));
   return {
     open: game.dayVote.open,
     counts,
+    liveCounts,
     votes,
+    selections,
     result: game.dayVote.result || null,
-    voters: alivePlayers().map(p => ({ key: p.key, name: p.name, voted: !!votes[p.key] })),
+    voters,
     selfVote: selfKey ? votes[selfKey] || null : null,
   };
 }
@@ -696,7 +757,10 @@ function publicDayVoteView() {
     return {
       ...view,
       counts: view.counts.map(c => ({ ...c, votes: 0 })),
+      liveCounts: view.liveCounts ? view.liveCounts.map(c => ({ ...c, votes: 0 })) : [],
       votes: {},
+      selections: {},
+      voters: view.voters.map(v => ({ key: v.key, name: v.name, voted: v.voted, selected: v.voted })),
       result: null,
     };
   }
@@ -807,6 +871,17 @@ function mayorVotingEligiblePlayers() {
   return alivePlayers().filter(voter => candidates.some(c => c.key !== voter.key));
 }
 
+function markMissingMayorCandidateResponsesAsNo() {
+  if (!game.mayorElection?.open || game.mayorElection.stage !== "candidates") return;
+  game.mayorElection.responses = game.mayorElection.responses || {};
+  for (const p of alivePlayers()) {
+    if (!game.mayorElection.responses[p.key]) {
+      p.isCandidate = false;
+      game.mayorElection.responses[p.key] = "no";
+    }
+  }
+}
+
 function dayVotingEligiblePlayers() {
   const alive = alivePlayers();
   return alive.filter(voter => alive.some(target => target.key !== voter.key));
@@ -821,6 +896,7 @@ function fillMissingMayorVotesRandom() {
     const picked = randomChoice(options);
     if (picked) {
       game.mayorElection.votes[voter.key] = picked.key;
+      game.mayorElection.selections[voter.key] = picked.key;
       voter.voteFor = picked.key;
     }
   }
@@ -835,6 +911,7 @@ function fillMissingDayVotesRandom() {
     const picked = randomChoice(options);
     if (picked) {
       game.dayVote.votes[voter.key] = picked.key;
+      game.dayVote.selections[voter.key] = picked.key;
       voter.dayVoteFor = picked.key;
     }
   }
@@ -864,7 +941,7 @@ function openDayVoteAuto(reason = "") {
   if (!game.started || game.phase === "ended") return;
   game.phase = "voting";
   game.dayAftermath = { active: false, fromNight: false };
-  game.dayVote = { open: true, votes: {}, result: null };
+  game.dayVote = { open: true, votes: {}, selections: {}, result: null };
   for (const p of Object.values(game.players)) p.dayVoteFor = null;
   autoSubmitBotSocialPhase();
   maybeAutoCloseDayVoteIfComplete();
@@ -877,8 +954,8 @@ function beginDayFlow({ fromNight = false } = {}) {
   game.phase = "day";
   game.currentStep = null;
   game.hostNote = bearGrowlNote();
-  game.dayVote = { open: false, votes: {}, result: null };
-  game.mayorElection = { open: false, stage: "idle", votes: {}, responses: {}, result: null };
+  game.dayVote = { open: false, votes: {}, selections: {}, result: null };
+  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null };
   // Eerst altijd het Dag/aftermath-moment tonen op het Infoscherm.
   // Daarna klikt de host door naar burgemeesterverkiezing of dagstemming.
   game.dayAftermath = { active: !!fromNight, fromNight: !!fromNight };
@@ -1193,12 +1270,13 @@ function startGame() {
   game.dayNumber = 0;
   game.lastDeaths = [];
   game.winner = null;
+  game.pendingWinner = null;
   game.recentPublicLog = [];
   game.specialPowersDisabled = false;
   game.wolfishEverDied = false;
   game.hostNote = "";
-  game.mayorElection = { open: false, stage: "idle", votes: {}, responses: {}, result: null };
-  game.dayVote = { open: false, votes: {}, result: null };
+  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null };
+  game.dayVote = { open: false, votes: {}, selections: {}, result: null };
   game.dayAftermath = { active: false, fromNight: false };
 
   for (const p of players) resetPlayerForGame(p);
@@ -1234,6 +1312,7 @@ function freshNightState() {
 }
 
 function startNextNight() {
+  if (game.pendingWinner) { const w = game.pendingWinner; game.pendingWinner = null; endGame(w); return; }
   if (game.phase === "ended") return;
   game.phase = "night";
   game.nightNumber += 1;
@@ -1241,10 +1320,11 @@ function startNextNight() {
   game.currentStep = null;
   game.night = freshNightState();
   game.nightSteps = buildNightSteps();
-  game.dayVote = { open: false, votes: {}, result: null };
-  game.mayorElection = { open: false, stage: "idle", votes: {}, responses: {}, result: null };
+  game.dayVote = { open: false, votes: {}, selections: {}, result: null };
+  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null };
   game.dayAftermath = { active: false, fromNight: false };
   game.lastDeaths = [];
+  game.pendingWinner = null;
   logPublic(`Nacht ${game.nightNumber} begint.`, "phase");
 }
 
@@ -1501,6 +1581,7 @@ function handleAction(socket, payload = {}) {
     // Spelers mogen niet op zichzelf stemmen, ook kandidaten niet.
     if (target && target.alive && target.isCandidate && target.key !== p.key) {
       game.mayorElection.votes[p.key] = target.key;
+      game.mayorElection.selections[p.key] = target.key;
       p.voteFor = target.key;
       maybeAutoCloseMayorVoteIfComplete();
     }
@@ -1514,6 +1595,7 @@ function handleAction(socket, payload = {}) {
     const target = getPlayer(payload.targetKey);
     if (target && target.alive && target.key !== p.key) {
       game.dayVote.votes[p.key] = target.key;
+      game.dayVote.selections[p.key] = target.key;
       p.dayVoteFor = target.key;
       maybeAutoCloseDayVoteIfComplete();
     }
@@ -1817,7 +1899,19 @@ function handleDeaths(deaths, continueTo = { phase: "day" }) {
 
   const win = checkWinCondition();
   if (win) {
-    endGame(win);
+    if (continueTo?.deferWinner) {
+      // Laat eerst de dagstemming-uitslag en rol/kaart-reveal zien; host klikt daarna naar winnaar.
+      game.pendingWinner = win;
+      game.phase = "day";
+      game.currentStep = null;
+      game.hostNote = bearGrowlNote();
+      game.dayAftermath = { active: false, fromNight: false };
+    } else if (continueTo?.fromNight && publicDeaths.length) {
+      game.pendingWinner = win;
+      beginDayFlow({ fromNight: true });
+    } else {
+      endGame(win);
+    }
     return;
   }
 
@@ -1894,19 +1988,59 @@ function checkWinCondition() {
 function endGame(winner) {
   game.phase = "ended";
   game.winner = winner;
+  game.pendingWinner = null;
   game.currentStep = null;
   game.dayVote.open = false;
-  game.mayorElection = { open: false, stage: "idle", votes: {}, responses: {}, result: null };
+  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null };
   logPublic(winner.title, "winner");
 }
 
 
 function startMayorVoting() {
   if (!game.mayorElection.open || game.mayorElection.stage !== "candidates") return { ok: false, error: "Er is geen kandidaatstellingsronde actief." };
+  // Als de host doorklikt, tellen spelers die niet reageerden als "nee".
+  markMissingMayorCandidateResponsesAsNo();
   const candidates = alivePlayers().filter(p => p.isCandidate);
-  if (!candidates.length) return { ok: false, error: "Er heeft zich nog niemand kandidaat gesteld." };
+  if (!candidates.length) {
+    // Niemand wil burgemeester worden. Sluit de burgemeesterfase zonder burgemeester,
+    // zodat de host daarna via het controlepaneel naar de open dagstemming kan.
+    game.phase = "day";
+    game.dayAftermath = { active: false, fromNight: false };
+    game.mayorElection = {
+      open: false,
+      stage: "idle",
+      votes: {},
+      selections: {},
+      responses: game.mayorElection.responses || {},
+      result: { winnerKey: null, winnerName: null, tied: false, noCandidates: true, counts: [] }
+    };
+    logPublic("Niemand heeft zich kandidaat gesteld voor burgemeester.", "vote");
+    return { ok: true, skipped: true };
+  }
+  if (candidates.length === 1) {
+    // Eén kandidaat: geen stemproces nodig. Die speler wordt direct burgemeester.
+    for (const p of Object.values(game.players)) p.isMayor = false;
+    const winner = candidates[0];
+    winner.isMayor = true;
+    game.phase = "mayor";
+    game.dayAftermath = { active: false, fromNight: false };
+    game.mayorElection.open = true;
+    game.mayorElection.stage = "result";
+    game.mayorElection.votes = {};
+    game.mayorElection.selections = {};
+    game.mayorElection.result = {
+      winnerKey: winner.key,
+      winnerName: winner.name,
+      tied: false,
+      automaticSingleCandidate: true,
+      counts: [{ key: winner.key, name: winner.name, votes: 1 }]
+    };
+    logPublic(`${winner.name} is burgemeester geworden.`, "vote");
+    return { ok: true, automatic: true };
+  }
   game.mayorElection.stage = "voting";
   game.mayorElection.votes = {};
+  game.mayorElection.selections = {};
   game.mayorElection.responses = game.mayorElection.responses || {};
   game.mayorElection.result = null;
   for (const p of Object.values(game.players)) p.voteFor = null;
@@ -1919,20 +2053,21 @@ function startMayorVoting() {
 function closeMayorElection({ fillMissing = true } = {}) {
   if (!game.mayorElection.open) return;
   if (game.mayorElection.stage !== "voting") {
-    game.mayorElection = { open: false, stage: "idle", votes: {}, responses: {}, result: null };
+    game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null };
     logPublic("De burgemeesterverkiezing is gesloten zonder stemming.", "vote");
     return;
   }
   if (fillMissing) fillMissingMayorVotesRandom();
   const view = mayorElectionView();
   const top = view.candidates[0];
-  let result = { winnerKey: null, winnerName: null, tied: false, counts: view.candidates.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })) };
+  let result = { winnerKey: null, winnerName: null, tied: false, tieReason: null, counts: view.candidates.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })) };
   if (!top || top.votes <= 0) {
     logPublic("Er is geen burgemeester gekozen.", "vote");
   } else {
     const tied = view.candidates.filter(c => c.votes === top.votes);
     if (tied.length > 1) {
       result.tied = true;
+      result.tieReason = "gelijke score";
       logPublic("Gelijke stand bij de burgemeesterverkiezing. Er is geen burgemeester gekozen.", "vote");
     } else {
       for (const p of Object.values(game.players)) p.isMayor = false;
@@ -1958,7 +2093,7 @@ function closeDayVote({ fillMissing = true } = {}) {
   const top = view.counts[0];
   game.phase = "day";
   game.dayVote.open = false;
-  const result = { counts: view.counts.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), eliminatedKey: null, eliminatedName: null, tied: false };
+  const result = { counts: view.counts.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), eliminatedKey: null, eliminatedName: null, eliminatedRoleName: null, eliminatedRoleEmoji: null, tied: false };
   game.dayVote.result = result;
 
   if (!top || top.votes <= 0) {
@@ -1973,7 +2108,13 @@ function closeDayVote({ fillMissing = true } = {}) {
   }
   result.eliminatedKey = top.key;
   result.eliminatedName = top.name;
-  handleDeaths([{ key: top.key, cause: "vote", publicReason: "weggestemd door het dorp" }], { phase: "day", fromNight: false });
+  const eliminatedPlayer = game.players[top.key];
+  if (eliminatedPlayer?.roleId) {
+    result.eliminatedRoleName = roleDef(eliminatedPlayer.roleId).name;
+    result.eliminatedRoleEmoji = roleDef(eliminatedPlayer.roleId).emoji;
+  }
+  game.dayVote.result = result;
+  handleDeaths([{ key: top.key, cause: "vote", publicReason: "weggestemd door het dorp" }], { phase: "day", fromNight: false, deferWinner: true });
   game.dayVote.result = result;
 }
 
@@ -2236,6 +2377,32 @@ io.on("connection", (socket) => {
 
   socket.on("player_action", (payload) => handleAction(socket, payload));
 
+  socket.on("player_preview", (payload = {}) => {
+    const key = game.socketToKey[socket.id];
+    const p = getPlayer(key);
+    if (!p || !p.alive) return;
+    const target = getPlayer(payload.targetKey);
+    if (!target || !target.alive || target.key === p.key) return;
+    if (payload.kind === "mayor_vote") {
+      if (!game.mayorElection.open || game.mayorElection.stage !== "voting") return;
+      if (game.mayorElection.votes[p.key]) return;
+      if (!target.isCandidate) return;
+      game.mayorElection.selections = game.mayorElection.selections || {};
+      game.mayorElection.selections[p.key] = target.key;
+      emitAll();
+      return;
+    }
+    if (payload.kind === "day_vote") {
+      if (!game.dayVote.open || game.phase !== "voting") return;
+      if (game.dayVote.votes[p.key]) return;
+      game.dayVote.selections = game.dayVote.selections || {};
+      game.dayVote.selections[p.key] = target.key;
+      emitAll();
+      return;
+    }
+  });
+
+
   socket.on("host_set_role_count", ({ roleId, count } = {}) => {
     if (!ROLES[roleId] || game.started) return;
     const max = ROLES[roleId].max || 1;
@@ -2291,7 +2458,7 @@ io.on("connection", (socket) => {
     if (!game.started || game.phase === "ended") return;
     game.phase = "mayor";
     game.dayAftermath = { active: false, fromNight: false };
-    game.mayorElection = { open: true, stage: "candidates", votes: {}, responses: {}, result: null };
+    game.mayorElection = { open: true, stage: "candidates", votes: {}, selections: {}, responses: {}, result: null };
     for (const p of Object.values(game.players)) { p.isCandidate = false; p.voteFor = null; }
     autoSubmitBotSocialPhase();
     logPublic("Spelers kunnen zich kandidaat stellen voor burgemeester.", "vote");
