@@ -1,0 +1,34 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Wakkerdam Online Helper — Infoscherm</title>
+  <link rel="stylesheet" href="/style.css?v=0.3.31" />
+</head>
+<body class="infoScreen">
+  <div class="bg"></div>
+  <main class="infoMain">
+    <section id="hero" class="viewerHero night">
+      <div class="infoContent">
+        <h1 id="bigStatus" class="bigStatus">Lobby</h1>
+        <p id="subStatus" class="subStatus">Wacht tot iedereen joined.</p>
+        <div id="deaths" class="deathCards"></div>
+        <div id="viewerPlayers" class="viewerPlayers"></div>
+      </div>
+    </section>
+    <section id="infoVotePanels" class="infoVotePanels hidden">
+      <div id="mayorInfoCard" class="card hidden">
+        <h2>Burgemeesterverkiezing</h2>
+        <div id="mayorBars" class="voteBars"></div>
+      </div>
+      <div id="dayVoteInfoCard" class="card hidden">
+        <h2>Dagstemming</h2>
+        <div id="voteBars" class="voteBars"></div>
+      </div>
+    </section>
+  </main>
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/viewer.js?v=0.3.31"></script>
+</body>
+</html>
