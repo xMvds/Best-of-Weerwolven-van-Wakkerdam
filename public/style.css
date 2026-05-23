@@ -2461,3 +2461,13 @@ body.playerScreen.inGame .playerCenter.action-mayor_candidate > h1{font-size:cla
   .winnerStage.hasDefeated .winnerLayout{grid-template-columns:1fr;}
   .winnerStage.hasDefeated .defeatedWolves{width:100%!important;}
 }
+
+
+/* v0.3.37 — player debug + burgemeester/dagstemming reveal fixes */
+.joinDebugHold{display:inline-block;cursor:pointer;user-select:none;-webkit-user-select:none;}
+.playerDebugFab{position:fixed;right:14px;bottom:14px;z-index:80;width:min(290px,calc(100vw - 28px));display:flex;flex-direction:column;gap:9px;padding:12px;border:1px solid rgba(211,167,90,.48);background:linear-gradient(180deg,rgba(15,24,39,.96),rgba(5,9,16,.98));box-shadow:0 18px 60px rgba(0,0,0,.55);color:#f8e7c5;}
+.playerDebugFab.hidden{display:none!important}.playerDebugFab strong{text-align:center;font-family:Georgia,"Palatino Linotype","Book Antiqua",Palatino,serif}.playerDebugFab #playerDebugClose{align-self:flex-end;min-height:30px;padding:4px 9px;}
+.dayVoteResultStage{width:min(1280px,100%);display:grid;grid-template-columns:minmax(240px,34%) minmax(0,1fr);gap:clamp(18px,3vw,46px);align-items:center;margin:0 auto;}
+.dayVoteResultStage:not(.hasReveal){grid-template-columns:1fr}.dayVoteRevealColumn{display:flex;align-items:center;justify-content:center;min-width:0}.dayVoteGraphColumn{min-width:0}.dayVoteResultStage .dayElimReveal{margin-top:0!important;width:100%;}.dayVoteResultStage .dayElimReveal.hidden{visibility:hidden!important;display:flex!important;opacity:0!important}.dayVoteResultStage .dayElimReveal:not(.hidden){animation:popCandidate .55s cubic-bezier(.2,1.35,.25,1) both;}
+.dayVoteResultStage .deathCardWithArt{max-width:min(330px,100%)!important;margin:0 auto!important;}
+@media(max-width:840px){.dayVoteResultStage{grid-template-columns:1fr;gap:12px}.dayVoteRevealColumn{order:2}.dayVoteGraphColumn{order:1}.dayVoteResultStage .deathCardWithArt{max-width:min(270px,82vw)!important}}

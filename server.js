@@ -3,7 +3,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 
-const VERSION = "0.3.36";
+const VERSION = "0.3.37";
 const PORT = process.env.PORT || 3000;
 
 const app = express();
@@ -1138,6 +1138,14 @@ function actionForPlayer(p) {
         candidates: alivePlayers().filter(q => q.isCandidate).map(q => ({ key: q.key, name: q.name })),
       };
     }
+    if (stage === "result") {
+      const result = game.mayorElection?.result || {};
+      const revealUntil = result.revealUntil || 0;
+      const winnerName = result.winnerName || null;
+      const isWinner = result.winnerKey === p.key;
+      const finalTitle = isWinner ? "Gefeliciteerd, je bent burgemeester geworden." : (winnerName ? `de nieuwe burgemeester is ${winnerName}` : (result.tied ? "geen burgemeester gekozen door gelijke score" : "geen burgemeester gekozen"));
+      return { id: "mayor_result", kind: "mayor_result_wait", title: "De stemmen worden geteld", text: "", infoOnly: true, revealUntil, finalTitle };
+    }
     const currentVote = game.mayorElection.votes[p.key] || null;
     return {
       id: "mayor_vote",
@@ -2012,7 +2020,7 @@ function startMayorVoting() {
       votes: {},
       selections: {},
       responses: game.mayorElection.responses || {},
-      result: { winnerKey: null, winnerName: null, tied: false, noCandidates: true, counts: [] }
+      result: { winnerKey: null, winnerName: null, tied: false, noCandidates: true, counts: [], automaticSingleCandidate: false }
     };
     logPublic("Niemand heeft zich kandidaat gesteld voor burgemeester.", "vote");
     return { ok: true, skipped: true };
@@ -2060,7 +2068,7 @@ function closeMayorElection({ fillMissing = true } = {}) {
   if (fillMissing) fillMissingMayorVotesRandom();
   const view = mayorElectionView();
   const top = view.candidates[0];
-  let result = { winnerKey: null, winnerName: null, tied: false, tieReason: null, counts: view.candidates.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })) };
+  let result = { winnerKey: null, winnerName: null, tied: false, tieReason: null, counts: view.candidates.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), revealUntil: Date.now() + 5000 };
   if (!top || top.votes <= 0) {
     logPublic("Er is geen burgemeester gekozen.", "vote");
   } else {
@@ -2093,7 +2101,7 @@ function closeDayVote({ fillMissing = true } = {}) {
   const top = view.counts[0];
   game.phase = "day";
   game.dayVote.open = false;
-  const result = { counts: view.counts.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), eliminatedKey: null, eliminatedName: null, eliminatedRoleName: null, eliminatedRoleEmoji: null, tied: false };
+  const result = { counts: view.counts.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), eliminatedKey: null, eliminatedName: null, eliminatedRoleName: null, eliminatedRoleEmoji: null, tied: false, revealUntil: Date.now() + 5000 };
   game.dayVote.result = result;
 
   if (!top || top.votes <= 0) {

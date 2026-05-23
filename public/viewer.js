@@ -19,10 +19,10 @@ function deathVisual(d){
   return { html:`<span class="emoji">${esc(d.roleEmoji)}</span>`, hasArt:false };
 }
 
-function topVoteRows(rows, limit=5){
-  // Eerst top 5 op stemmen bepalen, daarna alfabetisch tonen zodat de winnaar niet meteen links verklapt wordt.
+function topVoteRows(rows, limit=5, includeZero=false){
+  // Eerst de relevante top bepalen, daarna alfabetisch tonen zodat de winnaar niet meteen links verklapt wordt.
   return (rows || [])
-    .filter(r => (r.votes || 0) > 0)
+    .filter(r => includeZero ? true : (r.votes || 0) > 0)
     .sort((a,b)=>(b.votes||0)-(a.votes||0)||String(a.name||'').localeCompare(String(b.name||'')))
     .slice(0, limit)
     .sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
@@ -127,7 +127,7 @@ function renderMayorResultCentral(id, result, fallbackRows){
     lastMayorResultKey = `single:${result?.winnerKey||result?.winnerName||''}`;
     return;
   }
-  let rows = topVoteRows(result.counts || fallbackRows || [], 5);
+  let rows = topVoteRows(result.counts || fallbackRows || [], 5, true);
   if(!rows.length && result?.winnerName){ rows = [{ key: result.winnerKey, name: result.winnerName, votes: 1 }]; }
   const max = Math.max(1, ...rows.map(r=>r.votes||0));
   const resultKey = JSON.stringify(rows.map(r=>[r.key||r.name,r.votes||0])) + ':' + (result?.winnerName||'') + ':' + (result?.tied?'tie':'');
@@ -157,7 +157,7 @@ function renderDayVoteResultCentral(id, result){
   const resultKey = JSON.stringify(rows.map(r=>[r.key||r.name,r.votes||0])) + ':' + (result?.eliminatedKey||'') + ':' + (result?.tied?'tie':'');
   const eliminatedVisual = result.eliminatedName ? deathVisual({ key: result.eliminatedKey, name: result.eliminatedName, roleName: result.eliminatedRoleName, roleEmoji: result.eliminatedRoleEmoji }) : null;
   const revealCard = eliminatedVisual ? `<div class="dayElimReveal hidden"><div class="deathCard deathCardWithArt"><h3>${esc(result.eliminatedName)}</h3>${eliminatedVisual.html}${eliminatedVisual.hasArt ? "" : `<p class="muted">${esc(result.eliminatedRoleName || '')}</p>`}</div></div>` : "";
-  $(id).innerHTML = `<div class="infoMayorResult"><h3 class="voteFinalText hidden">${esc(finalText)}</h3><div class="mayorResultBars dayResultBars">${rows.map((r,i)=>`<div class="mayorResultBar ${result.eliminatedKey===r.key?'willEliminate':''}" data-key="${esc(r.key||'')}" style="--bar-height:${Math.max(10,Math.round(((r.votes||0)/max)*100))}%;--pop-index:${i}"><span class="mayorBarFill" data-height="${Math.max(10,Math.round(((r.votes||0)/max)*100))}"></span><strong>${esc(r.name)}</strong><small class="countUp" data-final="${r.votes||0}">0</small></div>`).join("")}</div>${revealCard}</div>`;
+  $(id).innerHTML = `<div class="dayVoteResultStage ${eliminatedVisual?'hasReveal':''}"><div class="dayVoteRevealColumn">${revealCard}</div><div class="infoMayorResult dayVoteGraphColumn"><h3 class="voteFinalText hidden">${esc(finalText)}</h3><div class="mayorResultBars dayResultBars">${rows.map((r,i)=>`<div class="mayorResultBar ${result.eliminatedKey===r.key?'willEliminate':''}" data-key="${esc(r.key||'')}" style="--bar-height:${Math.max(10,Math.round(((r.votes||0)/max)*100))}%;--pop-index:${i}"><span class="mayorBarFill" data-height="${Math.max(10,Math.round(((r.votes||0)/max)*100))}"></span><strong>${esc(r.name)}</strong><small class="countUp" data-final="${r.votes||0}">0</small></div>`).join("")}</div></div></div>`;
   const reveal = () => {
     $(id).querySelector(".voteFinalText")?.classList.remove("hidden");
     $(id).querySelectorAll(".willEliminate").forEach(el=>el.classList.add("eliminatedBar"));

@@ -56,6 +56,37 @@ $("joinBtn")?.addEventListener("click", join);
 $("nameInput").addEventListener("keydown", e=>{ if(e.key==="Enter") join(); });
 window.addEventListener("load",()=>setTimeout(()=>$('nameInput')?.focus(),80));
 
+// Join-scherm debug: D spammen of woord "in" lang indrukken.
+let debugDPresses = [];
+function showPlayerDebug(){ $("playerDebugFab")?.classList.remove("hidden"); }
+function hidePlayerDebug(){ $("playerDebugFab")?.classList.add("hidden"); }
+window.addEventListener("keydown", (e)=>{
+  if(document.body.classList.contains("inGame")) return;
+  if(String(e.key||"").toLowerCase() !== "d") return;
+  const now = Date.now();
+  debugDPresses = debugDPresses.filter(t => now - t < 1600);
+  debugDPresses.push(now);
+  if(debugDPresses.length >= 5) showPlayerDebug();
+});
+(function setupJoinDebugHold(){
+  const hold = $("joinDebugHold");
+  let timer = null;
+  const start = (e)=>{ if(document.body.classList.contains("inGame")) return; clearTimeout(timer); timer = setTimeout(showPlayerDebug, 850); };
+  const stop = ()=>{ clearTimeout(timer); timer = null; };
+  hold?.addEventListener("pointerdown", start);
+  hold?.addEventListener("pointerup", stop);
+  hold?.addEventListener("pointerleave", stop);
+  hold?.addEventListener("pointercancel", stop);
+})();
+$("playerDebugClose")?.addEventListener("click", hidePlayerDebug);
+$("openInfoFromPlayer")?.addEventListener("click", ()=>window.open("/info", "_blank"));
+$("openHostFromPlayer")?.addEventListener("click", ()=>{
+  const code = prompt("Hostcode");
+  if(code === "0909") window.open("/host", "_blank");
+  else if(code !== null) toast("Onjuiste hostcode.");
+});
+
+
 function join(){ socket.emit("join", { name: $("nameInput").value, playerKey }); }
 
 socket.on("connect", ()=>{
@@ -148,8 +179,16 @@ function renderAction(){
   const box=$("actionBox");
   if(state.winner){
     const isWolfLoss = state.winner.team === "village" && state.me.wolfLike;
+    const winnerTitle = isWolfLoss ? "Het dorp wint..." : state.winner.title;
     const winnerText = isWolfLoss ? "helaas, het wolvenras is uitgeroeid." : (state.winner.text || "");
-    box.innerHTML = `<div class="playerCenter"><h1>${esc(state.winner.title)}</h1><p>${esc(winnerText)}</p>${roleCard(true)}</div>`;
+    box.innerHTML = `<div class="playerCenter"><h1>${esc(winnerTitle)}</h1><p>${esc(winnerText)}</p>${roleCard(true)}</div>`;
+    return;
+  }
+
+  const deathRevealUntil = state?.dayVote?.result?.eliminatedKey === state?.me?.key ? Number(state.dayVote.result.revealUntil || 0) : 0;
+  if(!state.me.alive && deathRevealUntil && Date.now() < deathRevealUntil){
+    clearTimeout(window.__deathRevealTimer); window.__deathRevealTimer = setTimeout(render, Math.max(60, deathRevealUntil - Date.now() + 80));
+    box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1><p>Wacht op de uitslag op het Infoscherm.</p>${roleCard(true)}</div>`;
     return;
   }
 
@@ -162,6 +201,17 @@ function renderAction(){
     const title = state.phase === "night" ? "Het is nacht" : state.phase === "day" ? "je hebt de nacht overleefd" : state.phase === "lobby" ? "Je zit in de lobby" : "Wacht";
     const sub = state.phase === "night" ? "Je slaapt totdat jouw rol wordt opgeroepen." : (state.phase === "lobby" ? "Wacht tot het spel start." : "");
     box.innerHTML = `<div class="playerCenter"><h1>${esc(title)}</h1>${sub?`<p>${esc(sub)}</p>`:""}${roleCard(true)}</div>`;
+    return;
+  }
+
+  if(a.kind === "mayor_result_wait"){
+    const revealUntil = Number(a.revealUntil || 0);
+    if(revealUntil && Date.now() < revealUntil){
+      clearTimeout(window.__mayorRevealTimer); window.__mayorRevealTimer = setTimeout(render, Math.max(60, revealUntil - Date.now() + 80));
+      box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1><p>Wacht op de uitslag op het Infoscherm.</p>${roleCard(true)}</div>`;
+    } else {
+      box.innerHTML = `<div class="playerCenter"><h1>${esc(a.finalTitle || "de burgemeester is bekend")}</h1>${roleCard(true)}</div>`;
+    }
     return;
   }
 
