@@ -16,11 +16,13 @@ let finalConfirmTimer = null;
 
 const ROLE_ART = {
   villager: [
-    { src: "/assets/cards/burger_man.png", title: "Burger" },
-    { src: "/assets/cards/burger_woman.png", title: "Burger" }
+    { src: "/assets/cards/Burger1.png", title: "Burger" },
+    { src: "/assets/cards/Burger2.png", title: "Burger" },
+    { src: "/assets/cards/burger4.png", title: "Burger" }
   ],
+  seer: [{ src: "/assets/cards/Ziener.png", title: "Ziener" }],
   piper: [{ src: "/assets/cards/fluitspeler.png", title: "Fluitspeler" }],
-  werewolf: [{ src: "/assets/cards/weerwolf.png", title: "Weerwolf" }]
+  werewolf: [{ src: "/assets/cards/Weerwolf.png", title: "Weerwolf" }]
 };
 
 function stableHash(str){
@@ -30,11 +32,12 @@ function stableHash(str){
   return Math.abs(h);
 }
 
-function getRoleArt(roleId, seed){
+function getRoleArt(roleId, seed, variantIndex=null){
   let list = ROLE_ART[roleId];
   if(!list && ["infectious_wolf","big_bad_wolf","white_wolf"].includes(roleId)) list = ROLE_ART.werewolf;
   if(!list || !list.length) return null;
-  return list[stableHash(seed) % list.length];
+  const variant = Number.isFinite(Number(variantIndex)) ? Number(variantIndex) : stableHash(seed);
+  return list[Math.abs(Math.floor(variant)) % list.length];
 }
 
 
@@ -51,15 +54,24 @@ function toast(text){
   clearTimeout(window.__toastTimer); window.__toastTimer=setTimeout(()=>el.classList.add("hidden"),2300);
 }
 function nameOf(key){ return (state?.players||[]).find(p=>p.key===key)?.name || "—"; }
+function titleHtml(text){ return esc(text).replace(/\n/g, "<br>"); }
+function titleLinesHtml(text){
+  return String(text || "").split(/\n+/).map(line => `<span>${esc(line)}</span>`).join("");
+}
 
 $("joinBtn")?.addEventListener("click", join);
 $("nameInput").addEventListener("keydown", e=>{ if(e.key==="Enter") join(); });
 window.addEventListener("load",()=>setTimeout(()=>$('nameInput')?.focus(),80));
 
-// Join-scherm debug: D spammen of woord "in" lang indrukken.
+// Join-scherm debug: alleen nog via toetsenbord-D-spam; geen zichtbare/onzichtbare hotspot op het woord in.
 let debugDPresses = [];
-function showPlayerDebug(){ $("playerDebugFab")?.classList.remove("hidden"); }
-function hidePlayerDebug(){ $("playerDebugFab")?.classList.add("hidden"); }
+let playerDebugAutoHideTimer = null;
+function showPlayerDebug(){
+  $("playerDebugFab")?.classList.remove("hidden");
+  clearTimeout(playerDebugAutoHideTimer);
+  playerDebugAutoHideTimer = setTimeout(hidePlayerDebug, 5000);
+}
+function hidePlayerDebug(){ $("playerDebugFab")?.classList.add("hidden"); clearTimeout(playerDebugAutoHideTimer); }
 window.addEventListener("keydown", (e)=>{
   if(document.body.classList.contains("inGame")) return;
   if(String(e.key||"").toLowerCase() !== "d") return;
@@ -68,16 +80,6 @@ window.addEventListener("keydown", (e)=>{
   debugDPresses.push(now);
   if(debugDPresses.length >= 5) showPlayerDebug();
 });
-(function setupJoinDebugHold(){
-  const hold = $("joinDebugHold");
-  let timer = null;
-  const start = (e)=>{ if(document.body.classList.contains("inGame")) return; clearTimeout(timer); timer = setTimeout(showPlayerDebug, 850); };
-  const stop = ()=>{ clearTimeout(timer); timer = null; };
-  hold?.addEventListener("pointerdown", start);
-  hold?.addEventListener("pointerup", stop);
-  hold?.addEventListener("pointerleave", stop);
-  hold?.addEventListener("pointercancel", stop);
-})();
 $("playerDebugClose")?.addEventListener("click", hidePlayerDebug);
 $("openInfoFromPlayer")?.addEventListener("click", ()=>window.open("/info", "_blank"));
 $("openHostFromPlayer")?.addEventListener("click", ()=>{
@@ -135,6 +137,31 @@ function maybeVibrateForAction(prev,next){
   }
 }
 
+
+function fitResponsiveTileGrids(){
+  const grids = [
+    ...document.querySelectorAll(".playerChoices, .bigChoices, .wolfLegend")
+  ];
+  requestAnimationFrame(()=>{
+    grids.forEach(grid=>{
+      if(!grid || !grid.children.length) return;
+      grid.style.transform = "";
+      grid.style.height = "";
+      grid.style.maxHeight = "";
+      grid.style.transformOrigin = "top center";
+      const rect = grid.getBoundingClientRect();
+      const availableHeight = Math.max(140, window.innerHeight - rect.top - 34);
+      const availableWidth = Math.max(240, window.innerWidth - 28);
+      const scale = Math.min(1, availableHeight / Math.max(1, grid.scrollHeight), availableWidth / Math.max(1, grid.scrollWidth));
+      if(scale < .995){
+        grid.style.transform = `scale(${Math.max(.46, scale)})`;
+        grid.style.height = `${Math.ceil(grid.scrollHeight * Math.max(.46, scale))}px`;
+      }
+    });
+  });
+}
+window.addEventListener("resize", fitResponsiveTileGrids);
+
 function render(){
   if(!state) return;
   const actionKey = state.action ? `${state.action.id}:${state.action.kind}` : "idle";
@@ -149,10 +176,13 @@ function render(){
     lastActionKey = actionKey;
   }
   document.body.classList.add("inGame");
-  document.body.classList.toggle("playerDead", !state.me.alive && state.phase !== "hunter");
+  const localDayRevealUntil = Number(state?.dayVote?.result?.visualRevealUntil || state?.dayVote?.result?.revealUntil || 0);
+  const locallyEliminatedByVote = state?.dayVote?.result?.eliminatedKey === state?.me?.key && (!localDayRevealUntil || Date.now() >= localDayRevealUntil);
+  document.body.classList.toggle("playerDead", (!state.me.alive || locallyEliminatedByVote) && state.phase !== "hunter");
   $("joinCard").classList.add("hidden");
   $("gameUI").classList.remove("hidden");
   renderAction();
+  fitResponsiveTileGrids();
 }
 
 function roleCard(compact=false){
@@ -164,7 +194,7 @@ function roleCard(compact=false){
   if(state.me.wildChildTurned) tags.push("nu wolfachtig");
   if(state.me.loverName) tags.push(`geliefde: ${state.me.loverName}`);
   if(state.me.enchanted) tags.push("betoverd");
-  const art = getRoleArt(r.id, state.me.key || playerKey || r.id);
+  const art = getRoleArt(r.id, state.me.key || playerKey || r.id, state.me.roleArtVariant);
   const visual = art
     ? `<div class="roleArtWrap"><img class="roleArtImage" src="${esc(art.src)}" alt="${esc(art.title || r.name)}"></div>`
     : `<div class="roleArtFallback"><div class="bigEmoji">${esc(r.emoji)}</div></div>`;
@@ -174,6 +204,13 @@ function roleCard(compact=false){
   if(tags.length) metaParts.push(`<div class="btnrow roleTags">${tags.map(t=>`<span class="pill gold">${esc(t)}</span>`).join("")}</div>`);
   return `<div class="minimalRole cardMode ${compact?'compact':''} ${art?'hasRoleArt':''}">${visual}${metaParts.length?`<div class="roleMeta">${metaParts.join("")}</div>`:""}</div>`;
 }
+function dayVoteRevealState(){
+  const result = state?.dayVote?.result;
+  if(!result) return null;
+  const revealUntil = Number(result.visualRevealUntil || result.revealUntil || 0);
+  return { result, revealUntil, pending: !!(revealUntil && Date.now() < revealUntil) };
+}
+
 function renderAction(){
   const a=state.action;
   const box=$("actionBox");
@@ -185,14 +222,31 @@ function renderAction(){
     return;
   }
 
-  const deathRevealUntil = state?.dayVote?.result?.eliminatedKey === state?.me?.key ? Number(state.dayVote.result.revealUntil || 0) : 0;
-  if(!state.me.alive && deathRevealUntil && Date.now() < deathRevealUntil){
-    clearTimeout(window.__deathRevealTimer); window.__deathRevealTimer = setTimeout(render, Math.max(60, deathRevealUntil - Date.now() + 80));
+  const dayReveal = dayVoteRevealState();
+  if(dayReveal?.pending){
+    clearTimeout(window.__deathRevealTimer);
+    window.__deathRevealTimer = setTimeout(render, Math.max(60, dayReveal.revealUntil - Date.now() + 80));
     box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1><p>Wacht op de uitslag op het Infoscherm.</p>${roleCard(true)}</div>`;
     return;
   }
+  if(dayReveal?.result && state.phase === "day" && !a){
+    const result = dayReveal.result;
+    if(result.tied){
+      const names = (result.runoffNames || []).filter(Boolean).join(" en ");
+      box.innerHTML = `<div class="playerCenter"><h1>Gelijke stand</h1><p>Er komt een herstemming${names?` tussen ${esc(names)}`:""}.</p>${roleCard(true)}</div>`;
+      return;
+    }
+    if(result.eliminatedKey === state.me.key){
+      box.innerHTML = `<div class="deadScreen"><div class="deadMark">✖</div><h1>je bent uitgeschakeld</h1><p>Je bent weggestemd door het dorp.</p>${roleCard(true)}</div>`;
+      return;
+    }
+    if(result.eliminatedKey){
+      box.innerHTML = `<div class="playerCenter"><h1>je hebt de stemming overleefd</h1><p>${esc(result.eliminatedName || "Een speler")} is geëlimineerd.</p>${roleCard(true)}</div>`;
+      return;
+    }
+  }
 
-  if(!state.me.alive && !(a && a.kind === "hunter_shot")){
+  if((!state.me.alive || (dayReveal?.result?.eliminatedKey === state.me.key && !dayReveal.pending)) && !(a && a.kind === "hunter_shot")){
     box.innerHTML = `<div class="deadScreen"><div class="deadMark">✖</div><h1>je bent uitgeschakeld</h1><p>Je doet niet meer mee met praten of stemmen.</p>${roleCard(true)}</div>`;
     return;
   }
@@ -210,7 +264,7 @@ function renderAction(){
       clearTimeout(window.__mayorRevealTimer); window.__mayorRevealTimer = setTimeout(render, Math.max(60, revealUntil - Date.now() + 80));
       box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1><p>Wacht op de uitslag op het Infoscherm.</p>${roleCard(true)}</div>`;
     } else {
-      box.innerHTML = `<div class="playerCenter"><h1>${esc(a.finalTitle || "de burgemeester is bekend")}</h1>${roleCard(true)}</div>`;
+      box.innerHTML = `<div class="playerCenter mayorResultPlayer"><h1 class="mayorResultPlayerTitle">${titleLinesHtml(a.finalTitle || "de burgemeester is bekend")}</h1>${roleCard(true)}</div>`;
     }
     return;
   }

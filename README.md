@@ -1,4 +1,4 @@
-# Wakkerdam Online Helper — v0.3.19
+# Wakkerdam Online Helper — v0.3.51
 
 Een privé online helper/prototype voor een Weerwolven-achtig spel met drie schermen:
 
@@ -14,17 +14,15 @@ Deze build gebruikt dezelfde simpele stack als Theater Balance Scale:
 - gewone HTML/CSS/JS in `public/`
 
 
-## Nieuw in v0.3.19
+## Nieuw in v0.3.48
 
-- Host wolfkaarten worden groen voor wolven die het huidige meest gekozen doelwit volgen en rood voor afwijkende doelwitten.
-- Wolfmarkersegmenten in spelerdoelwitten hebben iets meer tussenruimte.
-
-
-- De Kick-knop staat nu op de plek waar de 👑 kroonknop stond.
-- De spelerknoppen staan nu compacter naast elkaar: **Kick**, **Kill**, **Revive**.
-- De kroonknop is uit de spelerknoprij gehaald, zodat Kick niet meer onder Revive valt.
-
-
+- Infoscherm-spelerstatus onderaan is opnieuw gecentreerd: de hele rij/grid staat nu echt horizontaal in het midden, ook op het Nacht-scherm.
+- Reveal-/dagstemming-animaties zijn extra gestabiliseerd: minder remount/layout-knips, beweging via transform/opacity en stabielere containers.
+- Dagstemming-resultaatblok gebruikt dezelfde DOM-container en schuift vloeiend; latere statusupdates mogen de hoofdreveal niet opnieuw laten poppen.
+- Het Dorp-winnaarscherm is herbouwd als twee losse gebieden: centraal **Het Dorp** met winnaar-kaarten en rechts een aparte **Verslagen wolven**-module.
+- **Verslagen wolven** staat nu als sidebar/rechterkolom, gebruikt hetzelfde fantasy/serif-stijlgevoel als **Het Dorp**, blijft op één regel en overlapt de dorpskaarten niet meer.
+- Het rode wolvenvak is compacter en schaalt mee met het aantal verslagen wolven.
+- Bestaande v0.3.45-polish blijft behouden: puntige Reset-knop, stemgrafieken met gelijke stijgsnelheid per stem en kortere post-vote pauze.
 
 ## v0.3.15
 

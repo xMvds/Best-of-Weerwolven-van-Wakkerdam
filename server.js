@@ -3,7 +3,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 
-const VERSION = "0.3.37";
+const VERSION = "0.3.52";
 const PORT = process.env.PORT || 3000;
 
 const app = express();
@@ -24,7 +24,7 @@ const ROLES = {
     short: "Burger",
     group: "Burgers",
     team: "village",
-    max: 7,
+    max: 99,
     emoji: "🟡",
     order: 10,
     desc: "Geen nachtactie. Overleef, praat mee en probeer de weerwolven via discussie en stemming te vinden."
@@ -36,7 +36,7 @@ const ROLES = {
     group: "Weerwolven",
     team: "wolf",
     wolfLike: true,
-    max: 3,
+    max: 24,
     emoji: "🐺",
     order: 20,
     desc: "Wordt 's nachts samen met de andere wolven wakker en kiest één slachtoffer. Overdag doe je alsof je burger bent."
@@ -258,8 +258,8 @@ function newGame() {
     night: null,
     lastDeaths: [],
     recentPublicLog: [],
-    mayorElection: { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null },
-    dayVote: { open: false, votes: {}, selections: {}, result: null },
+    mayorElection: { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null },
+    dayVote: { open: false, votes: {}, selections: {}, result: null, runoffCandidates: null },
     dayAftermath: { active: false, fromNight: false },
     pendingHunter: null,
     pendingContinue: null,
@@ -403,7 +403,7 @@ function countSelectedRoles() {
 }
 
 function syncRoleCountToPlayers() {
-  // Bij testen met debugspelers moet het aantal geselecteerde tegels
+  // Bij testen met debugspelers moet het aantal geselecteerde rollen
   // automatisch met het spelersaantal mee kunnen bewegen, anders blijft Start onnodig geblokkeerd.
   const players = orderedPlayers(true).length;
   let total = countSelectedRoles();
@@ -417,7 +417,7 @@ function syncRoleCountToPlayers() {
     total++;
   }
 
-  const removeOrder = ["villager", "sister", "little_girl", "bear_tamer", "rusty_knight", "elder", "fox", "cupid", "hunter", "witch", "seer", "piper", "angel", "white_wolf", "big_bad_wolf", "infectious_wolf", "wolf_hound", "wild_child", "werewolf"];
+  const removeOrder = ["sister", "little_girl", "bear_tamer", "rusty_knight", "elder", "fox", "cupid", "hunter", "witch", "seer", "piper", "angel", "white_wolf", "big_bad_wolf", "infectious_wolf", "wolf_hound", "wild_child", "villager", "werewolf"];
   guard = 0;
   while (total > players && guard++ < 100) {
     const roleId = removeOrder.find(id => (game.selectedRoleCounts[id] || 0) > 0);
@@ -444,8 +444,58 @@ function shuffle(arr) {
   return a;
 }
 
+const ROLE_ART_VARIANT_COUNTS = {
+  villager: 3,
+};
+
+function roleArtVariantCount(roleId) {
+  return ROLE_ART_VARIANT_COUNTS[roleId] || 1;
+}
+
+function normalizeVariant(value, count) {
+  if (!Number.isFinite(Number(value)) || count <= 0) return null;
+  return ((Math.floor(Number(value)) % count) + count) % count;
+}
+
+function makeBalancedVariantBag(total, variantCount) {
+  if (variantCount <= 1) return Array.from({ length: total }, () => 0);
+  // Maak per nieuw spel een verse, gebalanceerde mix. Door de offset + shuffle
+  // krijgen Burgers niet steeds dezelfde volgorde/kaart na een reset.
+  const offset = Math.floor(Math.random() * variantCount);
+  const bag = [];
+  for (let i = 0; i < total; i++) bag.push((offset + i) % variantCount);
+  return shuffle(bag);
+}
+
+function takeRoleArtVariantForPlayer(roleId, player, bag) {
+  const variantCount = roleArtVariantCount(roleId);
+  if (variantCount <= 1) return 0;
+  const previous = normalizeVariant(player?.lastRoleArtVariantByRole?.[roleId], variantCount);
+  let variant = bag.length ? bag.shift() : Math.floor(Math.random() * variantCount);
+  variant = normalizeVariant(variant, variantCount) ?? 0;
+
+  // Als dezelfde speler opnieuw Burger wordt na reset/nieuw spel, probeer dan expliciet
+  // een andere Burger-PNG te geven. Dit voorkomt dat één speler telkens dezelfde
+  // mannelijke/vrouwelijke Burgerkaart blijft zien.
+  if (previous !== null && variant === previous) {
+    const swapIndex = bag.findIndex(v => normalizeVariant(v, variantCount) !== previous);
+    if (swapIndex >= 0) {
+      const [replacement] = bag.splice(swapIndex, 1);
+      bag.unshift(variant);
+      variant = normalizeVariant(replacement, variantCount) ?? variant;
+    } else {
+      variant = (previous + 1 + Math.floor(Math.random() * (variantCount - 1))) % variantCount;
+    }
+  }
+
+  player.lastRoleArtVariantByRole = player.lastRoleArtVariantByRole || {};
+  player.lastRoleArtVariantByRole[roleId] = variant;
+  return variant;
+}
+
 function resetPlayerForGame(p) {
   p.roleId = null;
+  p.roleArtVariant = null;
   p.alive = true;
   p.infected = false;
   p.wolfDogChoice = null;
@@ -469,6 +519,43 @@ function privateLog(p, text, type = "info") {
   if (!p) return;
   p.privateLog.unshift({ id: uid("priv"), text, type, at: Date.now() });
   p.privateLog = p.privateLog.slice(0, 20);
+}
+
+function pendingDayVoteEliminatedKey() {
+  const result = game.dayVote?.result;
+  if (!result?.eliminatedKey) return null;
+  const visualUntil = Number(result.visualRevealUntil || result.revealUntil || 0);
+  return visualUntil && Date.now() < visualUntil ? result.eliminatedKey : null;
+}
+
+function visuallyAliveForPublic(p) {
+  const hiddenKey = pendingDayVoteEliminatedKey();
+  if (hiddenKey && p?.key === hiddenKey) return true;
+  return !!p?.alive;
+}
+
+function revealLockUntil() {
+  const times = [];
+  const mayorResult = game.mayorElection?.stage === "result" ? game.mayorElection?.result : null;
+  if (mayorResult?.revealUntil) times.push(Number(mayorResult.revealUntil));
+  const dayResult = game.dayVote?.result;
+  if (dayResult?.revealUntil || dayResult?.visualRevealUntil) {
+    times.push(Number(dayResult.visualRevealUntil || dayResult.revealUntil || 0));
+  }
+  return Math.max(0, ...times.filter(t => Number.isFinite(t) && t > Date.now()));
+}
+
+function isRevealLocked() {
+  return revealLockUntil() > Date.now();
+}
+
+function blockHostIfRevealLocked(socket) {
+  const until = revealLockUntil();
+  if (until > Date.now()) {
+    socket?.emit?.("host_error", "Wacht tot de animatie/reveal klaar is voordat je doorgaat.");
+    return true;
+  }
+  return false;
 }
 
 function hostState() {
@@ -501,6 +588,7 @@ function hostState() {
       alive: p.alive,
       seat: p.seat,
       roleId: p.roleId,
+      roleArtVariant: p.roleArtVariant ?? null,
       roleName: p.roleId ? roleDef(p.roleId).name : "Nog geen rol",
       roleEmoji: p.roleId ? roleDef(p.roleId).emoji : "❔",
       roleSummary: p.roleId ? displayRoleForHost(p) : "Nog geen rol",
@@ -531,6 +619,7 @@ function hostState() {
     recentPublicLog: game.recentPublicLog,
     winner: game.winner,
     pendingWinner: game.pendingWinner,
+    revealLockUntil: revealLockUntil(),
     specialPowersDisabled: game.specialPowersDisabled,
     wolfishEverDied: game.wolfishEverDied,
     hostNote: "",
@@ -550,13 +639,14 @@ function publicState() {
       key: p.key,
       name: p.name,
       connected: p.connected,
-      alive: p.alive,
+      alive: visuallyAliveForPublic(p),
       seat: p.seat,
       isMayor: p.isMayor,
       isCandidate: p.isCandidate,
       enchanted: p.enchanted,
       isBot: !!p.isBot,
       roleName: (game.phase === "ended" || game.winner) && p.roleId ? roleDef(p.roleId).name : null,
+      roleArtVariant: (game.phase === "ended" || game.winner) ? (p.roleArtVariant ?? null) : null,
       roleEmoji: (game.phase === "ended" || game.winner) && p.roleId ? roleDef(p.roleId).emoji : null,
       wolfLike: (game.phase === "ended" || game.winner) ? isWolfLike(p) : false,
       team: (game.phase === "ended" || game.winner) ? effectiveTeam(p) : null,
@@ -614,10 +704,11 @@ function playerState(p) {
     me: {
       key: p.key,
       name: p.name,
-      alive: p.alive,
+      alive: visuallyAliveForPublic(p),
       connected: p.connected,
       role,
       roleId: p.roleId,
+      roleArtVariant: p.roleArtVariant ?? null,
       team: effectiveTeam(p),
       wolfLike: isWolfLike(p),
       infected: p.infected,
@@ -637,7 +728,7 @@ function playerState(p) {
     players: orderedPlayers(true).map(q => ({
       key: q.key,
       name: q.name,
-      alive: q.alive,
+      alive: visuallyAliveForPublic(q),
       connected: q.connected,
       isMayor: q.isMayor,
       isCandidate: q.isCandidate,
@@ -657,11 +748,39 @@ function playerState(p) {
   };
 }
 
+
+function currentMayorCandidates() {
+  let candidates = alivePlayers().filter(p => p.isCandidate);
+  const runoff = Array.isArray(game.mayorElection?.runoffCandidates) ? game.mayorElection.runoffCandidates : null;
+  if (game.mayorElection?.stage === "voting" && runoff && runoff.length) {
+    const allowed = new Set(runoff);
+    candidates = candidates.filter(p => allowed.has(p.key));
+  }
+  return candidates;
+}
+
+function currentDayVoteTargets() {
+  let targets = alivePlayers();
+  const runoff = Array.isArray(game.dayVote?.runoffCandidates) ? game.dayVote.runoffCandidates : null;
+  if (game.dayVote?.open && runoff && runoff.length) {
+    const allowed = new Set(runoff);
+    targets = targets.filter(p => allowed.has(p.key));
+  }
+  return targets;
+}
+
+function runoffText(names) {
+  const list = (names || []).filter(Boolean);
+  if (list.length <= 1) return list[0] || "";
+  if (list.length === 2) return `${list[0]} en ${list[1]}`;
+  return `${list.slice(0, -1).join(", ")} en ${list[list.length - 1]}`;
+}
+
 function mayorElectionView(selfKey = null) {
   const votes = game.mayorElection.votes || {};
   const selections = game.mayorElection.selections || {};
   const stage = game.mayorElection.stage || (game.mayorElection.open ? "voting" : "idle");
-  const candidates = alivePlayers().filter(p => p.isCandidate).map(p => ({ key: p.key, name: p.name, votes: 0 }));
+  const candidates = currentMayorCandidates().map(p => ({ key: p.key, name: p.name, votes: 0 }));
   const byKey = new Map(candidates.map(c => [c.key, c]));
   for (const targetKey of Object.values(votes)) {
     if (byKey.has(targetKey)) byKey.get(targetKey).votes += 1;
@@ -701,6 +820,7 @@ function mayorElectionView(selfKey = null) {
     liveCounts,
     responses,
     result: game.mayorElection.result || null,
+    runoffCandidates: game.mayorElection.runoffCandidates || null,
     selfVote: selfKey ? votes[selfKey] || null : null,
   };
 }
@@ -708,7 +828,7 @@ function mayorElectionView(selfKey = null) {
 function dayVoteView(selfKey = null) {
   const votes = game.dayVote.votes || {};
   const selections = game.dayVote.selections || {};
-  const counts = alivePlayers().map(p => ({ key: p.key, name: p.name, votes: 0 }));
+  const counts = currentDayVoteTargets().map(p => ({ key: p.key, name: p.name, votes: 0 }));
   const byKey = new Map(counts.map(c => [c.key, c]));
   for (const [voterKey, targetKey] of Object.entries(votes)) {
     const voter = game.players[voterKey];
@@ -730,7 +850,7 @@ function dayVoteView(selfKey = null) {
         confirmedTargetName: confirmedTargetKey ? game.players[confirmedTargetKey]?.name || null : null,
       };
     });
-  const liveCounts = alivePlayers().map(p => ({ key: p.key, name: p.name, votes: 0 }));
+  const liveCounts = currentDayVoteTargets().map(p => ({ key: p.key, name: p.name, votes: 0 }));
   const liveByKey = new Map(liveCounts.map(c => [c.key, c]));
   for (const voter of voters) {
     const targetKey = voter.confirmedTargetKey || voter.targetKey;
@@ -746,6 +866,7 @@ function dayVoteView(selfKey = null) {
     votes,
     selections,
     result: game.dayVote.result || null,
+    runoffCandidates: game.dayVote.runoffCandidates || null,
     voters,
     selfVote: selfKey ? votes[selfKey] || null : null,
   };
@@ -821,7 +942,7 @@ function maybeAutoStartMayorVote() {
 
 function botMayorVotingAuto() {
   if (!game.started || game.phase !== "mayor" || game.mayorElection?.stage !== "voting") return;
-  const candidates = alivePlayers().filter(p => p.isCandidate);
+  const candidates = currentMayorCandidates();
   for (const voter of alivePlayers().filter(p => p.isBot)) {
     const options = candidates.filter(c => c.key !== voter.key);
     if (!options.length || game.mayorElection.votes[voter.key]) continue;
@@ -841,9 +962,10 @@ function botMayorVotingAuto() {
 function botDayVotingAuto() {
   if (!game.started || game.phase !== "voting" || !game.dayVote?.open) return;
   const alive = alivePlayers();
+  const targets = currentDayVoteTargets();
   for (const voter of alive.filter(p => p.isBot)) {
     if (game.dayVote.votes[voter.key]) continue;
-    const options = alive.filter(p => p.key !== voter.key);
+    const options = targets.filter(p => p.key !== voter.key);
     if (!options.length) continue;
     let pickTarget;
     if (effectiveTeam(voter) === "wolf") {
@@ -867,7 +989,7 @@ function autoSubmitBotSocialPhase() {
 }
 
 function mayorVotingEligiblePlayers() {
-  const candidates = alivePlayers().filter(p => p.isCandidate);
+  const candidates = currentMayorCandidates();
   return alivePlayers().filter(voter => candidates.some(c => c.key !== voter.key));
 }
 
@@ -883,13 +1005,13 @@ function markMissingMayorCandidateResponsesAsNo() {
 }
 
 function dayVotingEligiblePlayers() {
-  const alive = alivePlayers();
-  return alive.filter(voter => alive.some(target => target.key !== voter.key));
+  const targets = currentDayVoteTargets();
+  return alivePlayers().filter(voter => targets.some(target => target.key !== voter.key));
 }
 
 function fillMissingMayorVotesRandom() {
   if (!game.mayorElection?.open || game.mayorElection.stage !== "voting") return;
-  const candidates = alivePlayers().filter(p => p.isCandidate);
+  const candidates = currentMayorCandidates();
   for (const voter of mayorVotingEligiblePlayers()) {
     if (game.mayorElection.votes[voter.key]) continue;
     const options = candidates.filter(c => c.key !== voter.key);
@@ -904,10 +1026,10 @@ function fillMissingMayorVotesRandom() {
 
 function fillMissingDayVotesRandom() {
   if (!game.dayVote?.open) return;
-  const alive = alivePlayers();
+  const targets = currentDayVoteTargets();
   for (const voter of dayVotingEligiblePlayers()) {
     if (game.dayVote.votes[voter.key]) continue;
-    const options = alive.filter(target => target.key !== voter.key);
+    const options = targets.filter(target => target.key !== voter.key);
     const picked = randomChoice(options);
     if (picked) {
       game.dayVote.votes[voter.key] = picked.key;
@@ -941,7 +1063,8 @@ function openDayVoteAuto(reason = "") {
   if (!game.started || game.phase === "ended") return;
   game.phase = "voting";
   game.dayAftermath = { active: false, fromNight: false };
-  game.dayVote = { open: true, votes: {}, selections: {}, result: null };
+  const runoffCandidates = game.dayVote?.result?.runoffPending ? (game.dayVote.result.runoffCandidates || []) : null;
+  game.dayVote = { open: true, votes: {}, selections: {}, result: null, runoffCandidates };
   for (const p of Object.values(game.players)) p.dayVoteFor = null;
   autoSubmitBotSocialPhase();
   maybeAutoCloseDayVoteIfComplete();
@@ -954,8 +1077,8 @@ function beginDayFlow({ fromNight = false } = {}) {
   game.phase = "day";
   game.currentStep = null;
   game.hostNote = bearGrowlNote();
-  game.dayVote = { open: false, votes: {}, selections: {}, result: null };
-  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null };
+  game.dayVote = { open: false, votes: {}, selections: {}, result: null, runoffCandidates: null };
+  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
   // Eerst altijd het Dag/aftermath-moment tonen op het Infoscherm.
   // Daarna klikt de host door naar burgemeesterverkiezing of dagstemming.
   game.dayAftermath = { active: !!fromNight, fromNight: !!fromNight };
@@ -1143,7 +1266,7 @@ function actionForPlayer(p) {
       const revealUntil = result.revealUntil || 0;
       const winnerName = result.winnerName || null;
       const isWinner = result.winnerKey === p.key;
-      const finalTitle = isWinner ? "Gefeliciteerd, je bent burgemeester geworden." : (winnerName ? `de nieuwe burgemeester is ${winnerName}` : (result.tied ? "geen burgemeester gekozen door gelijke score" : "geen burgemeester gekozen"));
+      const finalTitle = isWinner ? "Gefeliciteerd,\nje bent burgemeester geworden" : (winnerName ? `de nieuwe burgemeester is ${winnerName}` : (result.tied ? "Geen burgemeester gekozen\ndoor gelijke score" : "geen burgemeester gekozen"));
       return { id: "mayor_result", kind: "mayor_result_wait", title: "De stemmen worden geteld", text: "", infoOnly: true, revealUntil, finalTitle };
     }
     const currentVote = game.mayorElection.votes[p.key] || null;
@@ -1152,7 +1275,7 @@ function actionForPlayer(p) {
       title: currentVote ? "Je stem is opgeslagen" : "Kies je burgemeester",
       text: "",
       kind: "mayor_vote",
-      options: alivePlayers().filter(q => q.isCandidate && q.key !== p.key).map(q => ({ key: q.key, name: q.name })),
+      options: currentMayorCandidates().filter(q => q.key !== p.key).map(q => ({ key: q.key, name: q.name })),
       selfCandidate: p.isCandidate,
       currentVote,
       submitted: !!currentVote,
@@ -1167,7 +1290,7 @@ function actionForPlayer(p) {
       title: currentVote ? "Je stem is opgeslagen" : "Dagstemming",
       text: currentVote ? "" : (p.isMayor ? "Jouw stem telt dubbel." : ""),
       kind: "day_vote",
-      options: targetOptions({ exclude: [p.key], aliveOnly: true }),
+      options: currentDayVoteTargets().filter(q => q.key !== p.key).map(q => ({ key: q.key, name: q.name, isMayor: !!q.isMayor })),
       currentVote,
       submitted: !!currentVote,
       submission: currentVote ? { targetKey: currentVote, targetName: game.players[currentVote]?.name, dayVote: true } : null,
@@ -1269,7 +1392,7 @@ function startGame() {
   const players = orderedPlayers(true);
   if (players.length < 3) return { ok: false, error: "Je hebt minimaal 3 spelers nodig om prettig te testen." };
   const deck = selectedRoleDeck();
-  if (deck.length !== players.length) return { ok: false, error: `Aantal geselecteerde tegels (${deck.length}) moet gelijk zijn aan aantal spelers (${players.length}).` };
+  if (deck.length !== players.length) return { ok: false, error: `Aantal geselecteerde rollen (${deck.length}) moet gelijk zijn aan aantal spelers (${players.length}).` };
 
   game.phase = "night";
   game.started = true;
@@ -1283,14 +1406,24 @@ function startGame() {
   game.specialPowersDisabled = false;
   game.wolfishEverDied = false;
   game.hostNote = "";
-  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null };
-  game.dayVote = { open: false, votes: {}, selections: {}, result: null };
+  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
+  game.dayVote = { open: false, votes: {}, selections: {}, result: null, runoffCandidates: null };
   game.dayAftermath = { active: false, fromNight: false };
 
   for (const p of players) resetPlayerForGame(p);
   const shuffled = shuffle(deck);
+  const roleCountsForArt = {};
+  for (const roleId of shuffled) roleCountsForArt[roleId] = (roleCountsForArt[roleId] || 0) + 1;
+  const roleVariantBags = {};
+  for (const [roleId, amount] of Object.entries(roleCountsForArt)) {
+    roleVariantBags[roleId] = makeBalancedVariantBag(amount, roleArtVariantCount(roleId));
+  }
   players.forEach((p, i) => {
     p.roleId = shuffled[i];
+    // Burger heeft meerdere kaart-PNG's. Verdeel ze gebalanceerd over de Burgers,
+    // en voorkom waar mogelijk dat dezelfde speler na reset weer exact dezelfde
+    // Burgerkaart krijgt. Tijdens één spel blijft deze variant wel stabiel.
+    p.roleArtVariant = takeRoleArtVariantForPlayer(p.roleId, p, roleVariantBags[p.roleId] || []);
     privateLog(p, `Je rol is: ${roleDef(p.roleId).name}`, "role");
   });
   game.night = freshNightState();
@@ -1328,8 +1461,8 @@ function startNextNight() {
   game.currentStep = null;
   game.night = freshNightState();
   game.nightSteps = buildNightSteps();
-  game.dayVote = { open: false, votes: {}, selections: {}, result: null };
-  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null };
+  game.dayVote = { open: false, votes: {}, selections: {}, result: null, runoffCandidates: null };
+  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
   game.dayAftermath = { active: false, fromNight: false };
   game.lastDeaths = [];
   game.pendingWinner = null;
@@ -1587,7 +1720,7 @@ function handleAction(socket, payload = {}) {
     if (game.mayorElection.votes[p.key]) return; // bevestigde burgemeesterstem blijft vast
     const target = getPlayer(payload.targetKey);
     // Spelers mogen niet op zichzelf stemmen, ook kandidaten niet.
-    if (target && target.alive && target.isCandidate && target.key !== p.key) {
+    if (target && target.alive && target.isCandidate && target.key !== p.key && currentMayorCandidates().some(c => c.key === target.key)) {
       game.mayorElection.votes[p.key] = target.key;
       game.mayorElection.selections[p.key] = target.key;
       p.voteFor = target.key;
@@ -1601,7 +1734,7 @@ function handleAction(socket, payload = {}) {
     if (!game.dayVote.open || !p.alive) return;
     if (game.dayVote.votes[p.key]) return; // bevestigde dagstem blijft vast
     const target = getPlayer(payload.targetKey);
-    if (target && target.alive && target.key !== p.key) {
+    if (target && target.alive && target.key !== p.key && currentDayVoteTargets().some(t => t.key === target.key)) {
       game.dayVote.votes[p.key] = target.key;
       game.dayVote.selections[p.key] = target.key;
       p.dayVoteFor = target.key;
@@ -1844,6 +1977,7 @@ function handleDeaths(deaths, continueTo = { phase: "day" }) {
       key: p.key,
       name: p.name,
       roleName: roleDef(p.roleId).name,
+      roleArtVariant: p.roleArtVariant ?? null,
       roleEmoji: roleDef(p.roleId).emoji,
       cause: d.cause,
       publicReason: d.publicReason || "uitgeschakeld"
@@ -1927,7 +2061,7 @@ function handleDeaths(deaths, continueTo = { phase: "day" }) {
     if (continueTo.fromNight) beginDayFlow({ fromNight: true });
     else {
       game.phase = "day";
-      game.dayVote = { open: false, votes: {}, result: game.dayVote?.result || null };
+      game.dayVote = { open: false, votes: {}, selections: {}, result: game.dayVote?.result || null, runoffCandidates: null };
       game.currentStep = null;
       game.hostNote = bearGrowlNote();
     }
@@ -1999,13 +2133,31 @@ function endGame(winner) {
   game.pendingWinner = null;
   game.currentStep = null;
   game.dayVote.open = false;
-  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null };
+  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
   logPublic(winner.title, "winner");
 }
 
 
 function startMayorVoting() {
-  if (!game.mayorElection.open || game.mayorElection.stage !== "candidates") return { ok: false, error: "Er is geen kandidaatstellingsronde actief." };
+  if (!game.mayorElection.open) return { ok: false, error: "Er is geen burgemeesterfase actief." };
+
+  // Herstemming na gelijke hoogste score: stem opnieuw alleen tussen de gedeelde top-kandidaten.
+  if (game.mayorElection.stage === "result" && game.mayorElection.result?.runoffPending) {
+    game.phase = "mayor";
+    game.mayorElection.open = true;
+    game.mayorElection.stage = "voting";
+    game.mayorElection.runoffCandidates = game.mayorElection.result.runoffCandidates || game.mayorElection.runoffCandidates || null;
+    game.mayorElection.votes = {};
+    game.mayorElection.selections = {};
+    game.mayorElection.result = null;
+    for (const p of Object.values(game.players)) p.voteFor = null;
+    autoSubmitBotSocialPhase();
+    maybeAutoCloseMayorVoteIfComplete();
+    logPublic(`Herstemming burgemeester tussen ${runoffText(currentMayorCandidates().map(p => p.name))}.`, "vote");
+    return { ok: true, runoff: true };
+  }
+
+  if (game.mayorElection.stage !== "candidates") return { ok: false, error: "Er is geen kandidaatstellingsronde actief." };
   // Als de host doorklikt, tellen spelers die niet reageerden als "nee".
   markMissingMayorCandidateResponsesAsNo();
   const candidates = alivePlayers().filter(p => p.isCandidate);
@@ -2020,7 +2172,8 @@ function startMayorVoting() {
       votes: {},
       selections: {},
       responses: game.mayorElection.responses || {},
-      result: { winnerKey: null, winnerName: null, tied: false, noCandidates: true, counts: [], automaticSingleCandidate: false }
+      result: { winnerKey: null, winnerName: null, tied: false, noCandidates: true, counts: [], automaticSingleCandidate: false },
+      runoffCandidates: null
     };
     logPublic("Niemand heeft zich kandidaat gesteld voor burgemeester.", "vote");
     return { ok: true, skipped: true };
@@ -2036,6 +2189,7 @@ function startMayorVoting() {
     game.mayorElection.stage = "result";
     game.mayorElection.votes = {};
     game.mayorElection.selections = {};
+    game.mayorElection.runoffCandidates = null;
     game.mayorElection.result = {
       winnerKey: winner.key,
       winnerName: winner.name,
@@ -2051,6 +2205,7 @@ function startMayorVoting() {
   game.mayorElection.selections = {};
   game.mayorElection.responses = game.mayorElection.responses || {};
   game.mayorElection.result = null;
+  game.mayorElection.runoffCandidates = null;
   for (const p of Object.values(game.players)) p.voteFor = null;
   autoSubmitBotSocialPhase();
   maybeAutoCloseMayorVoteIfComplete();
@@ -2061,22 +2216,27 @@ function startMayorVoting() {
 function closeMayorElection({ fillMissing = true } = {}) {
   if (!game.mayorElection.open) return;
   if (game.mayorElection.stage !== "voting") {
-    game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null };
+    game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
     logPublic("De burgemeesterverkiezing is gesloten zonder stemming.", "vote");
     return;
   }
   if (fillMissing) fillMissingMayorVotesRandom();
   const view = mayorElectionView();
   const top = view.candidates[0];
-  let result = { winnerKey: null, winnerName: null, tied: false, tieReason: null, counts: view.candidates.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), revealUntil: Date.now() + 5000 };
+  let result = { winnerKey: null, winnerName: null, tied: false, tieReason: null, counts: view.candidates.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), revealUntil: Date.now() + 5000, runoffPending: false, runoffCandidates: null, runoffNames: null };
   if (!top || top.votes <= 0) {
     logPublic("Er is geen burgemeester gekozen.", "vote");
+    game.mayorElection.runoffCandidates = null;
   } else {
     const tied = view.candidates.filter(c => c.votes === top.votes);
     if (tied.length > 1) {
       result.tied = true;
       result.tieReason = "gelijke score";
-      logPublic("Gelijke stand bij de burgemeesterverkiezing. Er is geen burgemeester gekozen.", "vote");
+      result.runoffPending = true;
+      result.runoffCandidates = tied.map(c => c.key);
+      result.runoffNames = tied.map(c => c.name);
+      game.mayorElection.runoffCandidates = result.runoffCandidates;
+      logPublic(`Gelijke stand bij de burgemeesterverkiezing. Herstemming tussen ${runoffText(result.runoffNames)}.`, "vote");
     } else {
       for (const p of Object.values(game.players)) p.isMayor = false;
       const winner = game.players[top.key];
@@ -2084,6 +2244,7 @@ function closeMayorElection({ fillMissing = true } = {}) {
         winner.isMayor = true;
         result.winnerKey = winner.key;
         result.winnerName = winner.name;
+        game.mayorElection.runoffCandidates = null;
         logPublic(`${winner.name} is burgemeester geworden.`, "vote");
       }
     }
@@ -2101,24 +2262,32 @@ function closeDayVote({ fillMissing = true } = {}) {
   const top = view.counts[0];
   game.phase = "day";
   game.dayVote.open = false;
-  const result = { counts: view.counts.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), eliminatedKey: null, eliminatedName: null, eliminatedRoleName: null, eliminatedRoleEmoji: null, tied: false, revealUntil: Date.now() + 5000 };
+  const revealUntil = Date.now() + 5000;
+  const result = { counts: view.counts.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), eliminatedKey: null, eliminatedName: null, eliminatedRoleName: null, eliminatedRoleArtVariant: null, eliminatedRoleEmoji: null, tied: false, revealUntil, visualRevealUntil: revealUntil + 1500, runoffPending: false, runoffCandidates: null, runoffNames: null };
   game.dayVote.result = result;
 
   if (!top || top.votes <= 0) {
     logPublic("Er is niet gestemd. Niemand wordt geëlimineerd.", "vote");
+    game.dayVote.runoffCandidates = null;
     return;
   }
   const tied = view.counts.filter(c => c.votes === top.votes);
   if (tied.length > 1) {
     result.tied = true;
-    logPublic("Gelijke stand bij de dagstemming. Niemand wordt automatisch geëlimineerd.", "vote");
+    result.runoffPending = true;
+    result.runoffCandidates = tied.map(c => c.key);
+    result.runoffNames = tied.map(c => c.name);
+    game.dayVote.runoffCandidates = result.runoffCandidates;
+    logPublic(`Gelijke stand bij de dagstemming. Herstemming tussen ${runoffText(result.runoffNames)}.`, "vote");
     return;
   }
+  game.dayVote.runoffCandidates = null;
   result.eliminatedKey = top.key;
   result.eliminatedName = top.name;
   const eliminatedPlayer = game.players[top.key];
   if (eliminatedPlayer?.roleId) {
     result.eliminatedRoleName = roleDef(eliminatedPlayer.roleId).name;
+    result.eliminatedRoleArtVariant = eliminatedPlayer.roleArtVariant ?? null;
     result.eliminatedRoleEmoji = roleDef(eliminatedPlayer.roleId).emoji;
   }
   game.dayVote.result = result;
@@ -2143,6 +2312,7 @@ function resetGameKeepPlayers() {
   const connectedKeys = new Set(Object.values(oldSocketToKey || {}));
   for (const p of Object.values(game.players)) {
     p.roleId = null;
+    p.roleArtVariant = null;
     p.alive = true;
     p.infected = false;
     p.wolfDogChoice = null;
@@ -2163,7 +2333,7 @@ function resetGameKeepPlayers() {
     p.connected = !!p.isBot || connectedKeys.has(p.key);
   }
 
-  // Zeker na debug/testspelers moet het aantal geselecteerde tegels weer bij de lobby passen.
+  // Zeker na debug/testspelers moet het aantal geselecteerde rollen weer bij de lobby passen.
   syncRoleCountToPlayers();
   logPublic("Het spel is gereset naar de lobby. Je kunt met dezelfde lobby opnieuw starten.", "phase");
 }
@@ -2285,6 +2455,8 @@ function createTestPlayer() {
     connected: true,
     isBot: true,
     roleId: null,
+    roleArtVariant: null,
+    lastRoleArtVariantByRole: {},
     alive: true,
     infected: false,
     wolfDogChoice: null,
@@ -2307,6 +2479,130 @@ function createTestPlayer() {
   syncRoleCountToPlayers();
   logPublic(`${p.name} is als testspeler toegevoegd.`, "debug");
   return { ok: true, player: p };
+}
+
+function zeroRoleCounts() {
+  const counts = {};
+  for (const r of roleList()) counts[r.id] = 0;
+  return counts;
+}
+
+function setCountCapped(counts, roleId, amount) {
+  const max = ROLES[roleId]?.max ?? 0;
+  const value = Math.max(0, Math.min(max, Math.floor(amount || 0)));
+  counts[roleId] = value;
+  return value;
+}
+
+function addUpTo(counts, roleId, amount) {
+  const max = ROLES[roleId]?.max ?? 0;
+  const current = counts[roleId] || 0;
+  const add = Math.max(0, Math.min(max - current, Math.floor(amount || 0)));
+  counts[roleId] = current + add;
+  return add;
+}
+
+function balanceRoleTotal(counts, targetTotal) {
+  let total = Object.values(counts).reduce((a, b) => a + Number(b || 0), 0);
+  const fillerOrder = ["villager", "werewolf"];
+  let guard = 0;
+  while (total < targetTotal && guard++ < 500) {
+    const id = fillerOrder.find(roleId => (counts[roleId] || 0) < (ROLES[roleId]?.max || 0));
+    if (!id) break;
+    counts[id] = (counts[id] || 0) + 1;
+    total++;
+  }
+  const removeOrder = ["villager", "werewolf", "sister", "little_girl", "bear_tamer", "rusty_knight", "elder", "fox", "cupid", "hunter", "witch", "seer", "piper", "angel", "white_wolf", "big_bad_wolf", "infectious_wolf", "wolf_hound", "wild_child"];
+  guard = 0;
+  while (total > targetTotal && guard++ < 500) {
+    const id = removeOrder.find(roleId => (counts[roleId] || 0) > 0);
+    if (!id) break;
+    counts[id] -= 1;
+    total--;
+  }
+  return counts;
+}
+
+function scalablePresetCounts(preset, playerCount) {
+  const n = Math.max(0, Math.floor(playerCount || 0));
+  const counts = zeroRoleCounts();
+  if (!n) return counts;
+
+  if (preset === "basic") {
+    const wolves = Math.max(1, Math.round(n * 0.22));
+    setCountCapped(counts, "werewolf", wolves);
+    if (n >= 5) setCountCapped(counts, "seer", 1);
+    if (n >= 7) setCountCapped(counts, "witch", 1);
+    if (n >= 9) setCountCapped(counts, "hunter", 1);
+    return balanceRoleTotal(counts, n);
+  }
+
+  if (preset === "bestof_light") {
+    const wolfTotal = Math.max(1, Math.round(n * 0.24));
+    const specialWolves = (n >= 12 ? 1 : 0) + (n >= 18 ? 1 : 0);
+    setCountCapped(counts, "infectious_wolf", n >= 12 ? 1 : 0);
+    setCountCapped(counts, "big_bad_wolf", n >= 18 ? 1 : 0);
+    setCountCapped(counts, "werewolf", Math.max(1, wolfTotal - specialWolves));
+    if (n >= 5) setCountCapped(counts, "seer", 1);
+    if (n >= 7) setCountCapped(counts, "witch", 1);
+    if (n >= 8) setCountCapped(counts, "hunter", 1);
+    if (n >= 9) setCountCapped(counts, "cupid", 1);
+    if (n >= 10) setCountCapped(counts, "fox", 1);
+    if (n >= 12) setCountCapped(counts, "rusty_knight", 1);
+    if (n >= 14) setCountCapped(counts, "elder", 1);
+    if (n >= 16) setCountCapped(counts, "sister", 2);
+    if (n >= 20) setCountCapped(counts, "bear_tamer", 1);
+    return balanceRoleTotal(counts, n);
+  }
+
+  if (preset === "chaos") {
+    const wolfTotal = Math.max(2, Math.round(n * 0.28));
+    const specials = [
+      ["infectious_wolf", n >= 8 ? 1 : 0],
+      ["big_bad_wolf", n >= 10 ? 1 : 0],
+      ["white_wolf", n >= 14 ? 1 : 0]
+    ];
+    let specialWolfCount = 0;
+    for (const [roleId, amount] of specials) specialWolfCount += setCountCapped(counts, roleId, amount);
+    setCountCapped(counts, "werewolf", Math.max(1, wolfTotal - specialWolfCount));
+    if (n >= 5) setCountCapped(counts, "seer", 1);
+    if (n >= 6) setCountCapped(counts, "witch", 1);
+    if (n >= 7) setCountCapped(counts, "hunter", 1);
+    if (n >= 8) setCountCapped(counts, "cupid", 1);
+    if (n >= 9) setCountCapped(counts, "fox", 1);
+    if (n >= 10) setCountCapped(counts, "piper", 1);
+    if (n >= 11) setCountCapped(counts, "wolf_hound", 1);
+    if (n >= 12) setCountCapped(counts, "wild_child", 1);
+    if (n >= 13) setCountCapped(counts, "rusty_knight", 1);
+    if (n >= 15) setCountCapped(counts, "elder", 1);
+    if (n >= 16) setCountCapped(counts, "little_girl", 1);
+    if (n >= 18) setCountCapped(counts, "sister", 2);
+    if (n >= 20) setCountCapped(counts, "bear_tamer", 1);
+    if (n >= 24) setCountCapped(counts, "angel", 1);
+    return balanceRoleTotal(counts, n);
+  }
+
+  return counts;
+}
+
+function clearLobbyPlayers() {
+  if (game.started) return { ok: false, error: "De lobby kan alleen vóór de start worden geleegd." };
+  for (const p of Object.values(game.players)) {
+    if (p.socketId) {
+      const playerSocket = io.sockets.sockets.get(p.socketId);
+      if (playerSocket) {
+        playerSocket.emit("join_denied", "De host heeft de lobby geleegd. Vul je naam opnieuw in om weer te joinen.");
+        playerSocket.leave("player");
+      }
+    }
+  }
+  game.players = {};
+  game.socketToKey = {};
+  game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
+  game.dayVote = { open: false, votes: {}, selections: {}, result: null, runoffCandidates: null };
+  game.lastDeaths = [];
+  logPublic("De lobby is geleegd.", "debug");
+  return { ok: true };
 }
 
 io.on("connection", (socket) => {
@@ -2346,6 +2642,8 @@ io.on("connection", (socket) => {
         connected: true,
         isBot: false,
         roleId: null,
+        roleArtVariant: null,
+        lastRoleArtVariantByRole: {},
         alive: true,
         infected: false,
         wolfDogChoice: null,
@@ -2365,10 +2663,12 @@ io.on("connection", (socket) => {
         privateLog: []
       };
       game.players[key] = p;
+      if (!game.started) syncRoleCountToPlayers();
     } else {
       p.socketId = socket.id;
       p.connected = true;
       if (!game.started && name) p.name = uniqueName(name, key);
+      if (!game.started) syncRoleCountToPlayers();
     }
     game.socketToKey[socket.id] = key;
     socket.emit("joined", { playerKey: key, name: p.name, lobbyId: game.lobbyId });
@@ -2394,7 +2694,7 @@ io.on("connection", (socket) => {
     if (payload.kind === "mayor_vote") {
       if (!game.mayorElection.open || game.mayorElection.stage !== "voting") return;
       if (game.mayorElection.votes[p.key]) return;
-      if (!target.isCandidate) return;
+      if (!target.isCandidate || !currentMayorCandidates().some(c => c.key === target.key)) return;
       game.mayorElection.selections = game.mayorElection.selections || {};
       game.mayorElection.selections[p.key] = target.key;
       emitAll();
@@ -2403,6 +2703,7 @@ io.on("connection", (socket) => {
     if (payload.kind === "day_vote") {
       if (!game.dayVote.open || game.phase !== "voting") return;
       if (game.dayVote.votes[p.key]) return;
+      if (!currentDayVoteTargets().some(t => t.key === target.key)) return;
       game.dayVote.selections = game.dayVote.selections || {};
       game.dayVote.selections[p.key] = target.key;
       emitAll();
@@ -2413,41 +2714,28 @@ io.on("connection", (socket) => {
 
   socket.on("host_set_role_count", ({ roleId, count } = {}) => {
     if (!ROLES[roleId] || game.started) return;
+    const playerCount = orderedPlayers(true).length;
     const max = ROLES[roleId].max || 1;
-    game.selectedRoleCounts[roleId] = Math.max(0, Math.min(max, Number(count || 0)));
+    const current = Number(game.selectedRoleCounts[roleId] || 0);
+    const requested = Math.max(0, Math.floor(Number(count || 0)));
+    const currentTotal = countSelectedRoles();
+    // Verhogen mag alleen zolang het totaal aantal rollen niet boven het aantal spelers uitkomt.
+    // Verlagen mag altijd, zodat een al te hoog totaal netjes gecorrigeerd kan worden.
+    const freeSlots = Math.max(0, playerCount - currentTotal);
+    const maxForThisClick = requested > current ? Math.min(max, current + freeSlots) : max;
+    game.selectedRoleCounts[roleId] = Math.max(0, Math.min(maxForThisClick, requested));
     emitAll();
   });
 
   socket.on("host_apply_preset", ({ preset } = {}) => {
     if (game.started) return;
     if (preset === "custom") {
-      const counts = {};
-      for (const r of roleList()) counts[r.id] = 0;
-      game.selectedRoleCounts = counts;
+      game.selectedRoleCounts = zeroRoleCounts();
       emitAll();
       return;
     }
     const n = alivePlayers().length || orderedPlayers(true).length || 8;
-    const counts = {};
-    if (preset === "basic") {
-      Object.assign(counts, { villager: Math.max(0, n - 4), werewolf: 2, seer: 1, witch: 1 });
-      if (n >= 8) counts.hunter = 1;
-    } else if (preset === "bestof_light") {
-      Object.assign(counts, { villager: Math.max(0, n - 7), werewolf: 2, seer: 1, witch: 1, cupid: 1, hunter: 1, fox: n >= 9 ? 1 : 0, infectious_wolf: n >= 10 ? 1 : 0 });
-    } else if (preset === "chaos") {
-      Object.assign(counts, { villager: Math.max(0, n - 10), werewolf: 2, infectious_wolf: 1, big_bad_wolf: 1, seer: 1, witch: 1, cupid: 1, hunter: 1, fox: 1, piper: n >= 10 ? 1 : 0 });
-    }
-    // Clamp totals by max.
-    for (const r of roleList()) counts[r.id] = Math.max(0, Math.min(r.max, counts[r.id] || 0));
-    // If too many, remove villagers first then extras from end.
-    let total = Object.values(counts).reduce((a, b) => a + b, 0);
-    if (total > n) {
-      const overflow = total - n;
-      counts.villager = Math.max(0, (counts.villager || 0) - overflow);
-    }
-    total = Object.values(counts).reduce((a, b) => a + b, 0);
-    while (total < n && (counts.villager || 0) < ROLES.villager.max) { counts.villager = (counts.villager || 0) + 1; total++; }
-    game.selectedRoleCounts = counts;
+    game.selectedRoleCounts = scalablePresetCounts(preset, n);
     emitAll();
   });
 
@@ -2460,19 +2748,24 @@ io.on("connection", (socket) => {
   socket.on("host_next_step", (payload = {}) => { hostNextStep({ force: !!payload.force }); emitAll(); });
   socket.on("host_skip_step", () => { skipCurrentStep(); emitAll(); });
   socket.on("host_resolve_night", () => { resolveNight(); emitAll(); });
-  socket.on("host_start_next_night", () => { startNextNight(); emitAll(); });
+  socket.on("host_start_next_night", () => {
+    if (blockHostIfRevealLocked(socket)) return;
+    startNextNight(); emitAll();
+  });
 
   socket.on("host_open_mayor", () => {
+    if (blockHostIfRevealLocked(socket)) return;
     if (!game.started || game.phase === "ended") return;
     game.phase = "mayor";
     game.dayAftermath = { active: false, fromNight: false };
-    game.mayorElection = { open: true, stage: "candidates", votes: {}, selections: {}, responses: {}, result: null };
+    game.mayorElection = { open: true, stage: "candidates", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
     for (const p of Object.values(game.players)) { p.isCandidate = false; p.voteFor = null; }
     autoSubmitBotSocialPhase();
     logPublic("Spelers kunnen zich kandidaat stellen voor burgemeester.", "vote");
     emitAll();
   });
   socket.on("host_start_mayor_vote", () => {
+    if (blockHostIfRevealLocked(socket)) return;
     const result = startMayorVoting();
     if (!result.ok) socket.emit("host_error", result.error);
     emitAll();
@@ -2480,7 +2773,14 @@ io.on("connection", (socket) => {
   socket.on("host_close_mayor", () => { closeMayorElection(); emitAll(); });
 
   socket.on("host_open_day_vote", () => {
+    if (blockHostIfRevealLocked(socket)) return;
     if (!game.started || game.phase === "ended") return;
+    // Er moet altijd eerst een levende burgemeester zijn. Als er geen burgemeester is,
+    // blijft alleen de burgemeesterverkiezing beschikbaar en kan de host de dagstemming niet overslaan.
+    if (!livingMayor()) {
+      socket.emit("host_error", "Kies eerst een burgemeester voordat de open dagstemming begint.");
+      return;
+    }
     if (game.phase === "mayor" && game.mayorElection?.stage !== "result") return;
     openDayVoteAuto("De dagstemming is geopend.");
     emitAll();
@@ -2536,6 +2836,12 @@ io.on("connection", (socket) => {
       hostState: hostState(),
       publicState: publicState(),
     });
+  });
+
+  socket.on("host_clear_lobby", () => {
+    const result = clearLobbyPlayers();
+    if (!result.ok) socket.emit("host_error", result.error);
+    emitAll();
   });
 
   socket.on("host_reset", () => { resetGameKeepPlayers(); emitAll(); });

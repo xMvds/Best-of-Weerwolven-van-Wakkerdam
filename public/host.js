@@ -5,6 +5,12 @@ let rolesDetailsTouched=false;
 let rolesDetailsProgrammatic=false;
 let lastActiveGame = false;
 let forceWolfNextArmed = false;
+let forceWolfNextTimer = null;
+let resetArmed = false;
+let resetTimer = null;
+let clearLobbyArmed = false;
+let clearLobbyTimer = null;
+let hostRevealUnlockTimer = null;
 let pendingKickKey = null;
 let pendingKickTimer = null;
 window.__hostConsole = [];
@@ -32,14 +38,29 @@ const bind=(id,event)=>$(id).addEventListener("click",()=>socket.emit(event));
 bind("startBtn","host_start_game");
 $("nextStepBtn").addEventListener("click",()=>{
   if(state?.phase === "night" && state?.currentStep?.kind === "wolves" && !state.currentStep.ready){
-    const ok = confirm("de wolven hebben nog geen gezamenlijk slachtoffer gekozen, weet je het zeker?");
-    if(!ok) return;
+    if(!forceWolfNextArmed){
+      armTemporaryConfirm("forceWolf");
+      return;
+    }
+    clearButtonArm("forceWolf");
     socket.emit("host_next_step", { force:true });
     return;
   }
+  clearButtonArm("forceWolf");
   socket.emit("host_next_step");
 });
-bind("resolveNightBtn","host_resolve_night"); bind("mayorBtn","host_open_mayor"); bind("startMayorVoteBtn","host_start_mayor_vote"); bind("closeMayorBtn","host_close_mayor"); bind("voteBtn","host_open_day_vote"); bind("closeVoteBtn","host_close_day_vote"); bind("nextNightBtn","host_start_next_night"); bind("resetBtn","host_reset");
+bind("resolveNightBtn","host_resolve_night"); bind("mayorBtn","host_open_mayor"); bind("startMayorVoteBtn","host_start_mayor_vote"); bind("closeMayorBtn","host_close_mayor"); bind("voteBtn","host_open_day_vote"); bind("closeVoteBtn","host_close_day_vote"); bind("nextNightBtn","host_start_next_night");
+$("resetBtn").addEventListener("click",()=>{
+  if(!resetArmed){ armTemporaryConfirm("reset"); return; }
+  clearButtonArm("reset");
+  socket.emit("host_reset");
+});
+$("clearLobbyBtn")?.addEventListener("click",()=>{
+  if(state?.started) return;
+  if(!clearLobbyArmed){ armTemporaryConfirm("clearLobby"); return; }
+  clearButtonArm("clearLobby");
+  socket.emit("host_clear_lobby");
+});
 document.addEventListener("click", (e)=>{
   const btn = e.target.closest?.("[data-host-event]");
   if(!btn) return;
@@ -75,6 +96,33 @@ async function copyText(text, ok="Gekopieerd."){
 }
 function showButton(id, show){ $(id).classList.toggle("hidden", !show); }
 function hasRemainingNightStep(){ return (state.nightSteps||[]).some(x=>!x.done&&!x.skipped); }
+function currentHostRevealLockUntil(){
+  const times = [];
+  if(state?.revealLockUntil) times.push(Number(state.revealLockUntil));
+  const mayorResult = state?.mayorElection?.stage === "result" ? state?.mayorElection?.result : null;
+  if(mayorResult?.revealUntil) times.push(Number(mayorResult.revealUntil));
+  const dayResult = state?.dayVote?.result || null;
+  if(dayResult?.visualRevealUntil || dayResult?.revealUntil) times.push(Number(dayResult.visualRevealUntil || dayResult.revealUntil));
+  return Math.max(0, ...times.filter(t=>Number.isFinite(t) && t > Date.now()));
+}
+function hostRevealLocked(){ return currentHostRevealLockUntil() > Date.now(); }
+function scheduleHostRevealUnlock(){
+  clearTimeout(hostRevealUnlockTimer);
+  const until = currentHostRevealLockUntil();
+  if(until > Date.now()) hostRevealUnlockTimer = setTimeout(()=>renderPhase(), Math.max(80, until - Date.now() + 60));
+}
+function clearButtonArm(timerName){
+  if(timerName === "forceWolf"){ clearTimeout(forceWolfNextTimer); forceWolfNextArmed = false; forceWolfNextTimer = null; }
+  if(timerName === "reset"){ clearTimeout(resetTimer); resetArmed = false; resetTimer = null; }
+  if(timerName === "clearLobby"){ clearTimeout(clearLobbyTimer); clearLobbyArmed = false; clearLobbyTimer = null; }
+}
+function armTemporaryConfirm(kind, timeout=5000){
+  clearButtonArm(kind);
+  if(kind === "forceWolf"){ forceWolfNextArmed = true; forceWolfNextTimer = setTimeout(()=>{ forceWolfNextArmed = false; renderPhase(); }, timeout); }
+  if(kind === "reset"){ resetArmed = true; resetTimer = setTimeout(()=>{ resetArmed = false; renderPhase(); }, timeout); }
+  if(kind === "clearLobby"){ clearLobbyArmed = true; clearLobbyTimer = setTimeout(()=>{ clearLobbyArmed = false; renderPhase(); }, timeout); }
+  renderPhase();
+}
 
 function render(){
   if(!state) return;
@@ -111,41 +159,78 @@ function renderPhase(){
   const hasLivingMayor=(state.players||[]).some(p=>p.alive && p.isMayor);
   const dayAftermath=!!state.dayAftermath?.active;
   const pendingWinner=!!state.pendingWinner;
+  const revealLocked=hostRevealLocked();
+  scheduleHostRevealUnlock();
   const remaining=hasRemainingNightStep();
   const isWolfStep=inNight && state.currentStep?.kind === "wolves";
   const canAdvanceNight=inNight && (!state.currentStep || state.currentStep.ready || isWolfStep);
   const noActiveStep=inNight && !state.currentStep;
 
   $("startBtn").disabled=state.started || total!==players || players<3;
-  $("startBtn").title = players<3 ? "Minimaal 3 spelers nodig" : (total!==players ? `Kies precies ${players} rollen/tegels` : "Start het spel");
+  $("startBtn").title = players<3 ? "Minimaal 3 spelers nodig" : (total!==players ? `Kies precies ${players} rollen` : "Start het spel");
   showButton("startBtn", true);
+  showButton("clearLobbyBtn", inLobby && !state.started && players > 0);
   showButton("resetBtn", true);
   showButton("nextStepBtn", inNight);
   $("nextStepBtn").disabled=!canAdvanceNight;
   const unfinishedSteps = (state.nightSteps||[]).filter(x=>!x.done&&!x.skipped);
   const currentIsFinalNightStep = !!state.currentStep && state.currentStep.ready && unfinishedSteps.length === 1 && unfinishedSteps[0].id === state.currentStep.id;
   $("nextStepBtn").textContent=noActiveStep ? (remaining ? "Start volgende nachtstap" : "Maak het dag") : (currentIsFinalNightStep ? "Maak het dag" : (state.currentStep?.ready ? "Volgende nachtstap" : (isWolfStep ? "Forceer / volgende nachtstap" : "Wacht op speleractie")));
+  if(forceWolfNextArmed && isWolfStep && !state.currentStep?.ready){
+    $("nextStepBtn").textContent = "Weet je het zeker?";
+    $("nextStepBtn").classList.add("pulseConfirm");
+  } else {
+    $("nextStepBtn").classList.remove("pulseConfirm");
+    if(forceWolfNextArmed && (!isWolfStep || state.currentStep?.ready)) clearButtonArm("forceWolf");
+  }
   showButton("resolveNightBtn", false);
   $("resolveNightBtn").disabled=true;
   const mayorStage = state.mayorElection?.stage || "idle";
   const candidateCount = (state.mayorElection?.candidates || []).length;
-  const mayorResultReady = !!(state.started && inMayor && mayorStage === "result" && !state.dayVote?.open);
-  const normalDayVoteReady = !!(!pendingWinner && state.started && inDay && !ended && !state.dayVote?.open && !state.dayVote?.result && ((state.players||[]).filter(p=>p.alive).length >= 2));
+  const mayorRunoffReady = !!(state.started && inMayor && mayorStage === "result" && state.mayorElection?.result?.runoffPending);
+  const mayorResultReady = !!(hasLivingMayor && state.started && inMayor && mayorStage === "result" && !state.dayVote?.open && !mayorRunoffReady);
+  const dayRunoffReady = !!(hasLivingMayor && !pendingWinner && state.started && inDay && !ended && !state.dayVote?.open && state.dayVote?.result?.runoffPending);
+  const normalDayVoteReady = !!(hasLivingMayor && !pendingWinner && state.started && inDay && !ended && !state.dayVote?.open && !state.dayVote?.result && ((state.players||[]).filter(p=>p.alive).length >= 2));
+  const completedDayVoteReadyForNight = !!(state.dayVote?.result && !state.dayVote?.result?.runoffPending);
   showButton("mayorBtn", !pendingWinner && state.started && inDay && !state.mayorElection?.open && !hasLivingMayor);
-  showButton("startMayorVoteBtn", inMayor && mayorStage === "candidates");
-  $("startMayorVoteBtn").disabled = !(inMayor && mayorStage === "candidates" && candidateCount > 0);
+  $("mayorBtn").disabled = revealLocked;
+  $("mayorBtn").title = revealLocked ? "Wacht tot de reveal/animatie klaar is" : "";
+  showButton("startMayorVoteBtn", (inMayor && mayorStage === "candidates") || mayorRunoffReady);
+  $("startMayorVoteBtn").disabled = revealLocked || !(((inMayor && mayorStage === "candidates" && candidateCount > 0) || mayorRunoffReady));
+  $("startMayorVoteBtn").title = revealLocked ? "Wacht tot de reveal/animatie klaar is" : "";
+  $("startMayorVoteBtn").textContent = mayorRunoffReady ? "Start herstemming" : "Laat spelers stemmen";
   showButton("closeMayorBtn", inMayor && mayorStage === "voting");
   if(inMayor && mayorStage === "voting") $("closeMayorBtn").textContent = "Forceer / rond burgemeester af";
   // Hotfix v0.3.28: na de burgemeesteruitslag moet deze knop altijd zichtbaar zijn in het controlepaneel.
-  showButton("voteBtn", mayorResultReady || normalDayVoteReady);
-  $("voteBtn").disabled = !(mayorResultReady || normalDayVoteReady);
-  $("voteBtn").textContent = mayorResultReady ? "Open dagstemming" : "Open dagstemming";
-  $("voteBtn").classList.toggle("majorDayVoteBtn", mayorResultReady);
+  showButton("voteBtn", mayorResultReady || normalDayVoteReady || dayRunoffReady);
+  $("voteBtn").disabled = revealLocked || !(mayorResultReady || normalDayVoteReady || dayRunoffReady);
+  $("voteBtn").title = revealLocked ? "Wacht tot de reveal/animatie klaar is" : "";
+  $("voteBtn").textContent = dayRunoffReady ? "Start herstemming" : "Open dagstemming";
+  $("voteBtn").classList.toggle("majorDayVoteBtn", mayorResultReady || dayRunoffReady);
   showButton("closeVoteBtn", inVoting);
   if(inVoting) $("closeVoteBtn").textContent = "Forceer / rond dagstemming af";
-  showButton("nextNightBtn", pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open));
-  $("nextNightBtn").disabled=!(pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open));
+  showButton("nextNightBtn", pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open && completedDayVoteReadyForNight && !dayRunoffReady));
+  $("nextNightBtn").disabled=revealLocked || !(pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open && completedDayVoteReadyForNight && !dayRunoffReady));
+  $("nextNightBtn").title = revealLocked ? "Wacht tot de reveal/animatie klaar is" : "";
   $("nextNightBtn").textContent = pendingWinner ? "Toon winnaar" : "Start volgende nacht";
+
+  ["mayorBtn","startMayorVoteBtn","voteBtn","nextNightBtn"].forEach(id=>$(id)?.classList.toggle("revealLocked", revealLocked));
+
+  if(resetArmed){
+    $("resetBtn").textContent = "Weet je het zeker?";
+    $("resetBtn").classList.add("pulseConfirm");
+  } else {
+    $("resetBtn").textContent = "Reset";
+    $("resetBtn").classList.remove("pulseConfirm");
+  }
+  if(clearLobbyArmed && inLobby && !state.started && players > 0){
+    $("clearLobbyBtn").textContent = "Weet je het zeker?";
+    $("clearLobbyBtn").classList.add("pulseConfirm");
+  } else {
+    $("clearLobbyBtn").textContent = "Clear lobby";
+    $("clearLobbyBtn").classList.remove("pulseConfirm");
+    if(clearLobbyArmed && (!inLobby || state.started || players <= 0)) clearButtonArm("clearLobby");
+  }
 
   if ($("voteCard")) $("voteCard").classList.add("hidden");
 }
@@ -201,7 +286,8 @@ function renderHostMayorStep(stage){
     const result = state.mayorElection?.result;
     const winner = result?.winnerName;
     const counts = result?.counts || state.mayorElection?.candidates || [];
-    return `<h3>Burgemeester uitslag</h3>${winner?`<div class="resultBox wolfConsensusGood"><div class="resultBig"><strong>${esc(winner)}</strong> is burgemeester</div></div>`:`<div class="resultBox wolfConsensusBad"><div class="resultBig">${result?.tied?"geen burgemeester gekozen door gelijke score":"Geen burgemeester gekozen"}</div></div>`}<div class="hostMayorBars">${renderVoteBarsHtml(counts, "burgemeester")}</div>`;
+    const tieText = result?.runoffPending ? `gelijke stand — herstemming tussen ${esc((result.runoffNames||[]).join(" en "))}` : (result?.tied ? "geen burgemeester gekozen door gelijke score" : "Geen burgemeester gekozen");
+    return `<h3>Burgemeester uitslag</h3>${winner?`<div class="resultBox wolfConsensusGood"><div class="resultBig"><strong>${esc(winner)}</strong> is burgemeester</div></div>`:`<div class="resultBox wolfConsensusBad"><div class="resultBig">${tieText}</div></div>`}<div class="hostMayorBars">${renderVoteBarsHtml(counts, "burgemeester")}</div>`;
   }
   return `<p class="muted">Burgemeesterfase.</p>`;
 }
@@ -215,7 +301,8 @@ function renderHostDayVoteStep(){
   const voters = state.dayVote?.voters || state.players.filter(p=>p.alive).map(p=>({name:p.name, voted: !!state.dayVote?.votes?.[p.key]}));
   const done = voters.filter(v=>v.voted).length;
   const rows = state.dayVote?.liveCounts || state.dayVote?.counts || [];
-  return `<h3>Open dagstemming</h3><div class="voteProgressText">${done}/${voters.length} spelers hebben gestemd</div>${renderVoteBarsHtml(rows, "dagstemming")}`;
+  const title = state.dayVote?.runoffCandidates?.length ? "Open dagstemming — herstemming" : "Open dagstemming";
+  return `<h3>${title}</h3><div class="voteProgressText">${done}/${voters.length} spelers hebben gestemd</div>${renderVoteBarsHtml(rows, "dagstemming")}`;
 }
 
 
@@ -333,10 +420,16 @@ function renderPlayers(){
 }
 function renderRoles(){
   const playerCount=state.players.length;
-  $("roleTotal").textContent=`${state.selectedRoleTotal}/${playerCount} tegels geselecteerd`;
+  const total=state.selectedRoleTotal || 0;
+  const full = playerCount > 0 && total >= playerCount;
+  $("roleTotal").textContent=`${total} van de ${playerCount} rollen geselecteerd`;
+  $("roleTotal").classList.toggle("green", total === playerCount && playerCount > 0);
+  $("roleTotal").classList.toggle("red", total !== playerCount || playerCount <= 0);
   $("roles").innerHTML=(state.roles||[]).map(r=>{
     const count=state.selectedRoleCounts[r.id]||0;
-    return `<div class="roleTile"><div class="roleTop"><div><span class="roleEmoji">${esc(r.emoji)}</span><strong> ${esc(r.name)}</strong><div class="roleName">${esc(r.group)} · max ${r.max}</div></div><div class="counter"><button class="btn ghost" data-role-dec="${esc(r.id)}">−</button><span class="num">${count}</span><button class="btn ghost" data-role-inc="${esc(r.id)}">+</button></div></div><p class="muted small">${esc(r.desc)}</p></div>`;
+    const incDisabled = state.started || full || count >= r.max;
+    const decDisabled = state.started || count <= 0;
+    return `<div class="roleTile"><div class="roleTop"><div><span class="roleEmoji">${esc(r.emoji)}</span><strong> ${esc(r.name)}</strong><div class="roleName">${esc(r.group)} · max ${r.max}</div></div><div class="counter"><button class="btn ghost" data-role-dec="${esc(r.id)}" ${decDisabled?'disabled':''}>−</button><span class="num">${count}</span><button class="btn ghost" data-role-inc="${esc(r.id)}" ${incDisabled?'disabled title="Aantal rollen is gelijk aan aantal spelers"':''}>+</button></div></div><p class="muted small">${esc(r.desc)}</p></div>`;
   }).join("");
   document.querySelectorAll("[data-role-inc]").forEach(b=>b.addEventListener("click",()=>setRole(b.dataset.roleInc, (state.selectedRoleCounts[b.dataset.roleInc]||0)+1)));
   document.querySelectorAll("[data-role-dec]").forEach(b=>b.addEventListener("click",()=>setRole(b.dataset.roleDec, (state.selectedRoleCounts[b.dataset.roleDec]||0)-1)));

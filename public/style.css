@@ -2463,7 +2463,7 @@ body.playerScreen.inGame .playerCenter.action-mayor_candidate > h1{font-size:cla
 }
 
 
-/* v0.3.37 — player debug + burgemeester/dagstemming reveal fixes */
+/* v0.3.40 — player debug + burgemeester/dagstemming reveal fixes */
 .joinDebugHold{display:inline-block;cursor:pointer;user-select:none;-webkit-user-select:none;}
 .playerDebugFab{position:fixed;right:14px;bottom:14px;z-index:80;width:min(290px,calc(100vw - 28px));display:flex;flex-direction:column;gap:9px;padding:12px;border:1px solid rgba(211,167,90,.48);background:linear-gradient(180deg,rgba(15,24,39,.96),rgba(5,9,16,.98));box-shadow:0 18px 60px rgba(0,0,0,.55);color:#f8e7c5;}
 .playerDebugFab.hidden{display:none!important}.playerDebugFab strong{text-align:center;font-family:Georgia,"Palatino Linotype","Book Antiqua",Palatino,serif}.playerDebugFab #playerDebugClose{align-self:flex-end;min-height:30px;padding:4px 9px;}
@@ -2471,3 +2471,1760 @@ body.playerScreen.inGame .playerCenter.action-mayor_candidate > h1{font-size:cla
 .dayVoteResultStage:not(.hasReveal){grid-template-columns:1fr}.dayVoteRevealColumn{display:flex;align-items:center;justify-content:center;min-width:0}.dayVoteGraphColumn{min-width:0}.dayVoteResultStage .dayElimReveal{margin-top:0!important;width:100%;}.dayVoteResultStage .dayElimReveal.hidden{visibility:hidden!important;display:flex!important;opacity:0!important}.dayVoteResultStage .dayElimReveal:not(.hidden){animation:popCandidate .55s cubic-bezier(.2,1.35,.25,1) both;}
 .dayVoteResultStage .deathCardWithArt{max-width:min(330px,100%)!important;margin:0 auto!important;}
 @media(max-width:840px){.dayVoteResultStage{grid-template-columns:1fr;gap:12px}.dayVoteRevealColumn{order:2}.dayVoteGraphColumn{order:1}.dayVoteResultStage .deathCardWithArt{max-width:min(270px,82vw)!important}}
+
+
+/* v0.3.40 — player debug hotspot + vote/winner reveal refinements */
+.playerDebugHotspot{
+  position:fixed;right:0;bottom:0;width:88px;height:88px;z-index:79;
+  opacity:0;background:transparent;border:0;padding:0;margin:0;cursor:pointer;
+}
+.playerDebugFab{animation:debugPop .18s ease both;}
+@keyframes debugPop{from{opacity:0;transform:translateY(8px) scale(.96)}to{opacity:1;transform:translateY(0) scale(1)}}
+
+/* Dagstemming: eerst grafiek centraal, daarna schuift die naar rechts en reveal links */
+.dayVoteResultStage.hasReveal{
+  grid-template-columns:1fr;
+  transition:grid-template-columns .75s ease, gap .75s ease;
+}
+.dayVoteResultStage.hasReveal .dayVoteRevealColumn{
+  width:0;min-width:0;opacity:0;overflow:hidden;transform:scale(.86) translateX(-18px);
+  transition:opacity .55s ease, transform .65s cubic-bezier(.2,1.25,.25,1), width .65s ease;
+}
+.dayVoteResultStage.hasReveal .dayVoteGraphColumn{
+  justify-self:center;width:min(820px,100%);transition:width .75s ease, transform .75s ease, justify-self .75s ease;
+}
+.dayVoteResultStage.hasReveal.revealReady{
+  grid-template-columns:minmax(240px,34%) minmax(0,1fr);
+}
+.dayVoteResultStage.hasReveal.revealReady .dayVoteRevealColumn{
+  width:auto;opacity:1;overflow:visible;transform:scale(1) translateX(0);
+}
+.dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn{
+  justify-self:stretch;width:100%;
+}
+@media(max-width:840px){
+  .dayVoteResultStage.hasReveal,.dayVoteResultStage.hasReveal.revealReady{grid-template-columns:1fr;}
+  .dayVoteResultStage.hasReveal .dayVoteRevealColumn{width:auto;}
+}
+
+/* Filmische fade bij winnaarsscherm */
+.infoScreen .viewerHero.winnerFadeCinematic:after{
+  content:"";position:absolute;inset:0;z-index:20;background:#000;pointer-events:none;
+  animation:winnerFadeBlack 3s ease both;
+}
+@keyframes winnerFadeBlack{
+  0%{opacity:0}
+  50%{opacity:1}
+  100%{opacity:0}
+}
+.playerCenter h1{white-space:normal;}
+.dayVoteResultStage.hasReveal:not(.revealReady) .dayVoteRevealColumn{height:0!important;min-height:0!important;padding:0!important;margin:0!important;}
+.dayVoteResultStage.hasReveal:not(.revealReady) .dayVoteGraphColumn{grid-column:1;grid-row:1;}
+
+/* v0.3.40 — bevestigingen, dagstemming-reveal en winner fade herstel */
+.playerDebugHotspot,
+.joinDebugHold{display:none!important;}
+
+.dayVoteResultStage.hasReveal{
+  grid-template-columns:minmax(240px,34%) minmax(0,1fr)!important;
+  transition:none!important;
+}
+.dayVoteResultStage.hasReveal:not(.revealReady) .dayVoteRevealColumn{
+  width:0!important;min-width:0!important;height:0!important;opacity:0!important;overflow:hidden!important;
+  transform:scale(.62)!important;padding:0!important;margin:0!important;
+}
+.dayVoteResultStage.hasReveal:not(.revealReady) .dayVoteGraphColumn{
+  grid-column:1 / -1!important;grid-row:1!important;justify-self:center!important;width:min(820px,100%)!important;transform:none!important;
+}
+.dayVoteResultStage.hasReveal.revealReady .dayVoteRevealColumn{
+  width:auto!important;height:auto!important;opacity:1!important;overflow:visible!important;transform:none!important;
+}
+.dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn{
+  grid-column:2!important;grid-row:1!important;justify-self:stretch!important;width:100%!important;
+  animation:dayVoteGraphSlideRight 1.5s cubic-bezier(.22,.85,.2,1) both;
+}
+.dayVoteResultStage .dayElimReveal:not(.hidden){
+  animation:dayElimPop .82s cubic-bezier(.16,1.45,.28,1) both!important;
+}
+@keyframes dayVoteGraphSlideRight{
+  from{opacity:1;transform:translateX(clamp(-320px,-24vw,-90px)) scale(1.015);}
+  to{opacity:1;transform:translateX(0) scale(1);}
+}
+@keyframes dayElimPop{
+  0%{opacity:0;transform:scale(.18) rotate(-1.5deg);filter:brightness(1.6) blur(1px);}
+  55%{opacity:1;transform:scale(1.08) rotate(.4deg);filter:brightness(1.12) blur(0);}
+  100%{opacity:1;transform:scale(1) rotate(0);filter:brightness(1);}
+}
+@media(max-width:840px){
+  .dayVoteResultStage.hasReveal,.dayVoteResultStage.hasReveal.revealReady{grid-template-columns:1fr!important;}
+  .dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn{grid-column:1!important;animation:none!important;}
+}
+
+.infoScreen .viewerHero.winnerFadeToBlack:after,
+.infoScreen .viewerHero.winnerFadeFromBlack:after{
+  content:"";position:absolute;inset:0;z-index:60;background:#000;pointer-events:none;
+}
+.infoScreen .viewerHero.winnerFadeToBlack:after{animation:winnerFadeToBlackIn 1.5s ease forwards;}
+.infoScreen .viewerHero.winnerFadeFromBlack:after{animation:winnerFadeFromBlackOut 1.5s ease both;}
+@keyframes winnerFadeToBlackIn{from{opacity:0}to{opacity:1}}
+@keyframes winnerFadeFromBlackOut{from{opacity:1}to{opacity:0}}
+
+.winnerStage.hasDefeated .defeatedWolves{
+  background:linear-gradient(180deg,rgba(130,16,34,.72),rgba(45,4,12,.84))!important;
+  border:1px solid rgba(255,92,115,.75)!important;
+  box-shadow:0 0 34px rgba(228,59,79,.22)!important;
+}
+.winnerStage.hasDefeated .defeatedWolves h4{color:#ffd2d8!important;}
+
+
+/* v0.3.40 — host layout, responsive speler-vakjes, burgemeestertekst en nieuwe kaarten */
+.hostScreen #startBtn{
+  background:linear-gradient(135deg,#167a4a,#26bb77)!important;
+  border-color:rgba(128,255,192,.48)!important;
+  box-shadow:0 0 18px rgba(85,211,138,.12)!important;
+}
+.hostScreen #controlButtons{
+  display:flex!important;
+  align-items:stretch!important;
+  gap:10px!important;
+}
+.hostScreen #startBtn{order:1!important;flex:1 1 160px!important;min-height:48px!important;}
+.hostScreen #clearLobbyBtn{order:2!important;flex:1 1 160px!important;}
+.hostScreen #nextStepBtn,
+.hostScreen #nextNightBtn,
+.hostScreen #mayorBtn,
+.hostScreen #startMayorVoteBtn,
+.hostScreen #closeMayorBtn,
+.hostScreen #voteBtn:not(.hidden),
+.hostScreen #closeVoteBtn{
+  order:10!important;
+  flex:1 1 100%!important;
+  min-height:58px!important;
+  font-size:17px!important;
+  font-weight:950!important;
+  justify-content:center!important;
+  text-align:center!important;
+}
+.hostScreen #resolveNightBtn{order:11!important;flex:1 1 100%!important;}
+.hostScreen #resetBtn{
+  order:99!important;
+  flex:0 1 145px!important;
+  min-height:42px!important;
+  margin-left:auto!important;
+  opacity:.82;
+}
+.hostScreen #resetBtn:hover{opacity:1;}
+.hostScreen #resetBtn.pulseConfirm{opacity:1;}
+
+/* Algemene compacte, midden-gecentreerde spelertegel-grids. */
+.playerChoices,
+.bigChoices,
+.infoCandidatesCentral,
+.infoVoters,
+.viewerPlayers,
+.winnerCards{
+  transform-origin:top center!important;
+  margin-left:auto!important;
+  margin-right:auto!important;
+  justify-content:center!important;
+  align-content:center!important;
+}
+body.playerScreen.inGame .playerChoices,
+body.playerScreen.inGame .bigChoices{
+  max-width:min(1500px,calc(100vw - 76px))!important;
+  grid-template-columns:repeat(auto-fit,minmax(clamp(86px,9vw,180px),1fr))!important;
+  gap:clamp(5px,.75vw,12px)!important;
+}
+body.playerScreen.inGame .playerChoices .choice,
+body.playerScreen.inGame .bigChoices .choice{
+  min-height:clamp(38px,6vh,64px)!important;
+  padding:clamp(6px,.9vw,12px)!important;
+  font-size:clamp(11px,.9vw,17px)!important;
+  text-align:center!important;
+}
+body.playerScreen.inGame .playerChoices .choice .targetName{justify-content:center!important;}
+body.playerScreen.inGame .playerCenter.action-mayor_vote .playerChoices{
+  width:min(760px,calc(100vw - 110px))!important;
+  max-width:min(760px,calc(100vw - 110px))!important;
+  grid-template-columns:repeat(auto-fit,minmax(160px,240px))!important;
+  justify-content:center!important;
+}
+body.playerScreen.inGame .playerCenter.action-mayor_vote .playerChoices .choice{
+  width:100%!important;
+  min-height:52px!important;
+}
+@media(max-width:700px){
+  body.playerScreen.inGame .playerChoices,
+  body.playerScreen.inGame .bigChoices{max-width:calc(100vw - 28px)!important;grid-template-columns:repeat(auto-fit,minmax(92px,1fr))!important;}
+  body.playerScreen.inGame .playerCenter.action-mayor_vote .playerChoices{width:min(430px,calc(100vw - 32px))!important;max-width:min(430px,calc(100vw - 32px))!important;grid-template-columns:repeat(auto-fit,minmax(130px,1fr))!important;}
+}
+.infoScreen .viewerPlayers{
+  max-width:min(1360px,calc(100vw - 48px))!important;
+  max-height:min(30svh,330px)!important;
+  overflow:hidden!important;
+}
+.infoScreen .viewerPlayer{
+  font-size:clamp(10px,.85vw,15px)!important;
+  padding:clamp(5px,.55vw,8px) clamp(7px,.75vw,12px)!important;
+}
+.infoCandidatesCentral,
+.infoVoters{max-width:min(1320px,calc(100vw - 60px))!important;}
+
+/* Burgemeester-resultaat op playerscherm: twee vaste nette regels. */
+body.playerScreen.inGame .mayorResultPlayerTitle{
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  gap:.03em!important;
+  width:100%!important;
+  max-width:calc(100vw - 36px)!important;
+  margin-left:auto!important;
+  margin-right:auto!important;
+  white-space:normal!important;
+  line-height:.96!important;
+  font-size:clamp(30px,5.2vw,72px)!important;
+}
+body.playerScreen.inGame .mayorResultPlayerTitle span{
+  display:block!important;
+  white-space:nowrap!important;
+  text-align:center!important;
+}
+@media(max-width:620px){
+  body.playerScreen.inGame .mayorResultPlayerTitle{font-size:clamp(24px,8vw,42px)!important;}
+}
+
+/* Dorp-winnaarscherm: verslagen wolven als compact rechtervak. */
+.infoScreen .winnerStage.hasDefeated{
+  width:min(1380px,100%)!important;
+  max-height:calc(100svh - 190px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerLayout{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) clamp(230px,24vw,360px)!important;
+  align-items:center!important;
+  gap:clamp(18px,3vw,54px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves{
+  width:100%!important;
+  max-width:360px!important;
+  min-height:clamp(230px,33vh,390px)!important;
+  justify-self:end!important;
+  align-self:center!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:center!important;
+  padding:clamp(12px,1.4vw,20px)!important;
+  margin:0 clamp(8px,1vw,20px) 0 0!important;
+  border-radius:0!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerCards.small{
+  width:100%!important;
+  display:grid!important;
+  grid-template-columns:repeat(auto-fit,minmax(86px,1fr))!important;
+  place-items:center!important;
+  gap:clamp(8px,1vw,14px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerPlayerCard{
+  width:clamp(82px,9vw,128px)!important;
+  max-width:128px!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerRoleCard{max-height:150px!important;}
+@media(max-width:900px){
+  .infoScreen .winnerStage.hasDefeated .winnerLayout{grid-template-columns:1fr!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolves{justify-self:center!important;margin:0!important;max-width:min(420px,92vw)!important;min-height:0!important;}
+}
+
+/* v0.3.42 — robuuste reveal-timing, rustigere dagstemming en schaalbare eindschermen */
+.infoScreen .viewerHero.day{
+  padding-bottom:clamp(86px,10vh,128px)!important;
+}
+.infoScreen .viewerHero.day .viewerPlayers{
+  bottom:clamp(34px,4.2vh,58px)!important;
+  width:min(1320px,calc(100vw - 84px))!important;
+  gap:clamp(6px,.75vw,10px)!important;
+  justify-content:center!important;
+  align-items:center!important;
+}
+.infoScreen .viewerHero.day .viewerPlayer{
+  line-height:1.1!important;
+}
+
+/* Open dagstemming: eerst grafiek smooth naar rechts, daarna pas kaart links tonen. */
+.dayVoteResultStage.hasReveal{
+  width:min(1280px,100%)!important;
+  grid-template-columns:minmax(240px,34%) minmax(0,1fr)!important;
+  gap:clamp(18px,3vw,46px)!important;
+  align-items:center!important;
+  transition:none!important;
+}
+.dayVoteResultStage.hasReveal:not(.revealReady) .dayVoteRevealColumn{
+  width:0!important;
+  min-width:0!important;
+  height:0!important;
+  opacity:0!important;
+  overflow:hidden!important;
+  transform:scale(.92) translateX(-14px)!important;
+  padding:0!important;
+  margin:0!important;
+}
+.dayVoteResultStage.hasReveal:not(.revealReady) .dayVoteGraphColumn{
+  grid-column:1 / -1!important;
+  grid-row:1!important;
+  justify-self:center!important;
+  width:min(820px,100%)!important;
+  transform:none!important;
+  animation:none!important;
+}
+.dayVoteResultStage.hasReveal.revealReady .dayVoteRevealColumn{
+  grid-column:1!important;
+  grid-row:1!important;
+  width:auto!important;
+  height:auto!important;
+  opacity:1!important;
+  overflow:visible!important;
+  transform:none!important;
+}
+.dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn{
+  grid-column:2!important;
+  grid-row:1!important;
+  justify-self:stretch!important;
+  width:100%!important;
+  animation:dayVoteGraphGlideRight041 1.5s cubic-bezier(.18,.82,.2,1) both!important;
+  will-change:transform,opacity;
+}
+.dayVoteResultStage.hasReveal.revealReady:not(.cardReady) .dayElimReveal{
+  visibility:hidden!important;
+  display:flex!important;
+  opacity:0!important;
+  transform:scale(.78)!important;
+}
+.dayVoteResultStage.hasReveal.cardReady .dayElimReveal:not(.hidden){
+  visibility:visible!important;
+  display:flex!important;
+  animation:dayElimPop041 .7s cubic-bezier(.16,1.28,.24,1) both!important;
+  will-change:transform,opacity,filter;
+}
+@keyframes dayVoteGraphGlideRight041{
+  0%{opacity:1;transform:translateX(clamp(-280px,-21vw,-80px)) scale(1.01);filter:none;}
+  100%{opacity:1;transform:translateX(0) scale(1);filter:none;}
+}
+@keyframes dayElimPop041{
+  0%{opacity:0;transform:scale(.48) translateY(10px);filter:brightness(1.22) blur(.6px);}
+  65%{opacity:1;transform:scale(1.045) translateY(0);filter:brightness(1.06) blur(0);}
+  100%{opacity:1;transform:scale(1) translateY(0);filter:brightness(1);}
+}
+@media(max-width:840px){
+  .dayVoteResultStage.hasReveal,
+  .dayVoteResultStage.hasReveal.revealReady{grid-template-columns:1fr!important;gap:14px!important;}
+  .dayVoteResultStage.hasReveal.revealReady .dayVoteRevealColumn,
+  .dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn{grid-column:1!important;}
+  .dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn{animation:none!important;}
+}
+
+/* Eindscherm: grote groepen blijven gecentreerd en verslagen wolven is een echte rechterkolom. */
+.infoScreen .winnerStage{
+  width:min(1540px,calc(100vw - 70px))!important;
+  max-height:calc(100svh - 160px)!important;
+  gap:clamp(8px,1.2vh,14px)!important;
+}
+.infoScreen .winnerTopRow{
+  width:100%!important;
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) clamp(230px,22vw,360px)!important;
+  align-items:end!important;
+  column-gap:clamp(22px,4vw,74px)!important;
+}
+.infoScreen .winnerTopRow>h3{
+  margin:0!important;
+  color:#ffe9bd!important;
+  text-transform:uppercase!important;
+  font-size:clamp(22px,3.1vw,48px)!important;
+  text-align:center!important;
+}
+.infoScreen .defeatedWolvesTitle{
+  margin:0!important;
+  color:#ffd2d8!important;
+  text-transform:uppercase!important;
+  font-size:clamp(15px,1.65vw,24px)!important;
+  text-align:center!important;
+  justify-self:stretch!important;
+}
+.infoScreen .winnerLayout{
+  width:100%!important;
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) clamp(230px,22vw,360px)!important;
+  align-items:start!important;
+  column-gap:clamp(22px,4vw,74px)!important;
+}
+.infoScreen .winnerCards.mainWinnerCards{
+  width:100%!important;
+  display:flex!important;
+  flex-wrap:wrap!important;
+  justify-content:center!important;
+  align-content:center!important;
+  align-items:flex-start!important;
+  gap:var(--winner-card-gap,10px)!important;
+  max-height:calc(100svh - 430px)!important;
+  overflow:hidden!important;
+}
+.infoScreen .winnerCards.mainWinnerCards .winnerPlayerCard{
+  width:var(--winner-card-w,120px)!important;
+  max-width:var(--winner-card-w,120px)!important;
+  min-width:0!important;
+  padding:clamp(3px,.6vw,8px)!important;
+}
+.infoScreen .winnerPlayerCard h3{
+  font-size:clamp(8px,var(--winner-name-size,14px),20px)!important;
+  line-height:1.05!important;
+  margin:0 0 clamp(2px,.4vw,6px)!important;
+  white-space:nowrap!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+}
+.infoScreen .winnerRoleCard{
+  width:100%!important;
+  max-height:min(28vh,calc(var(--winner-card-w,120px) * 1.52))!important;
+  object-fit:contain!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves{
+  width:100%!important;
+  max-width:none!important;
+  justify-self:end!important;
+  align-self:start!important;
+  min-height:clamp(210px,34vh,380px)!important;
+  margin:0!important;
+  border-radius:0!important;
+  padding:clamp(10px,1.3vw,18px)!important;
+  display:flex!important;
+  flex-direction:column!important;
+  justify-content:center!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerCards.small{
+  display:flex!important;
+  flex-wrap:wrap!important;
+  align-items:flex-start!important;
+  justify-content:center!important;
+  align-content:center!important;
+  gap:var(--winner-card-gap,8px)!important;
+  width:100%!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerPlayerCard{
+  width:var(--winner-card-w,92px)!important;
+  max-width:var(--winner-card-w,92px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerRoleCard{
+  max-height:min(150px,calc(var(--winner-card-w,92px) * 1.55))!important;
+}
+@media(max-width:900px){
+  .infoScreen .winnerTopRow,
+  .infoScreen .winnerLayout{grid-template-columns:1fr!important;row-gap:12px!important;}
+  .infoScreen .defeatedWolvesTitle{margin-top:8px!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolves{justify-self:center!important;max-width:min(420px,92vw)!important;min-height:0!important;}
+  .infoScreen .winnerCards.mainWinnerCards{max-height:none!important;}
+}
+
+/* v0.3.42 — reveal-locks, vloeiende dagstemmingovergang en finale layout-correctie */
+.hostScreen .btn.revealLocked,
+.hostScreen button.revealLocked{
+  opacity:.52!important;
+  cursor:not-allowed!important;
+  filter:saturate(.75)!important;
+}
+
+/* Open dagstemming: geen grid-column knip meer; grafiek staat al in de rechterkolom en glijdt met transform. */
+.dayVoteResultStage.hasReveal{
+  width:min(1280px,100%)!important;
+  display:grid!important;
+  grid-template-columns:minmax(220px,34%) minmax(0,1fr)!important;
+  gap:clamp(18px,3vw,46px)!important;
+  align-items:center!important;
+  transition:none!important;
+  contain:layout paint;
+}
+.dayVoteResultStage.hasReveal .dayVoteRevealColumn{
+  grid-column:1!important;
+  grid-row:1!important;
+  width:auto!important;
+  height:auto!important;
+  min-width:0!important;
+  min-height:clamp(190px,32vh,380px)!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  overflow:visible!important;
+  transform:scale(.78) translateY(8px)!important;
+  transition:opacity .55s ease, transform .72s cubic-bezier(.16,1.28,.24,1), visibility 0s linear .55s!important;
+  will-change:opacity,transform;
+}
+.dayVoteResultStage.hasReveal .dayVoteGraphColumn{
+  grid-column:2!important;
+  grid-row:1!important;
+  justify-self:stretch!important;
+  width:100%!important;
+  transform:translateX(clamp(-320px,-20vw,-96px)) scale(1)!important;
+  transition:transform 1.5s cubic-bezier(.18,.82,.2,1)!important;
+  animation:none!important;
+  will-change:transform;
+}
+.dayVoteResultStage.hasReveal:not(.revealReady) .dayVoteRevealColumn{
+  pointer-events:none!important;
+}
+.dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn,
+.dayVoteResultStage.hasReveal.cardReady .dayVoteGraphColumn{
+  transform:translateX(0) scale(1)!important;
+  animation:none!important;
+}
+.dayVoteResultStage.hasReveal.cardReady .dayVoteRevealColumn{
+  opacity:1!important;
+  visibility:visible!important;
+  transform:scale(1) translateY(0)!important;
+  transition:opacity .55s ease, transform .72s cubic-bezier(.16,1.28,.24,1), visibility 0s!important;
+}
+.dayVoteResultStage.hasReveal .dayElimReveal,
+.dayVoteResultStage.hasReveal .dayElimReveal.hidden{
+  display:flex!important;
+  visibility:inherit!important;
+  opacity:1!important;
+  animation:none!important;
+}
+.dayVoteResultStage.hasReveal.cardReady .dayElimReveal:not(.hidden){
+  animation:dayElimPop042 .72s cubic-bezier(.16,1.28,.24,1) both!important;
+}
+@keyframes dayElimPop042{
+  0%{opacity:0;transform:scale(.56) translateY(10px);filter:brightness(1.18) blur(.4px)}
+  70%{opacity:1;transform:scale(1.035) translateY(0);filter:brightness(1.04) blur(0)}
+  100%{opacity:1;transform:scale(1) translateY(0);filter:brightness(1)}
+}
+.infoScreen .viewerHero.day .viewerPlayers{
+  bottom:clamp(42px,5vh,72px)!important;
+  transition:none!important;
+}
+.infoScreen .viewerHero.day .viewerPlayer{
+  transition:background-color .38s ease,border-color .38s ease,box-shadow .38s ease,color .38s ease,opacity .38s ease!important;
+}
+@media(max-width:840px){
+  .dayVoteResultStage.hasReveal{grid-template-columns:1fr!important;gap:14px!important;contain:none;}
+  .dayVoteResultStage.hasReveal .dayVoteRevealColumn,
+  .dayVoteResultStage.hasReveal .dayVoteGraphColumn{grid-column:1!important;grid-row:auto!important;transform:none!important;}
+  .dayVoteResultStage.hasReveal .dayVoteRevealColumn{order:2;min-height:0!important;}
+  .dayVoteResultStage.hasReveal .dayVoteGraphColumn{order:1;}
+}
+
+/* Dorp-winst: het dorp blijft visueel in het midden; verslagen wolven staat als losse rechterkolom. */
+.infoScreen .winnerStage.hasDefeated{
+  width:min(1540px,calc(100vw - 70px))!important;
+  position:relative!important;
+  max-height:calc(100svh - 150px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerTopRow{
+  display:block!important;
+  position:relative!important;
+  width:100%!important;
+  min-height:clamp(30px,4vh,48px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerTopRow>h3{
+  width:min(980px,calc(100% - clamp(320px,27vw,430px)))!important;
+  margin:0 auto!important;
+  text-align:center!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle{
+  position:absolute!important;
+  right:clamp(10px,1vw,22px)!important;
+  top:50%!important;
+  transform:translateY(-50%)!important;
+  width:clamp(240px,22vw,360px)!important;
+  text-align:center!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerLayout{
+  display:block!important;
+  position:relative!important;
+  width:100%!important;
+  min-height:clamp(230px,42vh,520px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerCards.mainWinnerCards{
+  width:min(980px,calc(100% - clamp(320px,27vw,430px)))!important;
+  max-width:min(980px,calc(100% - clamp(320px,27vw,430px)))!important;
+  margin:0 auto!important;
+  justify-content:center!important;
+  align-content:center!important;
+  max-height:calc(100svh - 410px)!important;
+  overflow:hidden!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves{
+  position:absolute!important;
+  right:clamp(10px,1vw,22px)!important;
+  top:0!important;
+  width:clamp(240px,22vw,360px)!important;
+  max-width:clamp(240px,22vw,360px)!important;
+  min-height:clamp(210px,34vh,390px)!important;
+  margin:0!important;
+  justify-content:center!important;
+}
+@media(max-width:1050px){
+  .infoScreen .winnerStage.hasDefeated .winnerTopRow>h3,
+  .infoScreen .winnerStage.hasDefeated .winnerCards.mainWinnerCards{width:min(680px,calc(100% - 300px))!important;max-width:min(680px,calc(100% - 300px))!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle,
+  .infoScreen .winnerStage.hasDefeated .defeatedWolves{width:260px!important;max-width:260px!important;}
+}
+@media(max-width:900px){
+  .infoScreen .winnerStage.hasDefeated .winnerTopRow{display:flex!important;flex-direction:column!important;gap:10px!important;}
+  .infoScreen .winnerStage.hasDefeated .winnerTopRow>h3{width:100%!important;max-width:100%!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle{position:static!important;transform:none!important;width:100%!important;}
+  .infoScreen .winnerStage.hasDefeated .winnerLayout{display:flex!important;flex-direction:column!important;align-items:center!important;gap:14px!important;min-height:0!important;}
+  .infoScreen .winnerStage.hasDefeated .winnerCards.mainWinnerCards{width:100%!important;max-width:100%!important;max-height:none!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolves{position:static!important;width:min(420px,92vw)!important;max-width:min(420px,92vw)!important;min-height:0!important;}
+}
+/* Stemgrafieken: balkcontainers zelf poppen niet meer los van de teller, zodat teller en hoogte synchroon voelen. */
+.mayorResultBars .mayorResultBar{animation:none!important;opacity:1!important;}
+
+/* v0.3.44 — reset veiliger, dagstemming-slide zonder knip, counters synchroon en winnaar-layout verfijnd */
+.hostScreen #controlCard{
+  position:relative!important;
+  padding-top:16px!important;
+}
+.hostScreen #controlCard>h2{
+  padding-right:150px!important;
+}
+.hostScreen #controlButtons{
+  padding-top:8px!important;
+}
+.hostScreen #resetBtn{
+  position:absolute!important;
+  top:14px!important;
+  right:16px!important;
+  z-index:3!important;
+  order:0!important;
+  flex:none!important;
+  min-height:34px!important;
+  padding:6px 11px!important;
+  font-size:12px!important;
+  opacity:.72!important;
+  border-radius:11px!important;
+  box-shadow:0 0 0 rgba(228,59,79,0)!important;
+}
+.hostScreen #resetBtn:hover,
+.hostScreen #resetBtn.pulseConfirm{
+  opacity:1!important;
+}
+
+/* Infoscherm: onderste spelerstatus-vakjes blijven los van de rand en worden niet meer afgeknipt. */
+.infoScreen .viewerPlayers{
+  bottom:clamp(54px,6.2vh,88px)!important;
+  width:min(1320px,calc(100vw - 96px))!important;
+  max-height:clamp(82px,18vh,180px)!important;
+  padding:0 6px 10px!important;
+  overflow:visible!important;
+  align-content:center!important;
+  justify-content:center!important;
+}
+.infoScreen .viewerHero.day .viewerPlayers{
+  bottom:clamp(58px,6.6vh,92px)!important;
+  padding-bottom:12px!important;
+}
+
+/* Dagstemming reveal: alleen het bestaande grafiek/tekstblok schuift met transform; geen grid-column/remount-knip. */
+.dayVoteResultStage.hasReveal{
+  position:relative!important;
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  width:min(1280px,100%)!important;
+  min-height:clamp(300px,43vh,520px)!important;
+  margin:0 auto!important;
+  gap:0!important;
+  align-items:center!important;
+  justify-items:center!important;
+  contain:none!important;
+  overflow:visible!important;
+}
+.dayVoteResultStage.hasReveal .dayVoteGraphColumn{
+  grid-column:1!important;
+  grid-row:1!important;
+  justify-self:center!important;
+  width:min(820px,58vw)!important;
+  max-width:min(820px,58vw)!important;
+  transform:translateX(0) scale(1)!important;
+  transition:transform 1.5s cubic-bezier(.18,.82,.2,1)!important;
+  animation:none!important;
+  will-change:transform;
+  z-index:2!important;
+}
+.dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn,
+.dayVoteResultStage.hasReveal.cardReady .dayVoteGraphColumn{
+  transform:translateX(clamp(185px,20vw,330px)) scale(.98)!important;
+  animation:none!important;
+}
+.dayVoteResultStage.hasReveal .dayVoteRevealColumn{
+  position:absolute!important;
+  left:clamp(18px,4vw,76px)!important;
+  top:50%!important;
+  width:clamp(210px,28vw,360px)!important;
+  min-height:0!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  transform:translateY(-50%) scale(.82)!important;
+  transition:opacity .48s ease, transform .68s cubic-bezier(.16,1.28,.24,1), visibility 0s linear .48s!important;
+  pointer-events:none!important;
+  overflow:visible!important;
+  z-index:1!important;
+}
+.dayVoteResultStage.hasReveal.cardReady .dayVoteRevealColumn{
+  opacity:1!important;
+  visibility:visible!important;
+  transform:translateY(-50%) scale(1)!important;
+  transition:opacity .48s ease, transform .68s cubic-bezier(.16,1.28,.24,1), visibility 0s!important;
+}
+.dayVoteResultStage.hasReveal .dayElimReveal,
+.dayVoteResultStage.hasReveal .dayElimReveal.hidden{
+  display:flex!important;
+  visibility:inherit!important;
+  opacity:1!important;
+  animation:none!important;
+  width:100%!important;
+}
+.dayVoteResultStage.hasReveal.cardReady .dayElimReveal:not(.hidden){
+  animation:dayElimPop044 .7s cubic-bezier(.16,1.28,.24,1) both!important;
+}
+@keyframes dayElimPop044{
+  0%{opacity:0;transform:scale(.58) translateY(10px);filter:brightness(1.16) blur(.35px)}
+  68%{opacity:1;transform:scale(1.03) translateY(0);filter:brightness(1.04) blur(0)}
+  100%{opacity:1;transform:scale(1) translateY(0);filter:brightness(1)}
+}
+@media(max-width:840px){
+  .dayVoteResultStage.hasReveal{min-height:auto!important;display:flex!important;flex-direction:column!important;gap:14px!important;}
+  .dayVoteResultStage.hasReveal .dayVoteGraphColumn,
+  .dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn,
+  .dayVoteResultStage.hasReveal.cardReady .dayVoteGraphColumn{width:100%!important;max-width:100%!important;transform:none!important;}
+  .dayVoteResultStage.hasReveal .dayVoteRevealColumn{position:relative!important;left:auto!important;top:auto!important;transform:scale(.82)!important;width:min(320px,88vw)!important;order:2!important;}
+  .dayVoteResultStage.hasReveal.cardReady .dayVoteRevealColumn{transform:scale(1)!important;}
+}
+
+/* Winnaarsscherm: dorp blijft midden; verslagen wolven wordt een losse rechtersectie met dezelfde titelstijl. */
+.infoScreen .winnerStage.hasDefeated{
+  width:min(1580px,calc(100vw - 72px))!important;
+  max-height:calc(100svh - 150px)!important;
+  position:relative!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerTopRow{
+  display:block!important;
+  position:relative!important;
+  width:100%!important;
+  min-height:clamp(36px,5vh,62px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerTopRow>h3{
+  width:min(980px,calc(100% - clamp(380px,30vw,520px)))!important;
+  max-width:980px!important;
+  margin:0 auto!important;
+  text-align:center!important;
+  font-size:clamp(24px,3.1vw,52px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle{
+  position:absolute!important;
+  top:50%!important;
+  right:clamp(32px,3vw,74px)!important;
+  transform:translateY(-50%)!important;
+  width:clamp(300px,25vw,440px)!important;
+  margin:0!important;
+  text-align:center!important;
+  color:#ffe9bd!important;
+  text-transform:uppercase!important;
+  font-size:clamp(24px,3.1vw,52px)!important;
+  line-height:1!important;
+  font-family:Georgia,"Palatino Linotype","Book Antiqua",Palatino,serif!important;
+  text-shadow:0 3px 0 #0008,0 0 25px rgba(255,226,178,.18)!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerLayout{
+  display:block!important;
+  position:relative!important;
+  width:100%!important;
+  min-height:clamp(250px,45vh,560px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerCards.mainWinnerCards{
+  width:min(980px,calc(100% - clamp(390px,31vw,540px)))!important;
+  max-width:980px!important;
+  margin:0 auto!important;
+  justify-content:center!important;
+  align-content:center!important;
+  align-items:flex-start!important;
+  max-height:calc(100svh - 415px)!important;
+  overflow:hidden!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves{
+  position:absolute!important;
+  top:0!important;
+  right:clamp(32px,3vw,74px)!important;
+  width:clamp(300px,25vw,440px)!important;
+  max-width:clamp(300px,25vw,440px)!important;
+  min-height:clamp(230px,36vh,420px)!important;
+  margin:0!important;
+  padding:clamp(14px,1.6vw,24px)!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border-radius:0!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerCards.small{
+  width:100%!important;
+  min-height:100%!important;
+  display:flex!important;
+  flex-wrap:wrap!important;
+  justify-content:center!important;
+  align-items:center!important;
+  align-content:center!important;
+}
+@media(max-width:1050px){
+  .infoScreen .winnerStage.hasDefeated .winnerTopRow>h3,
+  .infoScreen .winnerStage.hasDefeated .winnerCards.mainWinnerCards{width:min(680px,calc(100% - 310px))!important;max-width:min(680px,calc(100% - 310px))!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle,
+  .infoScreen .winnerStage.hasDefeated .defeatedWolves{right:16px!important;width:280px!important;max-width:280px!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle{font-size:clamp(20px,2.6vw,36px)!important;}
+}
+@media(max-width:780px){
+  .infoScreen .winnerStage.hasDefeated .winnerTopRow{display:flex!important;flex-direction:column!important;align-items:center!important;gap:12px!important;}
+  .infoScreen .winnerStage.hasDefeated .winnerTopRow>h3,
+  .infoScreen .winnerStage.hasDefeated .winnerCards.mainWinnerCards{width:100%!important;max-width:100%!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle,
+  .infoScreen .winnerStage.hasDefeated .defeatedWolves{position:relative!important;right:auto!important;top:auto!important;transform:none!important;width:min(420px,92vw)!important;max-width:min(420px,92vw)!important;margin:0 auto!important;}
+  .infoScreen .winnerStage.hasDefeated .winnerLayout{display:flex!important;flex-direction:column!important;gap:14px!important;}
+}
+
+/* v0.3.45 — laatste polish: reset puntig, dagstemming compositie, spelerbalk gecentreerd, wolvenvak rechts en stemgrafiek gelijke stijgsnelheid. */
+.hostScreen #resetBtn{
+  border-radius:0!important;
+}
+
+/* Infoscherm onderste spelerstatus: als groep exact rond het midden houden, ook wanneer JS moet schalen. */
+.infoScreen .viewerPlayers{
+  left:50%!important;
+  right:auto!important;
+  transform:translateX(-50%)!important;
+  margin-left:0!important;
+  margin-right:0!important;
+  justify-content:center!important;
+  align-content:center!important;
+  text-align:center!important;
+  bottom:clamp(62px,7vh,100px)!important;
+  padding-bottom:14px!important;
+}
+
+/* Dagstemming reveal: de rechter grafiek gaat minder ver; kaart + grafiek vormen samen een gecentreerde compositie. */
+.dayVoteResultStage.hasReveal{
+  width:min(1180px,100%)!important;
+}
+.dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn,
+.dayVoteResultStage.hasReveal.cardReady .dayVoteGraphColumn{
+  transform:translateX(clamp(110px,12vw,205px)) scale(.985)!important;
+}
+.dayVoteResultStage.hasReveal .dayVoteRevealColumn{
+  left:clamp(70px,11vw,190px)!important;
+  width:clamp(190px,22vw,315px)!important;
+}
+@media(max-width:840px){
+  .dayVoteResultStage.hasReveal .dayVoteRevealColumn{left:auto!important;width:min(320px,88vw)!important;}
+}
+
+/* Het Dorp wint: dorp blijft gecentreerd; Verslagen wolven is een compacte sectie helemaal rechts. */
+.infoScreen .winnerStage.hasDefeated{
+  width:min(1620px,calc(100vw - 56px))!important;
+  position:relative!important;
+  margin-left:auto!important;
+  margin-right:auto!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerTopRow{
+  position:relative!important;
+  display:block!important;
+  min-height:clamp(42px,5.6vh,70px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerTopRow>h3{
+  width:min(900px,calc(100vw - 720px))!important;
+  max-width:min(900px,calc(100vw - 720px))!important;
+  min-width:360px!important;
+  margin:0 auto!important;
+  text-align:center!important;
+  font-size:clamp(24px,3.1vw,52px)!important;
+  line-height:1!important;
+  white-space:nowrap!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle{
+  position:absolute!important;
+  top:50%!important;
+  right:clamp(22px,2.2vw,52px)!important;
+  transform:translateY(-50%)!important;
+  width:min(560px,38vw)!important;
+  max-width:min(560px,38vw)!important;
+  margin:0!important;
+  padding:0!important;
+  text-align:center!important;
+  color:#ffe9bd!important;
+  text-transform:uppercase!important;
+  white-space:nowrap!important;
+  font-size:clamp(24px,3.1vw,52px)!important;
+  line-height:1!important;
+  font-family:Georgia,"Palatino Linotype","Book Antiqua",Palatino,serif!important;
+  text-shadow:0 3px 0 #0008,0 0 25px rgba(255,226,178,.18)!important;
+  z-index:5!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerLayout{
+  display:block!important;
+  position:relative!important;
+  width:100%!important;
+  min-height:clamp(250px,45vh,560px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .winnerCards.mainWinnerCards{
+  width:min(900px,calc(100vw - 720px))!important;
+  max-width:min(900px,calc(100vw - 720px))!important;
+  min-width:360px!important;
+  margin:0 auto!important;
+  justify-content:center!important;
+  align-content:center!important;
+  align-items:flex-start!important;
+  overflow:hidden!important;
+  max-height:calc(100svh - 415px)!important;
+  z-index:2!important;
+  position:relative!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves{
+  position:absolute!important;
+  top:0!important;
+  right:clamp(52px,5vw,96px)!important;
+  width:var(--defeated-panel-w,190px)!important;
+  max-width:var(--defeated-panel-w,190px)!important;
+  min-height:var(--defeated-panel-h,220px)!important;
+  height:auto!important;
+  margin:0!important;
+  padding:var(--defeated-pad,18px)!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border-radius:0!important;
+  box-shadow:0 0 38px rgba(150,18,38,.42)!important;
+  z-index:4!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerCards.small{
+  width:auto!important;
+  max-width:100%!important;
+  min-height:0!important;
+  display:grid!important;
+  grid-template-columns:repeat(var(--defeated-cols,1), var(--winner-card-w,98px))!important;
+  gap:var(--winner-card-gap,14px)!important;
+  justify-content:center!important;
+  align-content:center!important;
+  align-items:start!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerPlayerCard{
+  width:var(--winner-card-w,98px)!important;
+  max-width:var(--winner-card-w,98px)!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerRoleCard{
+  max-height:calc(var(--winner-card-w,98px) * 1.55)!important;
+}
+@media(max-width:1280px){
+  .infoScreen .winnerStage.hasDefeated .winnerTopRow>h3,
+  .infoScreen .winnerStage.hasDefeated .winnerCards.mainWinnerCards{
+    width:min(760px,calc(100vw - 560px))!important;
+    max-width:min(760px,calc(100vw - 560px))!important;
+    min-width:320px!important;
+  }
+  .infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle{font-size:clamp(22px,2.65vw,42px)!important;right:28px!important;width:min(460px,39vw)!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolves{right:36px!important;}
+}
+@media(max-width:900px){
+  .infoScreen .winnerStage.hasDefeated .winnerTopRow{display:flex!important;flex-direction:column!important;align-items:center!important;gap:12px!important;}
+  .infoScreen .winnerStage.hasDefeated .winnerTopRow>h3,
+  .infoScreen .winnerStage.hasDefeated .winnerCards.mainWinnerCards{width:100%!important;max-width:100%!important;min-width:0!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle,
+  .infoScreen .winnerStage.hasDefeated .defeatedWolves{position:relative!important;right:auto!important;top:auto!important;transform:none!important;margin:0 auto!important;}
+  .infoScreen .winnerStage.hasDefeated .defeatedWolvesTitle{width:100%!important;max-width:100%!important;}
+  .infoScreen .winnerStage.hasDefeated .winnerLayout{display:flex!important;flex-direction:column!important;gap:14px!important;align-items:center!important;}
+}
+
+/* v0.3.46 — stabiliteit: echte gecentreerde spelerstatus, vloeiende reveal-containers en gescheiden winnaar-sidebar. */
+
+/* Infoscherm: de onderste spelernaam-vakjes zijn een full-width rij, geen links-geankerde transform-container. */
+body.infoScreen .infoContent{
+  width:100%!important;
+  max-width:none!important;
+}
+body.infoScreen .viewerHero .viewerPlayers,
+body.infoScreen .viewerHero.day .viewerPlayers,
+body.infoScreen .viewerHero.night .viewerPlayers{
+  position:absolute!important;
+  left:0!important;
+  right:0!important;
+  width:100%!important;
+  max-width:none!important;
+  margin:0!important;
+  transform:none!important;
+  transform-origin:center bottom!important;
+  bottom:clamp(58px,6.8vh,96px)!important;
+  display:flex!important;
+  flex-wrap:wrap!important;
+  justify-content:center!important;
+  align-items:center!important;
+  align-content:center!important;
+  gap:clamp(7px,.8vw,11px)!important;
+  padding:0 clamp(42px,5vw,96px) 16px!important;
+  overflow:visible!important;
+  text-align:center!important;
+}
+body.infoScreen .viewerHero .viewerPlayer{
+  flex:0 0 auto!important;
+  transition:background-color .36s ease,border-color .36s ease,box-shadow .36s ease,color .36s ease,opacity .36s ease!important;
+}
+
+/* Dagstemming reveal: zelfde DOM-elementen blijven staan; alleen transform/opacity veranderen. */
+.dayVoteResultStage.hasReveal{
+  position:relative!important;
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  width:min(1180px,100%)!important;
+  min-height:clamp(300px,43vh,520px)!important;
+  margin:0 auto!important;
+  gap:0!important;
+  align-items:center!important;
+  justify-items:center!important;
+  contain:none!important;
+  overflow:visible!important;
+  isolation:isolate!important;
+}
+.dayVoteResultStage.hasReveal .dayVoteGraphColumn{
+  grid-column:1!important;
+  grid-row:1!important;
+  justify-self:center!important;
+  width:min(800px,58vw)!important;
+  max-width:min(800px,58vw)!important;
+  transform:translate3d(0,0,0) scale(1)!important;
+  transition:transform 1.5s cubic-bezier(.18,.82,.2,1), opacity .35s ease!important;
+  animation:none!important;
+  will-change:transform;
+  backface-visibility:hidden;
+  z-index:2!important;
+}
+.dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn,
+.dayVoteResultStage.hasReveal.cardReady .dayVoteGraphColumn{
+  transform:translate3d(clamp(110px,11vw,190px),0,0) scale(.985)!important;
+  animation:none!important;
+}
+.dayVoteResultStage.hasReveal .dayVoteRevealColumn{
+  position:absolute!important;
+  left:clamp(92px,13vw,220px)!important;
+  top:50%!important;
+  width:clamp(205px,24vw,330px)!important;
+  min-height:0!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  transform:translate3d(0,-50%,0) scale(.82)!important;
+  transition:opacity .48s ease, transform .68s cubic-bezier(.16,1.28,.24,1), visibility 0s linear .48s!important;
+  pointer-events:none!important;
+  overflow:visible!important;
+  backface-visibility:hidden;
+  z-index:1!important;
+}
+.dayVoteResultStage.hasReveal.cardReady .dayVoteRevealColumn{
+  opacity:1!important;
+  visibility:visible!important;
+  transform:translate3d(0,-50%,0) scale(1)!important;
+  transition:opacity .48s ease, transform .68s cubic-bezier(.16,1.28,.24,1), visibility 0s!important;
+}
+.dayVoteResultStage.hasReveal .dayElimReveal,
+.dayVoteResultStage.hasReveal .dayElimReveal.hidden{
+  display:flex!important;
+  visibility:inherit!important;
+  opacity:1!important;
+  animation:none!important;
+  width:100%!important;
+}
+.dayVoteResultStage.hasReveal.cardReady .dayElimReveal:not(.hidden){
+  animation:dayElimPop046 .7s cubic-bezier(.16,1.28,.24,1) both!important;
+}
+@keyframes dayElimPop046{
+  0%{opacity:0;transform:scale(.58) translateY(10px);filter:brightness(1.16) blur(.35px)}
+  68%{opacity:1;transform:scale(1.03) translateY(0);filter:brightness(1.04) blur(0)}
+  100%{opacity:1;transform:scale(1) translateY(0);filter:brightness(1)}
+}
+@media(max-width:840px){
+  .dayVoteResultStage.hasReveal{min-height:auto!important;display:flex!important;flex-direction:column!important;gap:14px!important;}
+  .dayVoteResultStage.hasReveal .dayVoteGraphColumn,
+  .dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn,
+  .dayVoteResultStage.hasReveal.cardReady .dayVoteGraphColumn{width:100%!important;max-width:100%!important;transform:none!important;}
+  .dayVoteResultStage.hasReveal .dayVoteRevealColumn{position:relative!important;left:auto!important;top:auto!important;transform:scale(.82)!important;width:min(320px,88vw)!important;order:2!important;}
+  .dayVoteResultStage.hasReveal.cardReady .dayVoteRevealColumn{transform:scale(1)!important;}
+}
+
+/* Winnaarscherm: centrale dorpssectie staat los van de rechter verslagen-wolven-module. */
+body.infoScreen .winnerStage{
+  width:min(1660px,calc(100vw - 56px))!important;
+  max-width:min(1660px,calc(100vw - 56px))!important;
+  min-height:clamp(320px,50vh,640px)!important;
+  max-height:calc(100svh - 145px)!important;
+  margin:0 auto!important;
+  position:relative!important;
+  display:block!important;
+  gap:0!important;
+  overflow:visible!important;
+}
+body.infoScreen .winnerStage .winnerVillageSection{
+  position:relative!important;
+  z-index:2!important;
+  width:min(980px,100%)!important;
+  max-width:min(980px,100%)!important;
+  margin:0 auto!important;
+  text-align:center!important;
+}
+body.infoScreen .winnerStage.hasDefeated .winnerVillageSection{
+  width:min(940px,calc(100vw - 560px))!important;
+  max-width:min(940px,calc(100vw - 560px))!important;
+  min-width:min(460px,100%)!important;
+}
+body.infoScreen .winnerStage .winnerVillageSection>h3,
+body.infoScreen .winnerStage .winnerDefeatedHeading{
+  margin:0 0 clamp(12px,1.7vh,22px)!important;
+  color:#ffe9bd!important;
+  text-transform:uppercase!important;
+  font-family:Georgia,"Palatino Linotype","Book Antiqua",Palatino,serif!important;
+  line-height:1!important;
+  text-shadow:0 3px 0 #0008,0 0 25px rgba(255,226,178,.18)!important;
+  white-space:nowrap!important;
+}
+body.infoScreen .winnerStage .winnerVillageSection>h3{
+  font-size:clamp(26px,3.25vw,56px)!important;
+}
+body.infoScreen .winnerStage .winnerDefeatedHeading{
+  font-size:clamp(20px,2.25vw,38px)!important;
+  text-align:center!important;
+}
+body.infoScreen .winnerStage .winnerCards.mainWinnerCards{
+  width:100%!important;
+  max-width:100%!important;
+  margin:0 auto!important;
+  display:flex!important;
+  flex-wrap:wrap!important;
+  justify-content:center!important;
+  align-items:flex-start!important;
+  align-content:center!important;
+  gap:var(--winner-card-gap,14px)!important;
+  max-height:calc(100svh - 390px)!important;
+  overflow:hidden!important;
+  transform:none!important;
+}
+body.infoScreen .winnerStage .winnerCards.mainWinnerCards .winnerPlayerCard{
+  width:var(--winner-card-w,148px)!important;
+  min-width:0!important;
+  max-width:var(--winner-card-w,148px)!important;
+  padding:clamp(4px,.7vw,10px)!important;
+}
+body.infoScreen .winnerStage .winnerCards.mainWinnerCards .winnerPlayerCard h3{
+  font-size:var(--winner-name-size,18px)!important;
+  line-height:1.05!important;
+  margin-bottom:5px!important;
+}
+body.infoScreen .winnerStage .winnerCards.mainWinnerCards .winnerRoleCard{
+  width:100%!important;
+  max-height:calc(var(--winner-card-w,148px) * 1.58)!important;
+  object-fit:contain!important;
+}
+body.infoScreen .winnerStage .winnerDefeatedModule{
+  position:absolute!important;
+  top:0!important;
+  right:clamp(28px,4.2vw,82px)!important;
+  z-index:5!important;
+  width:max(var(--defeated-panel-w,170px), clamp(230px,22vw,390px))!important;
+  max-width:min(390px,32vw)!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  pointer-events:none;
+}
+body.infoScreen .winnerStage.hasDefeated .winnerDefeatedModule .defeatedWolves{
+  position:relative!important;
+  top:auto!important;
+  right:auto!important;
+  left:auto!important;
+  transform:none!important;
+  width:var(--defeated-panel-w,170px)!important;
+  max-width:min(var(--defeated-panel-w,170px),100%)!important;
+  min-height:var(--defeated-panel-h,210px)!important;
+  height:auto!important;
+  margin:0 auto!important;
+  padding:var(--defeated-pad,16px)!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border-radius:0!important;
+  background:linear-gradient(180deg,rgba(138,13,36,.72),rgba(64,6,18,.78))!important;
+  border:1px solid rgba(255,92,115,.54)!important;
+  box-shadow:0 0 38px rgba(150,18,38,.42)!important;
+}
+body.infoScreen .winnerStage.hasDefeated .winnerDefeatedModule .winnerCards.small{
+  width:auto!important;
+  max-width:100%!important;
+  min-height:0!important;
+  display:grid!important;
+  grid-template-columns:repeat(var(--defeated-cols,1), var(--winner-card-w,98px))!important;
+  gap:var(--winner-card-gap,10px)!important;
+  justify-content:center!important;
+  align-content:center!important;
+  align-items:start!important;
+  transform:none!important;
+}
+body.infoScreen .winnerStage.hasDefeated .winnerDefeatedModule .winnerPlayerCard{
+  width:var(--winner-card-w,98px)!important;
+  min-width:0!important;
+  max-width:var(--winner-card-w,98px)!important;
+  padding:6px!important;
+}
+body.infoScreen .winnerStage.hasDefeated .winnerDefeatedModule .winnerPlayerCard h3{
+  font-size:var(--winner-name-size,12px)!important;
+  line-height:1.05!important;
+}
+body.infoScreen .winnerStage.hasDefeated .winnerDefeatedModule .winnerRoleCard{
+  width:100%!important;
+  max-height:calc(var(--winner-card-w,98px) * 1.55)!important;
+}
+@media(max-width:1180px){
+  body.infoScreen .winnerStage.hasDefeated .winnerVillageSection{
+    width:min(720px,calc(100vw - 380px))!important;
+    max-width:min(720px,calc(100vw - 380px))!important;
+  }
+  body.infoScreen .winnerStage .winnerDefeatedHeading{font-size:clamp(18px,2.25vw,30px)!important;}
+  body.infoScreen .winnerStage .winnerDefeatedModule{right:18px!important;max-width:310px!important;}
+}
+@media(max-width:900px){
+  body.infoScreen .winnerStage{display:flex!important;flex-direction:column!important;align-items:center!important;gap:16px!important;max-height:none!important;}
+  body.infoScreen .winnerStage.hasDefeated .winnerVillageSection,
+  body.infoScreen .winnerStage .winnerVillageSection{width:100%!important;max-width:100%!important;min-width:0!important;}
+  body.infoScreen .winnerStage .winnerDefeatedModule{position:relative!important;top:auto!important;right:auto!important;width:min(420px,92vw)!important;max-width:min(420px,92vw)!important;margin:0 auto!important;}
+  body.infoScreen .winnerStage .winnerDefeatedHeading{width:100%!important;max-width:100%!important;}
+}
+
+/* v0.3.47 — Winner screen hard separation: keep Het Dorp centered, move Verslagen wolven to a true right sidebar. */
+body.infoScreen #deaths .winnerStage.hasDefeated{
+  width:100%!important;
+  max-width:100%!important;
+  margin:0 auto!important;
+  position:relative!important;
+  display:block!important;
+  overflow:visible!important;
+  isolation:isolate!important;
+}
+body.infoScreen #deaths .winnerStage.hasDefeated .winnerVillageSection{
+  position:relative!important;
+  z-index:2!important;
+  width:min(980px,calc(100vw - clamp(560px,34vw,720px)))!important;
+  max-width:min(980px,calc(100vw - clamp(560px,34vw,720px)))!important;
+  min-width:min(420px,92vw)!important;
+  margin:0 auto!important;
+  text-align:center!important;
+  transform:none!important;
+}
+body.infoScreen #deaths .winnerStage.hasDefeated .winnerVillageSection>h3{
+  margin:0 0 clamp(12px,1.7vh,22px)!important;
+  white-space:nowrap!important;
+  line-height:1!important;
+  position:relative!important;
+  z-index:3!important;
+}
+body.infoScreen #deaths .winnerStage.hasDefeated .winnerCards.mainWinnerCards{
+  width:100%!important;
+  max-width:100%!important;
+  margin:0 auto!important;
+  justify-content:center!important;
+  align-content:center!important;
+  transform:none!important;
+  position:relative!important;
+  z-index:2!important;
+}
+body.infoScreen #deaths .winnerStage.hasDefeated .winnerDefeatedModule{
+  position:absolute!important;
+  top:0!important;
+  right:clamp(36px,4.8vw,92px)!important;
+  left:auto!important;
+  transform:none!important;
+  z-index:6!important;
+  width:clamp(220px,15.5vw,300px)!important;
+  max-width:clamp(220px,15.5vw,300px)!important;
+  min-width:0!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  gap:clamp(10px,1.3vh,16px)!important;
+  margin:0!important;
+  pointer-events:none!important;
+}
+body.infoScreen #deaths .winnerStage.hasDefeated .winnerDefeatedHeading{
+  display:block!important;
+  width:100%!important;
+  max-width:100%!important;
+  margin:0!important;
+  padding:0!important;
+  text-align:center!important;
+  white-space:nowrap!important;
+  overflow:visible!important;
+  line-height:1!important;
+  color:#ffe9bd!important;
+  text-transform:uppercase!important;
+  font-family:Georgia,"Palatino Linotype","Book Antiqua",Palatino,serif!important;
+  font-weight:800!important;
+  letter-spacing:.015em!important;
+  font-size:clamp(18px,1.72vw,32px)!important;
+  text-shadow:0 3px 0 #0008,0 0 25px rgba(255,226,178,.18)!important;
+  transform:none!important;
+  position:relative!important;
+  z-index:7!important;
+}
+body.infoScreen #deaths .winnerStage.hasDefeated .winnerDefeatedModule .defeatedWolves{
+  position:relative!important;
+  top:auto!important;
+  right:auto!important;
+  left:auto!important;
+  transform:none!important;
+  width:var(--defeated-panel-w,150px)!important;
+  max-width:100%!important;
+  min-width:0!important;
+  min-height:var(--defeated-panel-h,190px)!important;
+  height:auto!important;
+  margin:0 auto!important;
+  padding:var(--defeated-pad,18px)!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border-radius:0!important;
+  background:linear-gradient(180deg,rgba(138,13,36,.72),rgba(64,6,18,.78))!important;
+  border:1px solid rgba(255,92,115,.54)!important;
+  box-shadow:0 0 38px rgba(150,18,38,.42)!important;
+}
+body.infoScreen #deaths .winnerStage.hasDefeated .winnerDefeatedModule .winnerCards.small{
+  width:auto!important;
+  max-width:100%!important;
+  display:grid!important;
+  grid-template-columns:repeat(var(--defeated-cols,1), var(--winner-card-w,98px))!important;
+  gap:var(--winner-card-gap,10px)!important;
+  justify-content:center!important;
+  align-content:center!important;
+  align-items:start!important;
+  transform:none!important;
+  margin:0!important;
+}
+body.infoScreen #deaths .winnerStage.hasDefeated .winnerDefeatedModule .winnerPlayerCard{
+  width:var(--winner-card-w,98px)!important;
+  max-width:var(--winner-card-w,98px)!important;
+  min-width:0!important;
+  padding:6px!important;
+  margin:0!important;
+}
+body.infoScreen #deaths .winnerStage.hasDefeated .winnerDefeatedModule .winnerRoleCard{
+  width:100%!important;
+  max-height:calc(var(--winner-card-w,98px) * 1.55)!important;
+  object-fit:contain!important;
+}
+@media(max-width:1280px){
+  body.infoScreen #deaths .winnerStage.hasDefeated .winnerVillageSection{
+    width:min(760px,calc(100vw - 420px))!important;
+    max-width:min(760px,calc(100vw - 420px))!important;
+  }
+  body.infoScreen #deaths .winnerStage.hasDefeated .winnerDefeatedModule{
+    right:clamp(20px,2.4vw,42px)!important;
+    width:clamp(205px,18vw,260px)!important;
+    max-width:clamp(205px,18vw,260px)!important;
+  }
+  body.infoScreen #deaths .winnerStage.hasDefeated .winnerDefeatedHeading{
+    font-size:clamp(16px,1.85vw,25px)!important;
+  }
+}
+@media(max-width:960px){
+  body.infoScreen #deaths .winnerStage.hasDefeated{
+    display:flex!important;
+    flex-direction:column!important;
+    align-items:center!important;
+    gap:16px!important;
+  }
+  body.infoScreen #deaths .winnerStage.hasDefeated .winnerVillageSection{
+    width:100%!important;
+    max-width:100%!important;
+    min-width:0!important;
+  }
+  body.infoScreen #deaths .winnerStage.hasDefeated .winnerDefeatedModule{
+    position:relative!important;
+    top:auto!important;
+    right:auto!important;
+    width:min(420px,92vw)!important;
+    max-width:min(420px,92vw)!important;
+    margin:0 auto!important;
+  }
+}
+
+
+/* v0.3.48 — structural winner-sidebar fix + stable day-vote reveal + composed player-status zone. */
+body.infoScreen .infoContent{
+  position:static!important;
+  width:min(1500px,calc(100vw - clamp(28px,5vw,96px)))!important;
+  max-width:none!important;
+}
+body.infoScreen .viewerHero .viewerPlayers{
+  position:absolute!important;
+  left:50%!important;
+  right:auto!important;
+  bottom:auto!important;
+  width:min(1320px,calc(100vw - clamp(72px,8vw,150px)))!important;
+  max-width:min(1320px,calc(100vw - clamp(72px,8vw,150px)))!important;
+  margin:0!important;
+  padding:0 8px!important;
+  transform:translateX(-50%)!important;
+  transform-origin:center center!important;
+  display:flex!important;
+  flex-wrap:wrap!important;
+  justify-content:center!important;
+  align-items:center!important;
+  align-content:center!important;
+  gap:clamp(7px,.8vw,12px)!important;
+  max-height:clamp(76px,17vh,178px)!important;
+  overflow:visible!important;
+  z-index:12!important;
+  text-align:center!important;
+}
+body.infoScreen .viewerHero .viewerPlayer{
+  flex:0 0 auto!important;
+  padding:clamp(6px,.75vw,10px) clamp(10px,1.1vw,15px)!important;
+  font-size:clamp(11px,.95vw,15px)!important;
+  line-height:1.1!important;
+}
+
+/* Reserve the result text space even while hidden; this prevents a snap before the slide. */
+body.infoScreen .infoMayorResult .voteFinalText{
+  display:block!important;
+  min-height:1.18em!important;
+  opacity:1!important;
+  visibility:visible!important;
+  transition:opacity .34s ease, visibility .34s ease!important;
+  margin-top:0!important;
+  margin-bottom:clamp(10px,1.4vh,18px)!important;
+}
+body.infoScreen .infoMayorResult .voteFinalText.hidden{
+  display:block!important;
+  opacity:0!important;
+  visibility:hidden!important;
+}
+
+/* Dagstemming result: one stable stage; the graph/result group slides with transform only. */
+body.infoScreen #deaths.dayVoteOutput{
+  position:relative!important;
+  left:50%!important;
+  transform:translateX(-50%)!important;
+  width:100vw!important;
+  max-width:100vw!important;
+  display:block!important;
+  margin-top:clamp(12px,1.8vh,28px)!important;
+  overflow:visible!important;
+}
+body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal{
+  position:relative!important;
+  display:grid!important;
+  grid-template-columns:1fr!important;
+  grid-template-rows:1fr!important;
+  align-items:center!important;
+  justify-items:center!important;
+  width:min(1180px,96vw)!important;
+  max-width:min(1180px,96vw)!important;
+  min-height:clamp(315px,42vh,520px)!important;
+  margin:0 auto!important;
+  gap:0!important;
+  overflow:visible!important;
+  contain:none!important;
+  isolation:isolate!important;
+}
+body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal .dayVoteGraphColumn{
+  grid-column:1!important;
+  grid-row:1!important;
+  justify-self:center!important;
+  align-self:center!important;
+  width:min(700px,52vw)!important;
+  max-width:min(700px,52vw)!important;
+  min-width:0!important;
+  transform:translate3d(0,0,0)!important;
+  transition:transform 1.5s cubic-bezier(.18,.82,.2,1), opacity .35s ease!important;
+  animation:none!important;
+  will-change:transform!important;
+  backface-visibility:hidden!important;
+  z-index:4!important;
+}
+body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn,
+body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal.cardReady .dayVoteGraphColumn{
+  transform:translate3d(clamp(72px,7.5vw,132px),0,0)!important;
+}
+body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal .dayVoteRevealColumn{
+  position:absolute!important;
+  left:clamp(62px,10vw,178px)!important;
+  top:50%!important;
+  width:clamp(210px,22vw,330px)!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  transform:translate3d(0,-50%,0) scale(.82)!important;
+  transition:opacity .48s ease, transform .68s cubic-bezier(.16,1.28,.24,1), visibility 0s linear .48s!important;
+  pointer-events:none!important;
+  overflow:visible!important;
+  z-index:3!important;
+}
+body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal.cardReady .dayVoteRevealColumn{
+  opacity:1!important;
+  visibility:visible!important;
+  transform:translate3d(0,-50%,0) scale(1)!important;
+  transition:opacity .48s ease, transform .68s cubic-bezier(.16,1.28,.24,1), visibility 0s!important;
+}
+body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal .dayElimReveal,
+body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal .dayElimReveal.hidden{
+  display:flex!important;
+  visibility:inherit!important;
+  opacity:1!important;
+  animation:none!important;
+  width:100%!important;
+}
+body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal.cardReady .dayElimReveal:not(.hidden){
+  animation:dayElimPop048 .7s cubic-bezier(.16,1.28,.24,1) both!important;
+}
+@keyframes dayElimPop048{
+  0%{opacity:0;transform:scale(.58) translateY(10px);filter:brightness(1.16) blur(.35px)}
+  68%{opacity:1;transform:scale(1.03) translateY(0);filter:brightness(1.04) blur(0)}
+  100%{opacity:1;transform:scale(1) translateY(0);filter:brightness(1)}
+}
+@media(max-width:880px){
+  body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal{display:flex!important;flex-direction:column!important;gap:14px!important;min-height:auto!important;}
+  body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal .dayVoteGraphColumn,
+  body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal.revealReady .dayVoteGraphColumn,
+  body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal.cardReady .dayVoteGraphColumn{width:100%!important;max-width:100%!important;transform:none!important;}
+  body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal .dayVoteRevealColumn{position:relative!important;left:auto!important;top:auto!important;width:min(320px,88vw)!important;order:2!important;transform:scale(.82)!important;}
+  body.infoScreen #deaths.dayVoteOutput .dayVoteResultStage.hasReveal.cardReady .dayVoteRevealColumn{transform:scale(1)!important;}
+}
+
+/* Winner output root becomes viewport-wide, so the right sidebar is not positioned against the central grid. */
+body.infoScreen #deaths.winnerOutput{
+  position:relative!important;
+  left:50%!important;
+  transform:translateX(-50%)!important;
+  width:100vw!important;
+  max-width:100vw!important;
+  display:block!important;
+  margin-top:clamp(14px,2vh,28px)!important;
+  overflow:visible!important;
+}
+body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated{
+  position:relative!important;
+  display:block!important;
+  width:100vw!important;
+  max-width:100vw!important;
+  min-height:clamp(330px,52vh,650px)!important;
+  max-height:calc(100svh - 165px)!important;
+  margin:0!important;
+  overflow:visible!important;
+  isolation:isolate!important;
+  --wolf-sidebar-w:clamp(230px,17vw,310px);
+  --wolf-sidebar-right:clamp(44px,5vw,92px);
+  --village-safe-w:min(760px,calc(100vw - var(--wolf-sidebar-w) - var(--wolf-sidebar-right) - 260px));
+}
+body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerVillageSection{
+  position:relative!important;
+  z-index:2!important;
+  width:var(--village-safe-w)!important;
+  max-width:var(--village-safe-w)!important;
+  min-width:min(420px,92vw)!important;
+  margin:0 auto!important;
+  text-align:center!important;
+  transform:none!important;
+}
+body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerVillageSection>h3{
+  display:block!important;
+  margin:0 0 clamp(12px,1.7vh,22px)!important;
+  white-space:nowrap!important;
+  line-height:1!important;
+  position:relative!important;
+  z-index:3!important;
+}
+body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerCards.mainWinnerCards{
+  width:100%!important;
+  max-width:100%!important;
+  margin:0 auto!important;
+  display:flex!important;
+  flex-wrap:wrap!important;
+  justify-content:center!important;
+  align-items:flex-start!important;
+  align-content:center!important;
+  gap:var(--winner-card-gap,14px)!important;
+  position:relative!important;
+  z-index:2!important;
+  transform:none!important;
+  overflow:visible!important;
+  max-height:calc(100svh - 410px)!important;
+}
+body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerDefeatedModule{
+  position:absolute!important;
+  top:0!important;
+  right:var(--wolf-sidebar-right)!important;
+  left:auto!important;
+  width:var(--wolf-sidebar-w)!important;
+  max-width:var(--wolf-sidebar-w)!important;
+  min-width:0!important;
+  margin:0!important;
+  padding:0!important;
+  display:flex!important;
+  flex-direction:column!important;
+  align-items:center!important;
+  justify-content:flex-start!important;
+  gap:clamp(10px,1.35vh,18px)!important;
+  transform:none!important;
+  z-index:8!important;
+  pointer-events:none!important;
+}
+body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerDefeatedHeading{
+  display:block!important;
+  width:100%!important;
+  max-width:100%!important;
+  margin:0!important;
+  padding:0!important;
+  color:#ffe9bd!important;
+  text-transform:uppercase!important;
+  font-family:Georgia,"Palatino Linotype","Book Antiqua",Palatino,serif!important;
+  font-weight:800!important;
+  letter-spacing:.015em!important;
+  line-height:1!important;
+  white-space:nowrap!important;
+  text-align:center!important;
+  font-size:clamp(17px,1.55vw,30px)!important;
+  text-shadow:0 3px 0 #0008,0 0 25px rgba(255,226,178,.18)!important;
+  overflow:visible!important;
+  transform:none!important;
+  position:relative!important;
+  z-index:9!important;
+}
+body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerDefeatedModule .defeatedWolves{
+  position:relative!important;
+  inset:auto!important;
+  transform:none!important;
+  width:var(--defeated-panel-w,150px)!important;
+  max-width:100%!important;
+  min-width:0!important;
+  min-height:var(--defeated-panel-h,190px)!important;
+  height:auto!important;
+  margin:0 auto!important;
+  padding:var(--defeated-pad,18px)!important;
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  border-radius:0!important;
+  background:linear-gradient(180deg,rgba(138,13,36,.72),rgba(64,6,18,.78))!important;
+  border:1px solid rgba(255,92,115,.54)!important;
+  box-shadow:0 0 38px rgba(150,18,38,.42)!important;
+}
+body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerDefeatedModule .winnerCards.small{
+  width:auto!important;
+  max-width:100%!important;
+  display:grid!important;
+  grid-template-columns:repeat(var(--defeated-cols,1), var(--winner-card-w,98px))!important;
+  gap:var(--winner-card-gap,10px)!important;
+  justify-content:center!important;
+  align-content:center!important;
+  align-items:start!important;
+  transform:none!important;
+  margin:0!important;
+}
+body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerDefeatedModule .winnerPlayerCard{
+  width:var(--winner-card-w,98px)!important;
+  max-width:var(--winner-card-w,98px)!important;
+  min-width:0!important;
+  padding:6px!important;
+  margin:0!important;
+}
+body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerDefeatedModule .winnerRoleCard{
+  width:100%!important;
+  max-height:calc(var(--winner-card-w,98px) * 1.55)!important;
+  object-fit:contain!important;
+}
+@media(max-width:1280px){
+  body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated{
+    --wolf-sidebar-w:clamp(210px,18vw,270px);
+    --wolf-sidebar-right:clamp(24px,3vw,48px);
+    --village-safe-w:min(700px,calc(100vw - var(--wolf-sidebar-w) - var(--wolf-sidebar-right) - 210px));
+  }
+  body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerDefeatedHeading{font-size:clamp(15px,1.7vw,24px)!important;}
+}
+@media(max-width:980px){
+  body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated{
+    display:flex!important;
+    flex-direction:column!important;
+    align-items:center!important;
+    gap:16px!important;
+    max-height:none!important;
+    --village-safe-w:min(760px,92vw);
+  }
+  body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerVillageSection{
+    width:min(760px,92vw)!important;
+    max-width:min(760px,92vw)!important;
+    min-width:0!important;
+  }
+  body.infoScreen #deaths.winnerOutput .winnerStage.hasDefeated .winnerDefeatedModule{
+    position:relative!important;
+    top:auto!important;
+    right:auto!important;
+    width:min(420px,92vw)!important;
+    max-width:min(420px,92vw)!important;
+    margin:0 auto!important;
+  }
+}
+
+/* InfoEditor MVP (v0.3.50) — debug-only live visual editor for /info.
+   Search for "InfoEditor" / "infoEditor" to remove this feature later. */
+.infoEditorDebugFab.InfoEditor{position:fixed;right:18px;bottom:18px;z-index:99980;display:none;pointer-events:auto}
+.infoEditorDebugFab.InfoEditor.visible{display:block}
+.infoEditorDebugBtn{font:800 13px/1 system-ui,sans-serif;letter-spacing:.03em;padding:9px 13px;border:1px solid #d9b46a99;background:linear-gradient(180deg,#2a2216ee,#0d0f16ee);color:#f9e8c0;box-shadow:0 0 18px #000b,0 0 16px #d9a13a33;cursor:pointer;border-radius:0;text-transform:uppercase}
+.infoEditorDebugBtn.active{background:linear-gradient(180deg,#3c2a0dee,#171106ee);box-shadow:0 0 0 2px #ffe1a077,0 0 24px #ffce5e66}
+body.infoEditorActive{cursor:default}
+body.infoEditorActive [data-editor-id]{outline:1px dashed #58b7ffcc;outline-offset:4px;position:relative;z-index:6;transform:var(--info-editor-base-transform, none) translate(var(--info-editor-x,0px),var(--info-editor-y,0px)) scale(var(--info-editor-scale,1))!important;transform-origin:center center!important;will-change:transform,opacity;transition:outline-color .12s ease, box-shadow .12s ease}
+body.infoEditorActive [data-editor-id]::after{content:attr(data-editor-id);position:absolute;left:0;top:-22px;z-index:99985;font:700 11px/1.2 system-ui,sans-serif;letter-spacing:.02em;color:#d9f0ff;background:#09233dee;border:1px solid #58b7ff99;padding:3px 5px;pointer-events:none;white-space:nowrap;box-shadow:0 0 12px #0008}
+body.infoEditorActive [data-editor-id].infoEditorSelected{outline:2px solid #ffd86a;box-shadow:0 0 0 3px #0009,0 0 22px #ffd86a77!important;z-index:9990!important}
+body.infoEditorActive [data-editor-id].infoEditorSelected::after{background:#4a3107ee;border-color:#ffd86a;color:#fff1bd}
+.infoEditorPanel.InfoEditor{position:fixed;right:18px;top:18px;z-index:99990;width:min(360px,calc(100vw - 36px));max-height:calc(100vh - 36px);overflow:auto;display:none;color:#f9e8c0;background:linear-gradient(180deg,#131827f5,#05070df2);border:1px solid #d9b46a77;padding:12px;box-shadow:0 0 0 1px #000,0 18px 55px #000d;font:13px/1.35 system-ui,sans-serif;backdrop-filter:blur(12px)}
+.infoEditorPanel.InfoEditor.visible{display:block}
+.infoEditorPanelHeader{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}.infoEditorPanelHeader strong{font-family:Georgia,serif;font-size:19px;color:#ffe7b0}.infoEditorPanelHeader button{border:1px solid #a77d40;background:#120d08;color:#f9e8c0;min-width:30px;min-height:28px;cursor:pointer;border-radius:0}
+.infoEditorSmall{color:#b9bfd0;font-size:12px;margin-bottom:8px}.infoEditorPanel label{display:flex;flex-direction:column;gap:4px;margin:5px 0;color:#ecd39f;font-weight:700}.infoEditorPanel input,.infoEditorPanel select{background:#070a11;color:#fff4d3;border:1px solid #9d7b4866;padding:6px 7px;border-radius:0;font:12px/1.2 system-ui,sans-serif}.infoEditorGrid2{display:grid;grid-template-columns:1fr 1fr;gap:4px 8px}.infoEditorChecks{display:grid;grid-template-columns:1fr;gap:4px;margin:8px 0}.infoEditorChecks label{display:flex;flex-direction:row;align-items:center;gap:7px;margin:0}.infoEditorAxis,.infoEditorButtons{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.infoEditorAxis button,.infoEditorButtons button{flex:1 1 auto;border:1px solid #a77d4077;background:#0b101a;color:#ffe7b0;padding:7px 8px;cursor:pointer;border-radius:0;font-weight:800}.infoEditorAxis button.active,.infoEditorButtons button:hover{background:#2b1e0b;border-color:#ffd46a}.infoEditorHint{font-size:11px;color:#aeb6c8;margin:8px 0 0}.infoEditorGuides.InfoEditor{position:fixed;inset:0;z-index:99970;pointer-events:none;display:none}.infoEditorGuides.InfoEditor.visible{display:block}.infoEditorGuide{position:absolute;display:none;background:#55c7ff;box-shadow:0 0 12px #55c7ffcc}.infoEditorGuide.show{display:block}.infoEditorGuide.v{top:0;width:1px;height:100vh}.infoEditorGuide.h{left:0;height:1px;width:100vw}.infoEditorGuide.centerV,.infoEditorGuide.centerH{background:#ffd86a;box-shadow:0 0 14px #ffd86acc}.infoEditorMeasure.InfoEditor{position:fixed;z-index:99991;display:none;pointer-events:none;background:#020711ee;border:1px solid #55c7ffaa;color:#dff5ff;padding:5px 7px;font:700 11px/1.2 system-ui,sans-serif;box-shadow:0 0 14px #000b;white-space:nowrap}.infoEditorMeasure.InfoEditor.visible{display:block}.infoEditorToast.InfoEditor{position:fixed;right:22px;top:22px;z-index:99999;background:#102514ee;border:1px solid #78db73;color:#dcffd9;padding:9px 12px;font:800 13px/1.2 system-ui,sans-serif;box-shadow:0 0 22px #000c;animation:infoEditorToast .9s ease both}@keyframes infoEditorToast{0%{opacity:0;transform:translateY(-8px)}15%,80%{opacity:1;transform:translateY(0)}100%{opacity:0;transform:translateY(-8px)}}
+@media (max-width:900px){.infoEditorPanel.InfoEditor{left:10px;right:10px;top:10px;width:auto;max-height:46vh}.infoEditorDebugFab.InfoEditor{right:10px;bottom:10px}.infoEditorGrid2{grid-template-columns:1fr}}
+
+/* InfoEditor v0.3.50 upgrade — resize handles, animation inspector, stronger playerStatusBar transform layer.
+   Search for "InfoEditor" / "infoEditor" to remove this feature later. */
+body.infoEditorActive [data-editor-id]{
+  transform:
+    var(--info-editor-base-transform, translate3d(0,0,0))
+    translate(var(--info-editor-x,0px),var(--info-editor-y,0px))
+    scale(var(--info-editor-scale,1))
+    translate(var(--info-editor-anim-x,0px),var(--info-editor-anim-y,0px))
+    scale(var(--info-editor-anim-scale,1))!important;
+  opacity:var(--info-editor-anim-opacity,var(--info-editor-opacity,1))!important;
+  transform-origin:center center!important;
+  will-change:transform,opacity!important;
+}
+body.infoScreen.infoEditorActive #viewerPlayers[data-editor-id="playerStatusBar"]{
+  left:50%!important;
+  right:auto!important;
+  transform:
+    translateX(-50%)
+    translate(var(--info-editor-x,0px),var(--info-editor-y,0px))
+    scale(var(--info-editor-scale,1))
+    translate(var(--info-editor-anim-x,0px),var(--info-editor-anim-y,0px))
+    scale(var(--info-editor-anim-scale,1))!important;
+  opacity:var(--info-editor-anim-opacity,var(--info-editor-opacity,1))!important;
+  transform-origin:center center!important;
+  z-index:9991!important;
+}
+.infoEditorPanel.InfoEditor{width:min(420px,calc(100vw - 36px))!important;}
+.infoEditorTabs{display:flex;gap:6px;margin:6px 0 10px}.infoEditorTabs button{flex:1 1 0;border:1px solid #a77d4077;background:#090d16;color:#ffe7b0;padding:8px 9px;cursor:pointer;border-radius:0;font-weight:900;text-transform:uppercase;font-size:12px}.infoEditorTabs button.active{background:#2b1e0b;border-color:#ffd46a;box-shadow:0 0 14px #ffd46a22}.infoEditorTabPage{display:none}.infoEditorTabPage.active{display:block}.infoEditorReadout{border:1px solid #55c7ff44;background:#07111fee;color:#dff5ff;padding:7px 8px;margin:8px 0;font:700 11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:normal}.infoEditorAnimControls{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0}.infoEditorAnimControls button{flex:1 1 auto;border:1px solid #a77d4077;background:#0b101a;color:#ffe7b0;padding:7px 8px;cursor:pointer;border-radius:0;font-weight:800}.infoEditorPanel input[type="range"]{padding:0;height:24px;accent-color:#ffd86a}.infoEditorSelectionBox.InfoEditor{position:fixed;display:none;z-index:99982;pointer-events:none;border:2px solid #ffd86a;box-shadow:0 0 0 1px #000b,0 0 20px #ffd86a55}.infoEditorSelectionBox.InfoEditor.visible{display:block}.infoEditorSelectionLabel{position:absolute;left:0;top:-24px;background:#4a3107ee;border:1px solid #ffd86a;color:#fff1bd;padding:3px 6px;font:800 11px/1.2 system-ui,sans-serif;white-space:nowrap;pointer-events:none;box-shadow:0 0 12px #0008}.infoEditorResizeHandle{position:absolute;width:11px;height:11px;background:#ffd86a;border:1px solid #171006;box-shadow:0 0 0 1px #000a,0 0 10px #ffd86a66;pointer-events:auto;z-index:99983}.infoEditorResizeHandle.nw{left:-7px;top:-7px;cursor:nwse-resize}.infoEditorResizeHandle.n{left:50%;top:-7px;transform:translateX(-50%);cursor:ns-resize}.infoEditorResizeHandle.ne{right:-7px;top:-7px;cursor:nesw-resize}.infoEditorResizeHandle.e{right:-7px;top:50%;transform:translateY(-50%);cursor:ew-resize}.infoEditorResizeHandle.se{right:-7px;bottom:-7px;cursor:nwse-resize}.infoEditorResizeHandle.s{left:50%;bottom:-7px;transform:translateX(-50%);cursor:ns-resize}.infoEditorResizeHandle.sw{left:-7px;bottom:-7px;cursor:nesw-resize}.infoEditorResizeHandle.w{left:-7px;top:50%;transform:translateY(-50%);cursor:ew-resize}.infoEditorGuides.InfoEditor{z-index:99970!important}.infoEditorGuide{display:block!important;position:absolute;background:#55c7ff;box-shadow:0 0 12px #55c7ffcc;pointer-events:none}.infoEditorGuide.v{top:0;width:1px;height:100vh}.infoEditorGuide.h{left:0;height:1px;width:100vw}.infoEditorGuide.center,.infoEditorGuide.vCenter,.infoEditorGuide.hCenter{background:#ffd86a;box-shadow:0 0 14px #ffd86acc}.infoEditorGuide span{position:absolute;top:5px;left:6px;background:#06111fee;border:1px solid #55c7ffaa;color:#dff5ff;padding:3px 5px;font:700 10px/1.1 system-ui,sans-serif;white-space:nowrap}.infoEditorGuide.h span{top:6px;left:8px}.infoEditorMeasure.InfoEditor{max-width:min(360px,calc(100vw - 40px));white-space:normal!important;line-height:1.35!important}.infoEditorAnimationPreview [data-editor-id="voteResultGroup"],.infoEditorAnimationPreview [data-editor-id="voteGraphGroup"],.infoEditorAnimationPreview [data-editor-id="eliminatedCardPanel"],.infoEditorAnimationPreview [data-editor-id="eliminatedText"]{transition:transform .08s linear,opacity .08s linear!important}
+@media (max-width:900px){.infoEditorPanel.InfoEditor{left:10px;right:10px;top:10px;width:auto!important;max-height:52vh}.infoEditorResizeHandle{width:13px;height:13px}}
