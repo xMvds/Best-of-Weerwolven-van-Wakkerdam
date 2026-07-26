@@ -4,13 +4,13 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Wakkerdam Online Helper — Host</title>
-  <link rel="stylesheet" href="/style.css?v=0.3.52" />
+  <link rel="stylesheet" href="/style.css?v=0.3.43" />
 </head>
 <body class="hostScreen">
   <div class="bg"></div>
   <main class="wrap">
     <header class="topbar">
-      <div class="brand"><div class="moon"></div><div class="title"><h1>Host</h1><p>Verteller / spelleider</p></div></div>
+      <div class="brand"><div class="moon"></div><div class="title"><h1>Host</h1></div></div>
       <div class="btnrow"><span class="badge" id="version">v...</span><a class="btn ghost" href="/info" target="_blank">Open Infoscherm</a><a class="btn ghost" href="/player" target="_blank">Open Speler</a></div>
     </header>
 
@@ -18,9 +18,12 @@
       <div id="controlCard" class="card span4">
         <h2>Controle</h2>
         <div id="phasePills" class="btnrow"></div>
-        <div id="controlButtons" class="btnrow controlButtons" style="margin-top:12px">
+        <div id="controlButtons" class="controlButtons" style="margin-top:12px">
+          <div class="btnrow controlPrimaryButtons">
           <button id="startBtn" class="btn primary">Start spel</button>
-          <button id="clearLobbyBtn" class="btn ghost controlOptional">Clear lobby</button>
+          <button id="resetBtn" class="btn danger">Reset</button>
+          </div>
+          <div class="btnrow controlContextButtons">
           <button id="nextStepBtn" class="btn blue">Volgende nachtstap</button>
           <button id="resolveNightBtn" class="btn gold controlOptional">Nacht oplossen</button>
           <button id="mayorBtn" class="btn gold controlOptional">Start burgemeesterverkiezing</button>
@@ -29,7 +32,7 @@
           <button id="voteBtn" class="btn primary controlOptional">Open dagstemming</button>
           <button id="closeVoteBtn" class="btn ghost controlOptional">Sluit stemming</button>
           <button id="nextNightBtn" class="btn blue">Start volgende nacht</button>
-          <button id="resetBtn" class="btn danger">Reset</button>
+          </div>
         </div>
       </div>
 
@@ -71,11 +74,10 @@
       <button id="copyDebugBtn" class="btn blue">Kopieer debug</button>
       <button id="copyConsoleBtn" class="btn ghost">Kopieer console</button>
       <button id="addTestPlayerBtn" class="btn good">Voeg extra speler toe</button>
-      <p class="muted small">Testspelers zijn alleen bedoeld om de lobby/layout te bekijken. Echte spelers joinen via hun telefoon.</p>
     </div>
   </div>
   <div id="toast" class="toast hidden"></div>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/host.js?v=0.3.52"></script>
+  <script src="/host.js?v=0.3.43"></script>
 </body>
 </html>

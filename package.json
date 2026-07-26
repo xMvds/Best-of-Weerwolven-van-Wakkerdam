@@ -1,14 +1,18 @@
 {
   "name": "wakkerdam-online-helper",
-  "version": "0.3.52",
+  "version": "0.3.43",
   "description": "Private online werewolf/social deduction helper with host, player and info screens.",
   "main": "server.js",
   "type": "commonjs",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "test": "node --test test/*.test.js"
   },
   "dependencies": {
     "express": "^4.19.2",
     "socket.io": "^4.7.5"
+  },
+  "devDependencies": {
+    "socket.io-client": "^4.8.3"
   }
 }

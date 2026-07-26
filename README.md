@@ -1,4 +1,4 @@
-# Wakkerdam Online Helper — v0.3.51
+# Wakkerdam Online Helper — v0.3.43
 
 Een privé online helper/prototype voor een Weerwolven-achtig spel met drie schermen:
 
@@ -14,15 +14,66 @@ Deze build gebruikt dezelfde simpele stack als Theater Balance Scale:
 - gewone HTML/CSS/JS in `public/`
 
 
-## Nieuw in v0.3.48
+## Nieuw in v0.3.43
 
-- Infoscherm-spelerstatus onderaan is opnieuw gecentreerd: de hele rij/grid staat nu echt horizontaal in het midden, ook op het Nacht-scherm.
-- Reveal-/dagstemming-animaties zijn extra gestabiliseerd: minder remount/layout-knips, beweging via transform/opacity en stabielere containers.
-- Dagstemming-resultaatblok gebruikt dezelfde DOM-container en schuift vloeiend; latere statusupdates mogen de hoofdreveal niet opnieuw laten poppen.
-- Het Dorp-winnaarscherm is herbouwd als twee losse gebieden: centraal **Het Dorp** met winnaar-kaarten en rechts een aparte **Verslagen wolven**-module.
-- **Verslagen wolven** staat nu als sidebar/rechterkolom, gebruikt hetzelfde fantasy/serif-stijlgevoel als **Het Dorp**, blijft op één regel en overlapt de dorpskaarten niet meer.
-- Het rode wolvenvak is compacter en schaalt mee met het aantal verslagen wolven.
-- Bestaande v0.3.45-polish blijft behouden: puntige Reset-knop, stemgrafieken met gelijke stijgsnelheid per stem en kortere post-vote pauze.
+- **Start spel** en **Reset** staan permanent in dezelfde bovenste actierij; tijdelijke faseknoppen verschijnen uitsluitend eronder.
+- De Ziener ziet na bevestiging duidelijk de naam en rolkaart van de onderzochte speler, zonder opnieuw de eigen bekende rolkaart te tonen.
+- De Host ziet bij een bevestigde Zienerkeuze onder **Bekijkt** dezelfde spelersnaam en beschikbare rol-PNG.
+- Iedere doelkeuze toont de spelersnaam met daaronder een vaste spelerkaart. Tot een rol bekend mag zijn, is dat een stabiele Burgerkaart.
+- De Ziener onthoudt onderzochte rollen: bij een volgende nacht verschijnt voor die speler de werkelijk ontdekte kaart.
+- Geliefden zien elkaars naam en echte rolkaart met de melding om rond te kijken en hun geliefde te spotten.
+- Nachtacties eindigen met **Je antwoord is doorgevoerd** en **De [rol] gaat weer slapen**; losse teksten als *Ingestuurd* zijn verwijderd.
+- Heksdoelen volgen dezelfde kaartvorm als andere spelerskeuzes. Alleen de rode/groene selectie blijft; extra emoji-iconen zijn verwijderd.
+- Hostresultaten gebruiken één rustig resultaatvak. De Zienerkaart staat direct onder **Bekijkt**, zonder extra blauw rolvak.
+- Publieke statuswijzigingen van eliminaties en winnaars worden pas vrijgegeven wanneer hun reveal klaar is; de Host blijft alles direct live zien.
+- Alle winstuitkomsten gebruiken dezelfde filmische overgang: eerst volledig zwart, dan de nieuwe eindpagina plaatsen, daarna weer infaden.
+- Dagstembalken en tellers blijven allemaal bewegen tot hetzelfde eindmoment; de laatste stem en de grafiek bereiken gelijktijdig hun definitieve stand.
+- **Het Dorp** staat weer boven de dorpskaartengroep; het rode wolvenpaneel heeft meer afstand en ruimere wolfkaarten.
+
+## Nieuw in v0.3.41
+
+- Het scherm **Het Dorp wint** toont alle dorp-/spelerskaarten in één gelijkmatig kaartformaat links, met de verslagen wolven in een compact rood paneel rechts op dezelfde hoogte.
+- De winnaarspagina berekent automatisch een passende kaartkolom- en rijverdeling voor kleine én grote groepen.
+- Stem- en rolkeuzevakjes op het Spelerscherm behouden een natuurlijke grootte, worden netjes over de beschikbare ruimte verdeeld en wrappen pas wanneer dat nodig is.
+- Lange spelersnamen schalen binnen hun keuzevakje zonder dat de vakken van rand tot rand worden uitgerekt.
+- **Host → Huidige stap** toont alleen de actieve rol, de rolspeler en de relevante keuzevakken.
+- Voor Heks, Ziener, Cupido, Fluitspeler en vergelijkbare rollen ziet de Host voorlopige selecties live; na insturen verandert de status naar **Bevestigd**.
+- Voorlopige keuzes blijven op het Spelerscherm geselecteerd tijdens realtime updates en na reconnect; opnieuw aantikken maakt een doelkeuze weer leeg.
+- Hekskeuzes springen niet meer terug naar **niemand** wanneer de Host live wordt bijgewerkt.
+- Dubbele test-/previewvakken, voortgangsbalken en vinkjes zijn uit de rolweergave van **Huidige stap** verwijderd.
+- Het winnaarscherm gebruikt nog maar één titel en houdt kaarten plus het rode wolvenpaneel volledig binnen breedbeeld, tablet en telefoon.
+
+## Nieuw in v0.3.40
+
+- De brede HUD-centreer- en viewportlaag uit v0.3.39 is grotendeels teruggedraaid naar de bestaande indeling.
+- De stabiele dagstemmingsanimatie blijft behouden: de grafiek staat eerst centraal en schuift daarna zonder overshoot opzij.
+- Nacht-spelersvakjes gebruiken weer hun natuurlijke naambreedte, verspreiden zich over de rij en wrappen pas als de schermbreedte dat vereist.
+- De vakjes bij “spelers hebben gestemd” volgen de naambreedte en verkleinen lange namen automatisch.
+- Stembalken en tellers bereiken zichtbaar de laatste stem en houden die kort vast voordat de einduitslag verschijnt.
+- De eerdere “Het Dorp wint”-indeling is hersteld.
+- De kaartafbeeldingen van de Heks en Ziener zijn hersteld op het Speler- en Infoscherm.
+- De Windows-starter opent Player, Host en Info automatisch zodra de server bereikbaar is.
+
+## Nieuw in v0.3.39
+
+- HUD-elementen op Host, Speler en Infoscherm blijven gecentreerd en binnen de viewport.
+- Spelertitels gebruiken geen negatieve viewportmarges of `translateX`-correcties meer.
+- Het onderste spelersoverzicht op het Infoscherm heeft een vaste, gecentreerde plek en schaalt mee van kleine tot zeer grote groepen.
+- Kandidaat-, stemuitslag-, eliminatie- en winnaarschermen schalen compacter bij weinig ruimte.
+- De dagstemgrafiek schuift vloeiend op zonder overshoot wanneer de eliminatiekaart verschijnt.
+- Dubbele koppen, statusregels en uitlegtekst zijn waar mogelijk verwijderd of verkort.
+
+## Nieuw in v0.3.38
+
+- Host wolfkaarten worden groen voor wolven die het huidige meest gekozen doelwit volgen en rood voor afwijkende doelwitten.
+- Wolfmarkersegmenten in spelerdoelwitten hebben iets meer tussenruimte.
+
+
+- De Kick-knop staat nu op de plek waar de 👑 kroonknop stond.
+- De spelerknoppen staan nu compacter naast elkaar: **Kick**, **Kill**, **Revive**.
+- De kroonknop is uit de spelerknoprij gehaald, zodat Kick niet meer onder Revive valt.
+
+
 
 ## v0.3.15
 

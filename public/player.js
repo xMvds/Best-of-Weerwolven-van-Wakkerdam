@@ -16,13 +16,13 @@ let finalConfirmTimer = null;
 
 const ROLE_ART = {
   villager: [
-    { src: "/assets/cards/Burger1.png", title: "Burger" },
-    { src: "/assets/cards/Burger2.png", title: "Burger" },
-    { src: "/assets/cards/burger4.png", title: "Burger" }
+    { src: "/assets/cards/burger_man.png", title: "Burger" },
+    { src: "/assets/cards/burger_woman.png", title: "Burger" }
   ],
   seer: [{ src: "/assets/cards/Ziener.png", title: "Ziener" }],
   piper: [{ src: "/assets/cards/fluitspeler.png", title: "Fluitspeler" }],
-  werewolf: [{ src: "/assets/cards/Weerwolf.png", title: "Weerwolf" }]
+  werewolf: [{ src: "/assets/cards/weerwolf.png", title: "Weerwolf" }],
+  witch: [{ src: "/assets/cards/Heks.png", title: "Heks" }]
 };
 
 function stableHash(str){
@@ -32,12 +32,22 @@ function stableHash(str){
   return Math.abs(h);
 }
 
-function getRoleArt(roleId, seed, variantIndex=null){
+function getRoleArt(roleId, seed){
   let list = ROLE_ART[roleId];
   if(!list && ["infectious_wolf","big_bad_wolf","white_wolf"].includes(roleId)) list = ROLE_ART.werewolf;
   if(!list || !list.length) return null;
-  const variant = Number.isFinite(Number(variantIndex)) ? Number(variantIndex) : stableHash(seed);
-  return list[Math.abs(Math.floor(variant)) % list.length];
+  return list[stableHash(seed) % list.length];
+}
+
+function renderPlayerIdentity(person, className=""){
+  if(!person) return "";
+  const roleId = person.cardRoleId || "villager";
+  const art = getRoleArt(roleId, person.key || person.name || roleId);
+  const revealedClass = person.cardRevealed ? "revealed" : "public";
+  if(art){
+    return `<span class="playerIdentityCard ${revealedClass} ${className}"><img src="${esc(art.src)}" alt="${esc(person.cardRoleName || art.title || "Spelerkaart")}"></span>`;
+  }
+  return `<span class="playerIdentityCard fallback ${revealedClass} ${className}"><span class="playerIdentityEmoji">${esc(person.cardRoleEmoji || "🃏")}</span><span class="playerIdentityRole">${esc(person.cardRoleName || "Rol")}</span></span>`;
 }
 
 
@@ -55,15 +65,12 @@ function toast(text){
 }
 function nameOf(key){ return (state?.players||[]).find(p=>p.key===key)?.name || "—"; }
 function titleHtml(text){ return esc(text).replace(/\n/g, "<br>"); }
-function titleLinesHtml(text){
-  return String(text || "").split(/\n+/).map(line => `<span>${esc(line)}</span>`).join("");
-}
 
 $("joinBtn")?.addEventListener("click", join);
 $("nameInput").addEventListener("keydown", e=>{ if(e.key==="Enter") join(); });
 window.addEventListener("load",()=>setTimeout(()=>$('nameInput')?.focus(),80));
 
-// Join-scherm debug: alleen nog via toetsenbord-D-spam; geen zichtbare/onzichtbare hotspot op het woord in.
+// Join-scherm debug: D spammen of woord "in" lang indrukken.
 let debugDPresses = [];
 let playerDebugAutoHideTimer = null;
 function showPlayerDebug(){
@@ -80,6 +87,21 @@ window.addEventListener("keydown", (e)=>{
   debugDPresses.push(now);
   if(debugDPresses.length >= 5) showPlayerDebug();
 });
+(function setupJoinDebugHold(){
+  const hold = $("joinDebugHold");
+  let timer = null;
+  const start = (e)=>{ if(document.body.classList.contains("inGame")) return; clearTimeout(timer); timer = setTimeout(showPlayerDebug, 850); };
+  const stop = ()=>{ clearTimeout(timer); timer = null; };
+  hold?.addEventListener("pointerdown", start);
+  hold?.addEventListener("pointerup", stop);
+  hold?.addEventListener("pointerleave", stop);
+  hold?.addEventListener("pointercancel", stop);
+})();
+$("playerDebugHotspot")?.addEventListener("click", showPlayerDebug);
+$("playerDebugHotspot")?.addEventListener("pointerdown", ()=>{ clearTimeout(window.__debugHotspotHold); window.__debugHotspotHold = setTimeout(showPlayerDebug, 450); });
+$("playerDebugHotspot")?.addEventListener("pointerup", ()=>clearTimeout(window.__debugHotspotHold));
+$("playerDebugHotspot")?.addEventListener("pointercancel", ()=>clearTimeout(window.__debugHotspotHold));
+$("playerDebugHotspot")?.addEventListener("pointerleave", ()=>clearTimeout(window.__debugHotspotHold));
 $("playerDebugClose")?.addEventListener("click", hidePlayerDebug);
 $("openInfoFromPlayer")?.addEventListener("click", ()=>window.open("/info", "_blank"));
 $("openHostFromPlayer")?.addEventListener("click", ()=>{
@@ -137,31 +159,6 @@ function maybeVibrateForAction(prev,next){
   }
 }
 
-
-function fitResponsiveTileGrids(){
-  const grids = [
-    ...document.querySelectorAll(".playerChoices, .bigChoices, .wolfLegend")
-  ];
-  requestAnimationFrame(()=>{
-    grids.forEach(grid=>{
-      if(!grid || !grid.children.length) return;
-      grid.style.transform = "";
-      grid.style.height = "";
-      grid.style.maxHeight = "";
-      grid.style.transformOrigin = "top center";
-      const rect = grid.getBoundingClientRect();
-      const availableHeight = Math.max(140, window.innerHeight - rect.top - 34);
-      const availableWidth = Math.max(240, window.innerWidth - 28);
-      const scale = Math.min(1, availableHeight / Math.max(1, grid.scrollHeight), availableWidth / Math.max(1, grid.scrollWidth));
-      if(scale < .995){
-        grid.style.transform = `scale(${Math.max(.46, scale)})`;
-        grid.style.height = `${Math.ceil(grid.scrollHeight * Math.max(.46, scale))}px`;
-      }
-    });
-  });
-}
-window.addEventListener("resize", fitResponsiveTileGrids);
-
 function render(){
   if(!state) return;
   const actionKey = state.action ? `${state.action.id}:${state.action.kind}` : "idle";
@@ -174,15 +171,17 @@ function render(){
     clearTimeout(candidateConfirmTimer);
     clearTimeout(finalConfirmTimer);
     lastActionKey = actionKey;
+    const preview = state.action?.preview || null;
+    if(Array.isArray(preview?.targetKeys)){
+      preview.targetKeys.forEach(key=>selectedTargets.add(key));
+    }
+    selectedSingle = preview?.targetKey || state.action?.selectedTargetKey || null;
   }
   document.body.classList.add("inGame");
-  const localDayRevealUntil = Number(state?.dayVote?.result?.visualRevealUntil || state?.dayVote?.result?.revealUntil || 0);
-  const locallyEliminatedByVote = state?.dayVote?.result?.eliminatedKey === state?.me?.key && (!localDayRevealUntil || Date.now() >= localDayRevealUntil);
-  document.body.classList.toggle("playerDead", (!state.me.alive || locallyEliminatedByVote) && state.phase !== "hunter");
+  document.body.classList.toggle("playerDead", !state.me.alive && state.phase !== "hunter");
   $("joinCard").classList.add("hidden");
   $("gameUI").classList.remove("hidden");
   renderAction();
-  fitResponsiveTileGrids();
 }
 
 function roleCard(compact=false){
@@ -194,7 +193,7 @@ function roleCard(compact=false){
   if(state.me.wildChildTurned) tags.push("nu wolfachtig");
   if(state.me.loverName) tags.push(`geliefde: ${state.me.loverName}`);
   if(state.me.enchanted) tags.push("betoverd");
-  const art = getRoleArt(r.id, state.me.key || playerKey || r.id, state.me.roleArtVariant);
+  const art = getRoleArt(r.id, state.me.key || playerKey || r.id);
   const visual = art
     ? `<div class="roleArtWrap"><img class="roleArtImage" src="${esc(art.src)}" alt="${esc(art.title || r.name)}"></div>`
     : `<div class="roleArtFallback"><div class="bigEmoji">${esc(r.emoji)}</div></div>`;
@@ -204,13 +203,6 @@ function roleCard(compact=false){
   if(tags.length) metaParts.push(`<div class="btnrow roleTags">${tags.map(t=>`<span class="pill gold">${esc(t)}</span>`).join("")}</div>`);
   return `<div class="minimalRole cardMode ${compact?'compact':''} ${art?'hasRoleArt':''}">${visual}${metaParts.length?`<div class="roleMeta">${metaParts.join("")}</div>`:""}</div>`;
 }
-function dayVoteRevealState(){
-  const result = state?.dayVote?.result;
-  if(!result) return null;
-  const revealUntil = Number(result.visualRevealUntil || result.revealUntil || 0);
-  return { result, revealUntil, pending: !!(revealUntil && Date.now() < revealUntil) };
-}
-
 function renderAction(){
   const a=state.action;
   const box=$("actionBox");
@@ -222,38 +214,21 @@ function renderAction(){
     return;
   }
 
-  const dayReveal = dayVoteRevealState();
-  if(dayReveal?.pending){
-    clearTimeout(window.__deathRevealTimer);
-    window.__deathRevealTimer = setTimeout(render, Math.max(60, dayReveal.revealUntil - Date.now() + 80));
-    box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1><p>Wacht op de uitslag op het Infoscherm.</p>${roleCard(true)}</div>`;
+  const deathRevealUntil = state?.dayVote?.result?.eliminatedKey === state?.me?.key ? Number(state.dayVote.result.revealUntil || 0) : 0;
+  if(!state.me.alive && deathRevealUntil && Date.now() < deathRevealUntil){
+    clearTimeout(window.__deathRevealTimer); window.__deathRevealTimer = setTimeout(render, Math.max(60, deathRevealUntil - Date.now() + 80));
+    box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1>${roleCard(true)}</div>`;
     return;
   }
-  if(dayReveal?.result && state.phase === "day" && !a){
-    const result = dayReveal.result;
-    if(result.tied){
-      const names = (result.runoffNames || []).filter(Boolean).join(" en ");
-      box.innerHTML = `<div class="playerCenter"><h1>Gelijke stand</h1><p>Er komt een herstemming${names?` tussen ${esc(names)}`:""}.</p>${roleCard(true)}</div>`;
-      return;
-    }
-    if(result.eliminatedKey === state.me.key){
-      box.innerHTML = `<div class="deadScreen"><div class="deadMark">✖</div><h1>je bent uitgeschakeld</h1><p>Je bent weggestemd door het dorp.</p>${roleCard(true)}</div>`;
-      return;
-    }
-    if(result.eliminatedKey){
-      box.innerHTML = `<div class="playerCenter"><h1>je hebt de stemming overleefd</h1><p>${esc(result.eliminatedName || "Een speler")} is geëlimineerd.</p>${roleCard(true)}</div>`;
-      return;
-    }
-  }
 
-  if((!state.me.alive || (dayReveal?.result?.eliminatedKey === state.me.key && !dayReveal.pending)) && !(a && a.kind === "hunter_shot")){
-    box.innerHTML = `<div class="deadScreen"><div class="deadMark">✖</div><h1>je bent uitgeschakeld</h1><p>Je doet niet meer mee met praten of stemmen.</p>${roleCard(true)}</div>`;
+  if(!state.me.alive && !(a && a.kind === "hunter_shot")){
+    box.innerHTML = `<div class="deadScreen"><div class="deadMark">✖</div><h1>Je bent uitgeschakeld</h1>${roleCard(true)}</div>`;
     return;
   }
 
   if(!a){
-    const title = state.phase === "night" ? "Het is nacht" : state.phase === "day" ? "je hebt de nacht overleefd" : state.phase === "lobby" ? "Je zit in de lobby" : "Wacht";
-    const sub = state.phase === "night" ? "Je slaapt totdat jouw rol wordt opgeroepen." : (state.phase === "lobby" ? "Wacht tot het spel start." : "");
+    const title = state.phase === "night" ? "Nacht" : state.phase === "day" ? "Je hebt de nacht overleefd" : state.phase === "lobby" ? "Lobby" : "Wacht";
+    const sub = state.phase === "night" ? "Je slaapt." : (state.phase === "lobby" ? "Wacht op de host." : "");
     box.innerHTML = `<div class="playerCenter"><h1>${esc(title)}</h1>${sub?`<p>${esc(sub)}</p>`:""}${roleCard(true)}</div>`;
     return;
   }
@@ -262,20 +237,24 @@ function renderAction(){
     const revealUntil = Number(a.revealUntil || 0);
     if(revealUntil && Date.now() < revealUntil){
       clearTimeout(window.__mayorRevealTimer); window.__mayorRevealTimer = setTimeout(render, Math.max(60, revealUntil - Date.now() + 80));
-      box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1><p>Wacht op de uitslag op het Infoscherm.</p>${roleCard(true)}</div>`;
+      box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1>${roleCard(true)}</div>`;
     } else {
-      box.innerHTML = `<div class="playerCenter mayorResultPlayer"><h1 class="mayorResultPlayerTitle">${titleLinesHtml(a.finalTitle || "de burgemeester is bekend")}</h1>${roleCard(true)}</div>`;
+      box.innerHTML = `<div class="playerCenter"><h1>${titleHtml(a.finalTitle || "de burgemeester is bekend")}</h1>${roleCard(true)}</div>`;
     }
     return;
   }
 
   if(a.submitted){
-    const extraWait = (a.kind === "mayor_vote" || a.kind === "day_vote") ? "" : `<p>Ingestuurd. Wacht op de verteller.</p>`;
-    box.innerHTML = `<div class="playerCenter submitted"><h1>${esc(a.title)}</h1>${renderSubmittedResult(a)}${extraWait}${roleCard(true)}</div>`;
+    const voteAction = a.kind === "mayor_vote" || a.kind === "day_vote";
+    const submittedTitle = voteAction ? a.title : "Je antwoord is doorgevoerd";
+    const sleepRole = a.actorRoleName || state.me.role?.name || "rol";
+    const sleepMessage = voteAction ? "" : `<p class="sleepStatus">De ${esc(sleepRole)} gaat weer slapen.</p>`;
+    const ownCard = a.kind === "seer" ? "" : roleCard(true);
+    box.innerHTML = `<div class="playerCenter submitted"><h1>${esc(submittedTitle)}</h1>${renderSubmittedResult(a)}${sleepMessage}${ownCard}</div>`;
     return;
   }
 
-  let html=`<div class="playerCenter active action-${esc(a.kind)}"><h1>${esc(a.title)}</h1>${a.kind !== "wolves" && a.text?`<p>${esc(a.text)}</p>`:""}`;
+  let html=`<div class="playerCenter active action-${esc(a.kind)}"><h1>${esc(a.title)}</h1>${!["wolves","lovers_info"].includes(a.kind) && a.text?`<p>${esc(a.text)}</p>`:""}`;
 
   if(a.kind === "wolves"){
     html += renderWolfAction(a);
@@ -284,8 +263,10 @@ function renderAction(){
   } else if(["wild_child","seer","big_bad_wolf","white_wolf","fox","hunter_shot","mayor_vote","day_vote"].includes(a.kind)){
     html += renderSingleTargetAction(a);
   } else if(a.kind === "cupid"){
-    html += `<p class="small muted">Kies precies twee spelers.</p>${renderChoiceButtonsAsTargets(a.options||[], "multi", 2)}<button class="btn primary confirmBtn" id="submitMulti">Bevestig keuze</button>`;
-  } else if(a.infoOnly || ["lovers_info","sisters_info","enchanted_info"].includes(a.kind)){
+    html += `<p class="small muted">Kies twee spelers.</p>${renderChoiceButtonsAsTargets(a.options||[], "multi", 2)}<button class="btn primary confirmBtn" id="submitMulti">Bevestigen</button>`;
+  } else if(a.kind === "lovers_info"){
+    html += renderLoversInfo(a);
+  } else if(a.infoOnly || ["sisters_info","enchanted_info"].includes(a.kind)){
     html += `<button class="btn primary confirmBtn" id="readyBtn">Klaar</button>`;
   } else if(a.kind === "infectious_wolf"){
     html += renderChoiceButtons(a.choices || [], a.kind);
@@ -294,7 +275,7 @@ function renderAction(){
   } else if(a.kind === "piper"){
     html += `<p class="small muted">Kies maximaal twee spelers.</p>${renderChoiceButtonsAsTargets(a.options||[], "multi", 2)}<button class="btn primary confirmBtn" id="submitMulti">Bevestig betovering</button>`;
   } else if(a.kind === "mayor_candidate"){
-    html += `<div class="mayorExplain"><p><strong>Wat doet de burgemeester?</strong></p><p>De burgemeester heeft later bij dagstemmingen een stem die dubbel telt.</p></div>`;
+    html += `<div class="mayorExplain"><p>De burgemeester heeft bij dagstemmingen een dubbele stem.</p></div>`;
     if(a.candidateResponse === "yes" || a.selfCandidate){
       html += `<div class="resultBox"><div class="resultBig">Je hebt je kandidaat gesteld.</div></div>`;
     } else if(a.candidateResponse === "no"){
@@ -306,7 +287,6 @@ function renderAction(){
     } else {
       html += `<div class="btnrow mayorCandidateChoices"><button id="candidateYesBtn" class="btn primary confirmBtn">Ik stel mij kandidaat</button><button id="candidateNoBtn" class="btn ghost confirmBtn">Nee, ik wil geen burgemeester worden</button></div>`;
     }
-    html += `<p class="small muted">Kandidaten: ${esc((a.candidates||[]).map(c=>c.name).join(", ") || "nog niemand")}</p>`;
   }
 
   html += `</div>`;
@@ -320,9 +300,7 @@ function renderWolfAction(a){
   let html = renderWolfLegend(consensus.rows || []);
   html += renderWolfStatus(consensus, a);
   html += renderChoiceButtonsAsTargets(a.options||[], "wolf", 1, a.ownSelection);
-  if(locked){
-    html += `<div class="wolfLockedText">Keuze vastgezet. Wacht op de host.</div>`;
-  } else {
+  if(!locked){
     html += `<div class="btnrow wolfControls"><button id="wolfConfirmBtn" class="btn primary" ${a.ownSelection?"":"disabled"}>${a.ownConfirmed?"Bevestigd ✓":"Bevestigen"}</button></div>`;
   }
   return html;
@@ -354,23 +332,17 @@ function renderWolfStatus(consensus, a){
     text = `${consensus.consensusTargetName}`;
     tone = "good locked";
   } else if(groups.length === 0){
-    text = "Nog niemand heeft een doelwit gekozen.";
+    text = "Kies een slachtoffer.";
   } else if(groups.length === 1){
     const g = groups[0];
     if(g.wolves.length === rows.length){
-      text = `Alle wolven kiezen ${g.name}. Wacht tot iedereen op Bevestigen heeft gedrukt.`;
-      tone = "almost";
-    } else if(g.wolves.length > 1){
-      text = `Jullie hebben met ${g.wolves.length} wolven ${g.name} gekozen. Wacht op de andere wolf of kies samen een ander doelwit.`;
+      text = `Bevestig ${g.name}.`;
       tone = "almost";
     } else {
-      text = `${g.wolves[0].name} kiest ${g.name}. Wacht op de andere wolven of kies samen hetzelfde doelwit.`;
+      text = "Kies samen hetzelfde doelwit.";
     }
   } else {
-    const top = groups[0];
-    text = top.wolves.length > 1
-      ? `Jullie hebben met ${top.wolves.length} wolven ${top.name} gekozen, maar nog niet alle wolven zijn het eens.`
-      : "Jullie hebben niet hetzelfde doelwit gekozen. Zorg dat alle wolven hetzelfde slachtoffer kiezen.";
+    text = "Kies samen hetzelfde doelwit.";
     tone = "warn";
   }
   return `<div class="wolfStatusText ${tone}">${esc(text)}</div>`;
@@ -387,13 +359,12 @@ function renderSingleTargetAction(a){
   let extra = "";
   let cls = "";
   if(samePending){
-    label = a.kind === "mayor_vote" ? "Weet je het zeker?" : "Weet je het zeker?";
+    label = "Definitief bevestigen";
     cls = " pulseConfirm";
     const targetName = esc(nameOf(selectedSingle));
-    extra = `<p class="small muted confirmWarning">${a.kind === "mayor_vote" ? `Je stem op ${targetName} om burgemeester te worden is definitief.` : `Je stem op ${targetName} is definitief.`}</p>`;
+    extra = `<p class="small muted confirmWarning">Definitieve stem: ${targetName}.</p>`;
   }
-  const helper = (!needsFinal && selectedSingle) ? `<p class="small muted">Controleer je keuze en druk op Bevestigen.</p>` : "";
-  return `${renderChoiceButtonsAsTargets(a.options||[], "single", 1)}${extra}<button id="confirmSingleBtn" class="btn primary confirmBtn${cls}" ${selectedSingle?"":"disabled"}>${label}</button>${helper}`;
+  return `${renderChoiceButtonsAsTargets(a.options||[], "single", 1)}${extra}<button id="confirmSingleBtn" class="btn primary confirmBtn${cls}" ${selectedSingle?"":"disabled"}>${label}</button>`;
 }
 
 function renderChoiceButtonsAsTargets(options, mode, max=1, serverSelected=null){
@@ -401,20 +372,23 @@ function renderChoiceButtonsAsTargets(options, mode, max=1, serverSelected=null)
   const selected = serverSelected || selectedSingle;
   return `<div class="choices playerChoices">${options.map(o=>{
     const isSelected = mode === "multi" ? selectedTargets.has(o.key) : selected === o.key;
-    const wolfData = mode === "wolf" ? wolfTargetData(o.key) : { html:"", className:"", style:"" };
-    return `<button class="choice ${isSelected?"selected":""} ${wolfData.className}"${wolfData.style} data-target="${esc(o.key)}" data-mode="${mode}" data-max="${max}"><span class="targetName">${esc(o.name)}${o.isMayor?" 👑":""}</span>${wolfData.html}</button>`;
+    const wolfData = mode === "wolf" ? wolfTargetData(o.key) : { html:"", className:"", styleVars:"" };
+    const nameLength = String(o.name || "").length;
+    const nameFontSize = Math.max(14, 22 - Math.max(0, nameLength - 12) * .45).toFixed(1);
+    const styleVars = [wolfData.styleVars, `--choice-font-size:${nameFontSize}px`].filter(Boolean).join(";");
+    return `<button class="choice playerTargetChoice ${isSelected?"selected":""} ${wolfData.className}" style="${styleVars}" data-target="${esc(o.key)}" data-mode="${mode}" data-max="${max}"><span class="targetName">${esc(o.name)}${o.isMayor?" 👑":""}</span>${renderPlayerIdentity(o,"choiceIdentity")}${wolfData.html}</button>`;
   }).join("")}</div>`;
 }
 
 function wolfTargetData(targetKey){
   const rows = state?.action?.wolfConsensus?.rows || [];
   const hits = rows.filter(w=>w.targetKey===targetKey).sort((a,b)=>Number(a.marker||0)-Number(b.marker||0));
-  if(!hits.length) return { html:"", className:"", style:"" };
+  if(!hits.length) return { html:"", className:"", styleVars:"" };
   const colors = ["rgba(228,59,79,.38)","rgba(107,168,255,.38)","rgba(240,201,90,.42)","rgba(85,211,138,.36)","rgba(180,124,255,.36)","rgba(255,159,67,.36)"];
   const glow = colors[hits[0].colorIndex % colors.length] || "rgba(240,201,90,.36)";
   const segments = hits.map(w=>`<span class="wolfTargetSegment wolfColor${w.colorIndex} ${w.confirmed?"confirmed":""}" title="${esc(w.name)}"><span>${w.marker}${w.confirmed?"✓":""}</span></span>`).join("");
   const html = `<span class="wolfTargetMeta"><span class="wolfTargetBar" style="--wolf-count:${hits.length}">${segments}</span></span>`;
-  return { html, className:`wolfHasMarks ${hits.some(w=>w.confirmed)?"wolfHasConfirmed":""}`, style:` style="--wolf-glow:${glow};--wolf-count:${hits.length}"` };
+  return { html, className:`wolfHasMarks ${hits.some(w=>w.confirmed)?"wolfHasConfirmed":""}`, styleVars:`--wolf-glow:${glow};--wolf-count:${hits.length}` };
 }
 
 function renderWolfMarks(targetKey){
@@ -433,16 +407,19 @@ function bindActionButtons(a){
       const max=Number(btn.dataset.max||2);
       if(selectedTargets.has(key)) selectedTargets.delete(key);
       else if(selectedTargets.size<max) selectedTargets.add(key);
+      socket.emit("player_preview", { kind:a.kind, targetKeys:[...selectedTargets] });
       renderAction();
     } else if(mode === "wolf"){
       if(a.wolfLocked || a.wolfConsensus?.locked){ return; }
       selectedSingle = key;
       socket.emit("player_action", { kind:"wolves", targetKey:key });
     } else {
-      selectedSingle = key;
-      if(a.kind === "mayor_vote" || a.kind === "day_vote") {
-        socket.emit("player_preview", { kind:a.kind, targetKey:key });
+      selectedSingle = selectedSingle === key ? null : key;
+      if(!selectedSingle && pendingFinalConfirm?.kind === a.kind){
+        clearTimeout(finalConfirmTimer);
+        pendingFinalConfirm = null;
       }
+      socket.emit("player_preview", { kind:a.kind, targetKey:selectedSingle });
       renderAction();
     }
   }));
@@ -477,6 +454,16 @@ function bindActionButtons(a){
     const poisonKey=(document.querySelector("input[name=poisonKey]:checked")||{}).value || null;
     socket.emit("player_action", { kind:"witch", saveKey: saveKey==="none"?null:saveKey, poisonKey: poisonKey==="none"?null:poisonKey });
   });
+  const emitWitchPreview=()=>{
+    const saveKey=(document.querySelector("input[name=saveKey]:checked")||{}).value || null;
+    const poisonKey=(document.querySelector("input[name=poisonKey]:checked")||{}).value || null;
+    socket.emit("player_preview", {
+      kind:"witch",
+      saveKey: saveKey==="none"?null:saveKey,
+      poisonKey: poisonKey==="none"?null:poisonKey
+    });
+  };
+  box.querySelectorAll("input[name=saveKey],input[name=poisonKey]").forEach(input=>input.addEventListener("change", emitWitchPreview));
 }
 
 function submitTarget(a,key){
@@ -505,7 +492,13 @@ function submitMultiTargets(a){
 
 function renderSubmittedResult(a){
   const sub = a.submission || {};
-  if(a.kind === "seer" && sub.result) return `<div class="resultBox"><div class="resultLabel">Geziene kaart</div><div class="resultBig">${esc(sub.targetName || "Gekozen speler")}: ${esc(sub.result)}${sub.wolfLike?" · wolfachtig":""}</div></div>`;
+  if(a.kind === "seer" && sub.result){
+    const art = getRoleArt(sub.targetRoleId, sub.targetKey || sub.targetName || sub.targetRoleId);
+    const visual = art
+      ? `<div class="seenRoleArtWrap"><img class="seenRoleArt" src="${esc(art.src)}" alt="${esc(sub.targetRoleName || sub.result)}"></div>`
+      : `<div class="seenRoleFallback"><span>${esc(sub.targetRoleEmoji || "🃏")}</span><strong>${esc(sub.result)}</strong></div>`;
+    return `<div class="seerRevealResult"><h2>${esc(sub.targetName || "Gekozen speler")}</h2>${visual}${art?"":`<p>${esc(sub.result)}</p>`}</div>`;
+  }
   if(a.kind === "fox" && sub.checked) return `<div class="resultBox"><div class="resultLabel">Vos-resultaat</div><div class="resultBig">${sub.foundWolfLike?"Minstens één wolfachtige gevonden":"Geen wolfachtige gevonden"}</div><p class="small muted">Gecheckt: ${esc((sub.checked||[]).join(", "))}</p></div>`;
   if(a.kind === "wolves" && sub.targetName) return `<div class="resultBox"><div class="resultLabel">Jouw wolvenkeuze</div><div class="resultBig">${esc(sub.targetName)}${sub.confirmed?" ✓":""}</div></div>`;
   if(a.kind === "mayor_vote" && sub.targetName) return `<div class="resultBox"><div class="resultBig">Je hebt gestemd op <strong>${esc(sub.targetName)}</strong> om burgemeester te worden.</div></div>`;
@@ -514,19 +507,31 @@ function renderSubmittedResult(a){
   if(sub.targets) return `<div class="resultBox"><div class="resultLabel">Keuze</div><div class="resultBig">${esc((sub.targets||[]).join(", "))}</div></div>`;
   if(sub.lovers) return `<div class="resultBox"><div class="resultLabel">Geliefden</div><div class="resultBig">${esc((sub.lovers||[]).join(" + "))}</div></div>`;
   if(sub.choice) return `<div class="resultBox"><div class="resultLabel">Keuze</div><div class="resultBig">${esc(sub.choice)}</div></div>`;
-  return `<p>Ingestuurd.</p>`;
+  return "";
+}
+
+function renderLoversInfo(a){
+  const lover = a.lover || null;
+  const loverCard = lover
+    ? `<div class="loverReveal"><h2>${esc(lover.name)}</h2>${renderPlayerIdentity(lover,"loverIdentity")}</div>`
+    : `<p class="muted">Je geliefde kon niet worden gevonden.</p>`;
+  return `<div class="loversInfo">${loverCard}<p class="loverSpotText">Kijk om je heen om je geliefde te spotten.</p></div><button class="btn primary confirmBtn" id="readyBtn">Klaar</button>`;
 }
 
 function renderWitch(a){
   const pending=a.pendingVictims||[];
   const all=a.allTargets||[];
+  const preview=a.preview||{};
+  const selectedSave=pending.some(o=>o.key===preview.saveKey) ? preview.saveKey : "none";
+  const selectedPoison=all.some(o=>o.key===preview.poisonKey) ? preview.poisonKey : "none";
+  const witchChoice=(action,key,name,selected,tone,person=null)=>`<label class="witchChoiceTile ${tone} ${selected===key?"selected":""}"><input type="radio" name="${action}Key" value="${esc(key)}" ${selected===key?"checked":""}><span class="witchChoiceName">${esc(name)}</span>${person?renderPlayerIdentity(person,"witchIdentity"):""}</label>`;
   let html="<div class=\"witchPanel\">";
   html += `<h3>Levensdrank ${a.canSave?"":"(al gebruikt)"}</h3>`;
   if(!a.canSave) html += `<p class="muted">Je levensdrank is al gebruikt.</p>`;
-  else html += `<label class="selectRow"><span>Niemand redden</span><input type="radio" name="saveKey" value="none" checked></label>${pending.map(o=>`<label class="selectRow"><span>${esc(o.name)} redden</span><input type="radio" name="saveKey" value="${esc(o.key)}"></label>`).join("") || `<p class="muted">Er is momenteel geen slachtoffer om te redden.</p>`}`;
+  else html += `<div class="witchChoices saveChoices">${witchChoice("save","none","Niemand redden",selectedSave,"none")}${pending.map(o=>witchChoice("save",o.key,o.name,selectedSave,"save",o)).join("")}</div>${pending.length?"":`<p class="muted">Er is momenteel geen slachtoffer om te redden.</p>`}`;
   html += `<h3>Gifdrank ${a.canPoison?"":"(al gebruikt)"}</h3>`;
   if(!a.canPoison) html += `<p class="muted">Je gifdrank is al gebruikt.</p>`;
-  else html += `<label class="selectRow"><span>Niemand vergiftigen</span><input type="radio" name="poisonKey" value="none" checked></label>${all.map(o=>`<label class="selectRow"><span>${esc(o.name)}${o.isMayor?" 👑":""}</span><input type="radio" name="poisonKey" value="${esc(o.key)}"></label>`).join("")}`;
-  html += `</div><button id="submitWitch" class="btn primary confirmBtn">Bevestig Heks-keuze</button><p class="small muted">Controleer je keuze goed voordat je bevestigt.</p>`;
+  else html += `<div class="witchChoices poisonChoices">${witchChoice("poison","none","Niemand vergiftigen",selectedPoison,"none")}${all.map(o=>witchChoice("poison",o.key,`${o.name}${o.isMayor?" 👑":""}`,selectedPoison,"poison",o)).join("")}</div>`;
+  html += `</div><button id="submitWitch" class="btn primary confirmBtn">Bevestigen</button>`;
   return html;
 }

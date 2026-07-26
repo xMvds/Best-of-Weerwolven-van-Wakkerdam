@@ -47,14 +47,15 @@ if errorlevel 1 (
 echo.
 echo Server starten...
 echo.
-echo Open daarna in je browser:
-echo   Speler:     http://localhost:3000/
+echo Zodra de server gereed is, openen deze drie tabbladen automatisch:
+echo   Speler:     http://localhost:3000/player
 echo   Host:       http://localhost:3000/host
 echo   Infoscherm: http://localhost:3000/info
 echo.
 echo Laat dit venster open. Druk op Ctrl+C om de server te stoppen.
 echo.
 
+start "" /b powershell.exe -NoProfile -WindowStyle Hidden -Command "$deadline=(Get-Date).AddSeconds(60); $ready=$false; while((Get-Date) -lt $deadline){ try { $response=Invoke-WebRequest -UseBasicParsing -Uri 'http://localhost:3000/host' -TimeoutSec 1; if($response.StatusCode -eq 200){ $ready=$true; break } } catch {}; Start-Sleep -Milliseconds 250 }; if($ready){ Start-Process 'http://localhost:3000/player'; Start-Process 'http://localhost:3000/host'; Start-Process 'http://localhost:3000/info' }"
 call npm start
 
 echo.
