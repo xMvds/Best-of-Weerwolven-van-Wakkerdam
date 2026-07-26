@@ -3142,3 +3142,289 @@ body.playerScreen.inGame .playerCenter.active .playerChoices .targetName{
   .witchChoiceTile.none{min-height:60px!important;}
   .infoScreen .winnerStage.hasDefeated .winnerLayout{gap:18px!important;}
 }
+
+/* v0.3.44 — volledige kaart-PNG's, touchscroll en telefoon/tablet-fit */
+.joinForm{
+  width:100%;
+  display:grid;
+  grid-template-columns:1fr;
+  gap:12px;
+}
+.joinSubmitBtn{
+  width:100%;
+  min-height:56px;
+  justify-content:center;
+  font-size:clamp(17px,2.3vw,21px);
+  font-weight:950;
+}
+
+/* De complete rolkaart blijft zichtbaar; stemmarkeringen nemen geen stuk van de PNG over. */
+.playerIdentityCard.choiceIdentity,
+.playerIdentityCard.witchIdentity{
+  flex:0 0 auto!important;
+  width:min(100%,clamp(122px,14vw,180px))!important;
+  height:auto!important;
+  aspect-ratio:1061 / 1483;
+  overflow:visible!important;
+  background:transparent!important;
+  border:0!important;
+}
+.playerIdentityCard.choiceIdentity img,
+.playerIdentityCard.witchIdentity img,
+.winnerRoleCard,
+.deathRoleCard{
+  object-fit:contain!important;
+  object-position:center!important;
+}
+.playerTargetChoice,
+.witchChoiceTile{
+  height:auto!important;
+}
+.playerTargetChoice .wolfTargetMeta{
+  position:static!important;
+  left:auto!important;
+  right:auto!important;
+  bottom:auto!important;
+  flex:0 0 auto;
+  margin-top:2px;
+}
+.infoScreen .winnerMainCards .winnerPlayerCard{
+  height:auto!important;
+  min-height:calc(var(--winner-card-art-height,220px) + 58px)!important;
+  overflow:visible!important;
+}
+.infoScreen .winnerMainCards .winnerRoleCard{
+  flex:0 1 auto!important;
+  width:100%!important;
+  height:var(--winner-card-art-height,220px)!important;
+  min-height:0!important;
+  max-height:none!important;
+}
+.infoScreen .winnerStage.hasDefeated .defeatedWolves .winnerRoleCard{
+  width:100%!important;
+  height:auto!important;
+  max-height:clamp(110px,21vh,190px)!important;
+}
+
+/* Alleen touchapparaten en echt smalle vensters krijgen de compacte, scrollbare variant. */
+@media (hover:none) and (pointer:coarse), (max-width:900px){
+  html,body{
+    min-height:100%;
+    -webkit-text-size-adjust:100%;
+  }
+  button,
+  input,
+  label,
+  .choice,
+  .witchChoiceTile{
+    touch-action:manipulation;
+  }
+  button,
+  .btn,
+  .choice,
+  .witchChoiceTile{
+    min-height:48px;
+  }
+
+  body.playerScreen.inGame{
+    height:auto!important;
+    min-height:100dvh!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    overscroll-behavior-y:contain;
+    -webkit-overflow-scrolling:touch;
+  }
+  body.playerScreen.inGame .playerWrap,
+  body.playerScreen.inGame .playerStage{
+    width:100%!important;
+    height:auto!important;
+    min-height:100dvh!important;
+    align-items:flex-start!important;
+  }
+  body.playerScreen.inGame .playerActionPanel{
+    width:100%!important;
+    height:auto!important;
+    min-height:100dvh!important;
+    overflow:visible!important;
+    align-items:flex-start!important;
+    padding:
+      calc(env(safe-area-inset-top,0px) + 26px)
+      max(12px,env(safe-area-inset-right,0px))
+      calc(env(safe-area-inset-bottom,0px) + 28px)
+      max(12px,env(safe-area-inset-left,0px))!important;
+  }
+  body.playerScreen.inGame .playerCenter,
+  body.playerScreen.inGame .deadScreen{
+    width:min(100%,760px)!important;
+    min-height:calc(100dvh - 54px);
+    justify-content:flex-start!important;
+    margin:0 auto!important;
+    padding:10px 0 18px;
+  }
+  body.playerScreen.inGame .playerCenter>h1{
+    width:100%!important;
+    max-width:100%!important;
+    white-space:normal!important;
+    overflow-wrap:anywhere!important;
+    font-size:clamp(27px,8.5vw,54px)!important;
+    line-height:.96!important;
+  }
+  body.playerScreen.inGame .playerCenter.active .playerChoices,
+  body.playerScreen.inGame .witchChoices{
+    width:100%!important;
+    justify-content:center!important;
+    align-items:flex-start!important;
+    gap:10px!important;
+  }
+  body.playerScreen.inGame .playerCenter.active .playerChoices .choice,
+  body.playerScreen.inGame .witchChoiceTile{
+    flex:0 1 clamp(132px,42vw,205px)!important;
+    width:clamp(132px,42vw,205px)!important;
+    min-width:min(132px,100%)!important;
+    max-width:min(205px,100%)!important;
+    min-height:0!important;
+    padding:10px!important;
+  }
+  .playerIdentityCard.choiceIdentity,
+  .playerIdentityCard.witchIdentity{
+    width:min(100%,154px)!important;
+  }
+  body.playerScreen.inGame .confirmBtn,
+  body.playerScreen.inGame #wolfConfirmBtn,
+  body.playerScreen.inGame #submitWitch{
+    position:sticky;
+    bottom:calc(env(safe-area-inset-bottom,0px) + 8px);
+    z-index:12;
+    width:min(420px,100%);
+    flex:0 0 auto;
+    box-shadow:0 12px 34px rgba(0,0,0,.72),0 0 22px rgba(228,59,79,.22);
+  }
+
+  .hostScreen{
+    min-height:100dvh;
+    overflow-x:hidden;
+    overflow-y:auto;
+    -webkit-overflow-scrolling:touch;
+  }
+  .hostScreen .wrap{
+    width:min(calc(100% - 16px),760px)!important;
+    padding:
+      max(10px,env(safe-area-inset-top,0px))
+      0
+      calc(36px + env(safe-area-inset-bottom,0px))!important;
+  }
+  .hostScreen .grid,
+  .hostScreen.gameActive .grid{
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr)!important;
+    gap:10px!important;
+  }
+  .hostScreen .grid>.card,
+  .hostScreen .grid>details.card,
+  .hostScreen.gameActive #controlCard,
+  .hostScreen.gameActive #currentStepCard,
+  .hostScreen.gameActive #playersCard,
+  .hostScreen.gameActive #rolesCard{
+    grid-column:1!important;
+    grid-row:auto!important;
+    width:100%!important;
+    min-width:0!important;
+  }
+  .hostScreen .topbar{
+    width:100%;
+    align-items:stretch!important;
+  }
+  .hostScreen .topbar>.btnrow{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    width:100%;
+  }
+  .hostScreen .topbar>.btnrow .badge{grid-column:1/-1;}
+  .hostScreen .topbar>.btnrow .btn{width:100%;text-align:center;}
+  .hostScreen #phasePills{
+    height:auto!important;
+    min-height:48px!important;
+    max-height:none!important;
+    overflow:visible!important;
+  }
+  .hostScreen .controlPrimaryButtons{
+    height:auto!important;
+    min-height:52px!important;
+  }
+  .hostScreen .controlContextButtons{
+    min-height:0!important;
+  }
+  .hostScreen .roleDecisionGrid.split{grid-template-columns:1fr!important;}
+  .hostScreen .roleGrid{grid-template-columns:1fr!important;}
+  .hostScreen .debugFab{
+    right:max(10px,env(safe-area-inset-right,0px));
+    bottom:max(10px,env(safe-area-inset-bottom,0px));
+  }
+
+  body.infoScreen{
+    min-height:100dvh!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch;
+  }
+  .infoScreen .infoMain{
+    width:100%!important;
+    min-height:100dvh!important;
+    overflow:visible!important;
+  }
+  .infoScreen .viewerHero{
+    width:100%!important;
+    height:auto!important;
+    min-height:100dvh!important;
+    overflow:visible!important;
+    border-radius:0!important;
+    padding:
+      calc(env(safe-area-inset-top,0px) + 20px)
+      max(12px,env(safe-area-inset-right,0px))
+      calc(env(safe-area-inset-bottom,0px) + 22px)
+      max(12px,env(safe-area-inset-left,0px))!important;
+  }
+  .infoScreen .infoContent,
+  .infoScreen .viewerHero.ended .infoContent{
+    width:100%!important;
+    height:auto!important;
+    min-height:calc(100dvh - 42px)!important;
+    gap:clamp(8px,1.5dvh,14px)!important;
+  }
+  .infoScreen .mayorResultBars{
+    width:100%;
+    height:min(46dvh,360px)!important;
+    overflow-x:auto;
+    overflow-y:hidden;
+    -webkit-overflow-scrolling:touch;
+  }
+  .infoScreen .dayVoteGraphColumn,
+  .infoScreen .infoMayorResult{
+    width:100%!important;
+    min-width:0!important;
+  }
+  .infoScreen .viewerPlayers{
+    max-height:none!important;
+    overflow:visible!important;
+  }
+  .infoScreen .winnerStage,
+  .infoScreen .viewerHero.ended .winnerStage{
+    height:auto!important;
+    max-height:none!important;
+  }
+  .infoScreen .winnerLayout{
+    max-height:none!important;
+  }
+}
+
+@media(max-width:560px){
+  .simpleJoinInner .joinForm{gap:10px;}
+  .simpleJoinInner input,
+  .simpleJoinInner .joinSubmitBtn{min-height:54px;}
+  .infoScreen .mayorResultBars{
+    justify-content:flex-start!important;
+    gap:9px!important;
+    padding-inline:4px!important;
+  }
+  .infoScreen .mayorResultBar{width:clamp(58px,18vw,82px)!important;}
+}

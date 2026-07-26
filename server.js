@@ -3,8 +3,11 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 
-const VERSION = "0.3.43";
+const VERSION = "0.3.44";
 const PORT = process.env.PORT || 3000;
+const VOTE_REVEAL_MS = 6500;
+const RESULT_REVEAL_FALLBACK_MS = 5000;
+const WINNER_REVEAL_FALLBACK_MS = 8000;
 
 const app = express();
 const server = http.createServer(app);
@@ -265,7 +268,8 @@ function newGame() {
     pendingContinue: null,
     pendingWinner: null,
     winner: null,
-    publicWinnerRevealAt: 0,
+    publicWinnerRevealed: true,
+    publicWinnerRevealToken: null,
     publicPhaseBeforeWinner: null,
     specialPowersDisabled: false,
     wolfishEverDied: false,
@@ -564,11 +568,30 @@ function hostState() {
   };
 }
 
-function publicState() {
-  const publicWinnerVisible = !game.winner || !game.publicWinnerRevealAt || Date.now() >= game.publicWinnerRevealAt;
+function resultIsPublic(result) {
+  return !result || result.publicRevealed !== false;
+}
+
+function publicState({ forViewer = false } = {}) {
+  const publicWinnerVisible = !game.winner || forViewer || game.publicWinnerRevealed;
   const publicPhase = game.winner && !publicWinnerVisible ? (game.publicPhaseBeforeWinner || "day") : game.phase;
-  const voteRevealPending = !!(game.dayVote?.result?.revealUntil && Date.now() < game.dayVote.result.revealUntil);
+  const voteRevealPending = !!game.dayVote?.result && !resultIsPublic(game.dayVote.result);
   const pendingEliminatedKey = voteRevealPending ? game.dayVote.result.eliminatedKey : null;
+  const publicPlayers = orderedPlayers(true).map(p => ({
+    key: p.key,
+    name: p.name,
+    connected: p.connected,
+    alive: pendingEliminatedKey === p.key ? true : p.alive,
+    seat: p.seat,
+    isMayor: p.isMayor,
+    isCandidate: p.isCandidate,
+    enchanted: p.enchanted,
+    isBot: !!p.isBot,
+    roleName: publicWinnerVisible && (game.phase === "ended" || game.winner) && p.roleId ? roleDef(p.roleId).name : null,
+    roleEmoji: publicWinnerVisible && (game.phase === "ended" || game.winner) && p.roleId ? roleDef(p.roleId).emoji : null,
+    wolfLike: publicWinnerVisible && (game.phase === "ended" || game.winner) ? isWolfLike(p) : false,
+    team: publicWinnerVisible && (game.phase === "ended" || game.winner) ? effectiveTeam(p) : null,
+  }));
   return {
     version: VERSION,
     lobbyId: game.lobbyId,
@@ -577,30 +600,18 @@ function publicState() {
     nightNumber: game.nightNumber,
     dayNumber: game.dayNumber,
     started: game.started,
-    players: orderedPlayers(true).map(p => ({
-      key: p.key,
-      name: p.name,
-      connected: p.connected,
-      alive: pendingEliminatedKey === p.key ? true : p.alive,
-      seat: p.seat,
-      isMayor: p.isMayor,
-      isCandidate: p.isCandidate,
-      enchanted: p.enchanted,
-      isBot: !!p.isBot,
-      roleName: publicWinnerVisible && (game.phase === "ended" || game.winner) && p.roleId ? roleDef(p.roleId).name : null,
-      roleEmoji: publicWinnerVisible && (game.phase === "ended" || game.winner) && p.roleId ? roleDef(p.roleId).emoji : null,
-      wolfLike: publicWinnerVisible && (game.phase === "ended" || game.winner) ? isWolfLike(p) : false,
-      team: publicWinnerVisible && (game.phase === "ended" || game.winner) ? effectiveTeam(p) : null,
-    })),
-    aliveCount: alivePlayers().length,
-    mayorElection: publicMayorElectionView(),
-    dayVote: publicDayVoteView(),
+    players: publicPlayers,
+    aliveCount: publicPlayers.filter(p => p.alive).length,
+    mayorElection: forViewer ? publicMayorElectionView() : playerMayorElectionView(null),
+    dayVote: forViewer ? publicDayVoteView() : playerDayVoteView(null),
     dayAftermath: game.dayAftermath || { active: false, fromNight: false },
     lastDeaths: voteRevealPending ? (game.lastDeaths || []).filter(d => d.key !== pendingEliminatedKey) : game.lastDeaths,
     aftermathActive: ["day", "mayor", "voting", "hunter"].includes(game.phase) && Array.isArray(game.lastDeaths) && game.lastDeaths.length > 0,
     recentPublicLog: game.recentPublicLog.slice(0, 8),
     currentPublicMoment: publicMoment(),
     winner: publicWinnerVisible ? game.winner : null,
+    winnerRevealToken: forViewer && game.winner && !game.publicWinnerRevealed ? game.publicWinnerRevealToken : null,
+    winnerPublicRevealed: !game.winner || game.publicWinnerRevealed,
     hostNote: "",
   };
 }
@@ -620,6 +631,34 @@ function publicMayorElectionView() {
   return view;
 }
 
+function playerMayorElectionView(selfKey) {
+  const view = mayorElectionView(selfKey);
+  if (view.stage === "voting") {
+    return {
+      ...view,
+      candidates: view.candidates.map(c => ({ ...c, votes: 0 })),
+      liveCounts: [],
+      votes: {},
+      selections: {},
+      voters: view.voters.map(v => ({ key: v.key, name: v.name, voted: v.voted, selected: v.voted })),
+    };
+  }
+  if (view.stage !== "result" || resultIsPublic(view.result)) return view;
+  return {
+    ...view,
+    candidates: view.candidates.map(c => ({ ...c, votes: 0 })),
+    liveCounts: [],
+    votes: {},
+    selections: {},
+    result: {
+      revealStartedAt: view.result.revealStartedAt,
+      revealUntil: view.result.revealUntil,
+      revealDurationMs: view.result.revealDurationMs,
+      revealed: false,
+    },
+  };
+}
+
 function publicMoment() {
   if (game.phase === "lobby") return "Lobby";
   if (game.phase === "night") return "De nacht valt over het dorp.";
@@ -632,8 +671,9 @@ function publicMoment() {
 }
 
 function playerState(p) {
-  const publicWinnerVisible = !game.winner || !game.publicWinnerRevealAt || Date.now() >= game.publicWinnerRevealAt;
-  const voteRevealPending = !!(game.dayVote?.result?.revealUntil && Date.now() < game.dayVote.result.revealUntil);
+  const publicWinnerVisible = !game.winner || game.publicWinnerRevealed;
+  const voteRevealPending = !!game.dayVote?.result && !resultIsPublic(game.dayVote.result);
+  const mayorRevealPending = !!game.mayorElection?.result && !resultIsPublic(game.mayorElection.result);
   const pendingEliminatedKey = voteRevealPending ? game.dayVote.result.eliminatedKey : null;
   const role = p.roleId ? roleDef(p.roleId) : null;
   return {
@@ -661,7 +701,7 @@ function playerState(p) {
       loverKey: p.loverKey,
       loverName: p.loverKey ? game.players[p.loverKey]?.name : null,
       enchanted: p.enchanted,
-      isMayor: p.isMayor,
+      isMayor: mayorRevealPending ? false : p.isMayor,
       isCandidate: p.isCandidate,
       witchSaveUsed: p.witchSaveUsed,
       witchPoisonUsed: p.witchPoisonUsed,
@@ -672,12 +712,13 @@ function playerState(p) {
       ...playerTargetOption(p, q),
       alive: pendingEliminatedKey === q.key ? true : q.alive,
       connected: q.connected,
+      isMayor: mayorRevealPending ? false : q.isMayor,
       isCandidate: q.isCandidate,
       seat: q.seat,
       isBot: !!q.isBot,
     })),
     action: actionForPlayer(p),
-    mayorElection: mayorElectionView(p.key),
+    mayorElection: playerMayorElectionView(p.key),
     dayVote: playerDayVoteView(p.key),
     dayAftermath: game.dayAftermath || { active: false, fromNight: false },
     lastDeaths: voteRevealPending ? (game.lastDeaths || []).filter(d => d.key !== pendingEliminatedKey) : game.lastDeaths,
@@ -841,7 +882,7 @@ function playerDayVoteView(selfKey) {
       result: null,
     };
   }
-  const revealPending = !!(view.result?.revealUntil && Date.now() < view.result.revealUntil);
+  const revealPending = !!view.result && !resultIsPublic(view.result);
   if (!revealPending) return view;
   return {
     open: false,
@@ -853,7 +894,10 @@ function playerDayVoteView(selfKey) {
     runoffCandidates: null,
     selfVote: view.selfVote,
     result: {
+      revealStartedAt: view.result.revealStartedAt,
       revealUntil: view.result.revealUntil,
+      revealDurationMs: view.result.revealDurationMs,
+      revealed: false,
       eliminatedKey: view.result.eliminatedKey === selfKey ? selfKey : null,
     },
   };
@@ -1140,7 +1184,7 @@ function nightPreview() {
 
 function emitAll() {
   io.to("host").emit("host_state", hostState());
-  io.to("viewer").emit("state", publicState());
+  io.to("viewer").emit("state", publicState({ forViewer: true }));
   // Players also get a public state fallback plus a private state.
   io.to("player").emit("state", publicState());
   for (const p of Object.values(game.players)) {
@@ -1237,10 +1281,11 @@ function actionForPlayer(p) {
     if (stage === "result") {
       const result = game.mayorElection?.result || {};
       const revealUntil = result.revealUntil || 0;
+      const revealed = resultIsPublic(result);
       const winnerName = result.winnerName || null;
       const isWinner = result.winnerKey === p.key;
       const finalTitle = isWinner ? "Gefeliciteerd,\nje bent burgemeester geworden" : (winnerName ? `de nieuwe burgemeester is ${winnerName}` : (result.tied ? "geen burgemeester\ngekozen door gelijke score" : "geen burgemeester gekozen"));
-      return { id: "mayor_result", kind: "mayor_result_wait", title: "De stemmen worden geteld", text: "", infoOnly: true, revealUntil, finalTitle };
+      return { id: "mayor_result", kind: "mayor_result_wait", title: "De stemmen worden geteld", text: "", infoOnly: true, revealUntil, revealed, finalTitle: revealed ? finalTitle : null };
     }
     const currentVote = game.mayorElection.votes[p.key] || null;
     const selectedTargetKey = currentVote || game.mayorElection.selections?.[p.key] || null;
@@ -2119,20 +2164,58 @@ function checkWinCondition() {
   return null;
 }
 
+function hasRegisteredViewer() {
+  return (io.sockets.adapter.rooms.get("viewer")?.size || 0) > 0;
+}
+
+function releaseResultToPlayers(kind, token) {
+  const result = kind === "mayor" ? game.mayorElection?.result : game.dayVote?.result;
+  if (!result || result.revealToken !== token || result.publicRevealed !== false) return false;
+  result.publicRevealed = true;
+  emitAll();
+  return true;
+}
+
+function scheduleResultReleaseFallback(kind, result) {
+  const firstDelay = Math.max(0, Number(result.revealUntil || 0) - Date.now()) + 350;
+  setTimeout(() => {
+    if (result.publicRevealed !== false) return;
+    if (!hasRegisteredViewer()) {
+      releaseResultToPlayers(kind, result.revealToken);
+      return;
+    }
+    setTimeout(() => releaseResultToPlayers(kind, result.revealToken), RESULT_REVEAL_FALLBACK_MS);
+  }, firstDelay);
+}
+
+function releaseWinnerToPlayers(token) {
+  if (!game.winner || game.publicWinnerRevealToken !== token || game.publicWinnerRevealed) return false;
+  game.publicWinnerRevealed = true;
+  emitAll();
+  return true;
+}
+
 function endGame(winner) {
   const phaseBeforeWinner = game.phase;
   game.phase = "ended";
   game.winner = winner;
   game.publicPhaseBeforeWinner = phaseBeforeWinner === "ended" ? "day" : phaseBeforeWinner;
-  game.publicWinnerRevealAt = Date.now() + 1500;
+  game.publicWinnerRevealed = false;
+  game.publicWinnerRevealToken = uid("winner_reveal");
   game.pendingWinner = null;
   game.currentStep = null;
   game.dayVote.open = false;
   game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
   logPublic(winner.title, "winner");
   setTimeout(() => {
-    if (game.winner === winner) emitAll();
-  }, 1550);
+    if (game.winner !== winner || game.publicWinnerRevealed) return;
+    if (!hasRegisteredViewer()) {
+      releaseWinnerToPlayers(game.publicWinnerRevealToken);
+      return;
+    }
+    const token = game.publicWinnerRevealToken;
+    setTimeout(() => releaseWinnerToPlayers(token), WINNER_REVEAL_FALLBACK_MS);
+  }, 2100);
 }
 
 
@@ -2221,7 +2304,22 @@ function closeMayorElection({ fillMissing = true } = {}) {
   if (fillMissing) fillMissingMayorVotesRandom();
   const view = mayorElectionView();
   const top = view.candidates[0];
-  let result = { winnerKey: null, winnerName: null, tied: false, tieReason: null, counts: view.candidates.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), revealUntil: Date.now() + 5000, runoffPending: false, runoffCandidates: null, runoffNames: null };
+  const revealStartedAt = Date.now();
+  let result = {
+    winnerKey: null,
+    winnerName: null,
+    tied: false,
+    tieReason: null,
+    counts: view.candidates.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })),
+    revealStartedAt,
+    revealUntil: revealStartedAt + VOTE_REVEAL_MS,
+    revealDurationMs: VOTE_REVEAL_MS,
+    revealToken: uid("mayor_reveal"),
+    publicRevealed: false,
+    runoffPending: false,
+    runoffCandidates: null,
+    runoffNames: null
+  };
   if (!top || top.votes <= 0) {
     logPublic("Er is geen burgemeester gekozen.", "vote");
     game.mayorElection.runoffCandidates = null;
@@ -2251,6 +2349,7 @@ function closeMayorElection({ fillMissing = true } = {}) {
   game.mayorElection.open = true;
   game.mayorElection.stage = "result";
   game.mayorElection.result = result;
+  scheduleResultReleaseFallback("mayor", result);
 }
 
 function closeDayVote({ fillMissing = true } = {}) {
@@ -2260,11 +2359,25 @@ function closeDayVote({ fillMissing = true } = {}) {
   const top = view.counts[0];
   game.phase = "day";
   game.dayVote.open = false;
-  const result = { counts: view.counts.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })), eliminatedKey: null, eliminatedName: null, eliminatedRoleName: null, eliminatedRoleEmoji: null, tied: false, revealUntil: Date.now() + 5000, runoffPending: false, runoffCandidates: null, runoffNames: null };
+  const revealStartedAt = Date.now();
+  const result = {
+    counts: view.counts.map(c => ({ key: c.key, name: c.name, votes: c.votes || 0 })),
+    eliminatedKey: null,
+    eliminatedName: null,
+    eliminatedRoleName: null,
+    eliminatedRoleEmoji: null,
+    tied: false,
+    revealStartedAt,
+    revealUntil: revealStartedAt + VOTE_REVEAL_MS,
+    revealDurationMs: VOTE_REVEAL_MS,
+    revealToken: uid("day_vote_reveal"),
+    publicRevealed: false,
+    runoffPending: false,
+    runoffCandidates: null,
+    runoffNames: null
+  };
   game.dayVote.result = result;
-  setTimeout(() => {
-    if (game.dayVote?.result === result) emitAll();
-  }, 5050);
+  scheduleResultReleaseFallback("day_vote", result);
 
   if (!top || top.votes <= 0) {
     logPublic("Er is niet gestemd. Niemand wordt geëlimineerd.", "vote");
@@ -2499,7 +2612,16 @@ io.on("connection", (socket) => {
 
   socket.on("register_viewer", () => {
     socket.join("viewer");
-    socket.emit("state", publicState());
+    socket.emit("state", publicState({ forViewer: true }));
+  });
+
+  socket.on("viewer_reveal_ack", ({ kind, token } = {}) => {
+    if (!socket.rooms.has("viewer") || !token) return;
+    if (kind === "winner") {
+      releaseWinnerToPlayers(token);
+      return;
+    }
+    if (kind === "mayor" || kind === "day_vote") releaseResultToPlayers(kind, token);
   });
 
   socket.on("join", ({ name, playerKey } = {}) => {

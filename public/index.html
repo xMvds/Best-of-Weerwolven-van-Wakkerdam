@@ -2,9 +2,9 @@
 <html lang="nl">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Wakkerdam Online Helper — Speler</title>
-  <link rel="stylesheet" href="/style.css?v=0.3.43" />
+  <link rel="stylesheet" href="/style.css?v=0.3.44" />
 </head>
 <body class="playerScreen">
   <div class="bg"></div>
@@ -12,7 +12,10 @@
     <section id="joinCard" class="joinScreenHero simpleJoinScreen">
       <div class="joinHeroInner simpleJoinInner">
         <label class="joinPrompt" for="nameInput">Vul je naam <span id="joinDebugHold" class="joinDebugHold">in</span></label>
-        <input id="nameInput" placeholder="Naam" maxlength="18" autocomplete="name" autofocus />
+        <form id="joinForm" class="joinForm">
+          <input id="nameInput" placeholder="Naam" maxlength="18" autocomplete="name" enterkeyhint="join" autofocus />
+          <button id="joinBtn" class="btn primary joinSubmitBtn" type="submit">Meedoen met het spel</button>
+        </form>
       </div>
     </section>
 
@@ -29,6 +32,6 @@
   </div>
   <div id="toast" class="toast hidden"></div>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/player.js?v=0.3.43"></script>
+  <script src="/player.js?v=0.3.44"></script>
 </body>
 </html>

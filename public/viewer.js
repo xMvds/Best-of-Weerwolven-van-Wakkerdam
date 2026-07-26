@@ -6,7 +6,13 @@ let lastDayResultKey="";
 let lastWinnerKey="";
 let displayedState=null;
 let winnerTransitionTimer=null;
+const acknowledgedRevealTokens=new Set();
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));}
+function acknowledgeReveal(kind, token){
+  if(!token || acknowledgedRevealTokens.has(token)) return;
+  acknowledgedRevealTokens.add(token);
+  socket.emit("viewer_reveal_ack", { kind, token });
+}
 const ROLE_ART = {
   "Burger": ["/assets/cards/burger_man.png", "/assets/cards/burger_woman.png"],
   "Weerwolf": ["/assets/cards/weerwolf.png"],
@@ -47,7 +53,7 @@ function finalMayorText(result){
 socket.emit("register_viewer");
 socket.on("connect",()=>socket.emit("register_viewer"));
 socket.on("state",s=>{
-  const startsWinner = !!s?.winner && !!displayedState && !displayedState.winner;
+  const startsWinner = !!s?.winner && !s?.winnerPublicRevealed && (!displayedState || !displayedState.winner);
   if(!startsWinner){
     displayedState=s;
     render(s);
@@ -60,7 +66,8 @@ socket.on("state",s=>{
   winnerTransitionTimer=setTimeout(()=>{
     displayedState=s;
     render(s);
-  },800);
+    acknowledgeReveal("winner", s.winnerRevealToken);
+  },840);
   setTimeout(()=>document.body.classList.remove("winnerTransitionBlack"),1650);
 });
 function render(s){
@@ -171,7 +178,10 @@ function renderMayorResultCentral(id, result, fallbackRows){
   const reveal = () => $(id).querySelector(".voteFinalText")?.classList.remove("hidden");
   if(resultKey !== lastMayorResultKey){
     lastMayorResultKey = resultKey;
-    animateCountUps($(id), reveal);
+    animateCountUps($(id), ()=>{
+      reveal();
+      acknowledgeReveal("mayor", result.revealToken);
+    }, result);
   } else {
     $(id).querySelectorAll(".countUp").forEach(el=>el.textContent=el.dataset.final||"0");
     $(id).querySelectorAll(".mayorBarFill").forEach(bar=>{ bar.style.height = `${Number(bar.dataset.height || 10)}%`; });
@@ -203,7 +213,10 @@ function renderDayVoteResultCentral(id, result){
   };
   if(resultKey !== lastDayResultKey){
     lastDayResultKey = resultKey;
-    animateCountUps($(id), reveal);
+    animateCountUps($(id), ()=>{
+      reveal();
+      acknowledgeReveal("day_vote", result.revealToken);
+    }, result);
   } else {
     $(id).querySelectorAll(".countUp").forEach(el=>el.textContent=el.dataset.final||"0");
     $(id).querySelectorAll(".mayorBarFill").forEach(bar=>{ bar.style.height = `${Number(bar.dataset.height || 10)}%`; bar.style.animation = "none"; });
@@ -211,17 +224,20 @@ function renderDayVoteResultCentral(id, result){
   }
 }
 
-function animateCountUps(root, done){
+function animateCountUps(root, done, timing={}){
   const els = [...root.querySelectorAll(".countUp")];
   const bars = [...root.querySelectorAll(".mayorBarFill")];
   const finals = els.map(el => Number(el.dataset.final || 0));
   const start = performance.now();
-  const duration = 5000;
+  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+  const duration = reduceMotion ? 120 : Math.max(1000, Number(timing.revealDurationMs || 6500));
   bars.forEach(bar=>{ bar.style.height = "0%"; bar.style.animation = "none"; bar.style.transform = "none"; });
   function frame(now){
     const elapsed = now - start;
     const progress = Math.min(1, elapsed / duration);
-    const eased = 1 - Math.pow(1 - progress, 3);
+    // Lineair oplopen voorkomt dat de balk al visueel stilstaat terwijl het
+    // laatste stemcijfer nog moet verschijnen.
+    const eased = progress;
     els.forEach((el, i)=>{
       const final = finals[i] || 0;
       el.textContent = String(progress >= 1 ? final : Math.floor(final * eased));

@@ -10,11 +10,11 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 test("release version is coherent in server, package and browser cache keys", () => {
   const pkg = JSON.parse(read("package.json"));
-  assert.equal(pkg.version, "0.3.43");
-  assert.match(read("server.js"), /const VERSION = "0\.3\.43";/);
+  assert.equal(pkg.version, "0.3.44");
+  assert.match(read("server.js"), /const VERSION = "0\.3\.44";/);
   for (const file of ["public/host.html", "public/index.html", "public/viewer.html"]) {
-    assert.match(read(file), /\?v=0\.3\.43/);
-    assert.doesNotMatch(read(file), /\?v=0\.3\.42/);
+    assert.match(read(file), /\?v=0\.3\.44/);
+    assert.doesNotMatch(read(file), /\?v=0\.3\.43/);
   }
 });
 
@@ -43,12 +43,25 @@ test("general v0.3.39 centering layer is reverted while the reveal animation rem
 
 test("info voting reaches and holds the final vote", () => {
   const viewer = read("public/viewer.js");
+  const server = read("server.js");
   assert.match(viewer, /--voter-font-size:\$\{Math\.max\(11,22-Math\.max\(0,String\(v\.name\|\|""\)\.length-10\)\*\.55\)\.toFixed\(1\)\}px/);
-  assert.match(viewer, /const duration = 5000;/);
+  assert.match(server, /const VOTE_REVEAL_MS = 6500;/);
+  assert.match(viewer, /Number\(timing\.revealDurationMs \|\| 6500\)/);
   assert.match(viewer, /const progress = Math\.min\(1, elapsed \/ duration\)/);
+  assert.match(viewer, /const eased = progress;/);
   assert.match(viewer, /progress >= 1 \? final : Math\.floor\(final \* eased\)/);
-  assert.doesNotMatch(viewer, /finalVoteHold|countDuration/);
+  assert.doesNotMatch(viewer, /1 - Math\.pow\(1 - progress, 3\)|finalVoteHold|countDuration/);
   assert.doesNotMatch(viewer, /ownDuration = final <= 0/);
+});
+
+test("join screen offers a visible Meedoen button and keeps keyboard Enter support", () => {
+  const html = read("public/index.html");
+  const player = read("public/player.js");
+  assert.match(html, /<form id="joinForm" class="joinForm">/);
+  assert.match(html, /id="nameInput"[^>]*enterkeyhint="join"/);
+  assert.match(html, /id="joinBtn"[^>]*type="submit">Meedoen met het spel<\/button>/);
+  assert.match(player, /\$\("joinForm"\)\?\.addEventListener\("submit", e=>\{ e\.preventDefault\(\); join\(\); \}\)/);
+  assert.match(player, /if\(e\.key==="Enter"\)\{ e\.preventDefault\(\); join\(\); \}/);
 });
 
 test("Host Start and Reset stay in a dedicated fixed primary row", () => {
@@ -76,21 +89,50 @@ test("Seer confirmation shows the selected player's name and role card on Player
 
 test("public results remain gated until their reveal boundary while Host stays live", () => {
   const server = read("server.js");
-  assert.match(server, /const voteRevealPending = !!\(game\.dayVote\?\.result\?\.revealUntil && Date\.now\(\) < game\.dayVote\.result\.revealUntil\)/);
+  assert.match(server, /const voteRevealPending = !!game\.dayVote\?\.result && !resultIsPublic\(game\.dayVote\.result\)/);
   assert.match(server, /alive: pendingEliminatedKey === p\.key \? true : p\.alive/);
   assert.match(server, /lastDeaths: voteRevealPending \? \(game\.lastDeaths \|\| \[\]\)\.filter/);
-  assert.match(server, /publicWinnerRevealAt = Date\.now\(\) \+ 1500/);
-  const hostState = server.slice(server.indexOf("function hostState"), server.indexOf("function publicState"));
+  assert.match(server, /game\.publicWinnerRevealed = false/);
+  assert.match(server, /socket\.on\("viewer_reveal_ack"/);
+  assert.match(server, /releaseResultToPlayers\(kind, token\)/);
+  assert.match(server, /releaseWinnerToPlayers\(token\)/);
+  const hostState = server.slice(server.indexOf("function hostState"), server.indexOf("function resultIsPublic"));
   assert.match(hostState, /winner: game\.winner/);
-  assert.doesNotMatch(hostState, /publicWinnerVisible|voteRevealPending/);
+  assert.match(hostState, /dayVote: dayVoteView\(\)/);
+  assert.doesNotMatch(hostState, /publicWinnerVisible|voteRevealPending|resultIsPublic/);
 });
 
 test("winner page swaps only after the Infoscherm is fully black", () => {
   const viewer = read("public/viewer.js");
   const css = read("public/style.css");
   assert.match(viewer, /document\.body\.classList\.add\("winnerTransitionBlack"\)/);
-  assert.match(viewer, /setTimeout\(\(\)=>\{[\s\S]*displayedState=s;[\s\S]*render\(s\);[\s\S]*\},800\)/);
+  assert.match(viewer, /setTimeout\(\(\)=>\{[\s\S]*displayedState=s;[\s\S]*render\(s\);[\s\S]*acknowledgeReveal\("winner", s\.winnerRevealToken\);[\s\S]*\},840\)/);
   assert.match(css, /@keyframes winnerPageSwap\{[\s\S]*50%\{opacity:1\}[\s\S]*56%\{opacity:1\}/);
+});
+
+test("touch layouts scroll on Player, Host and Info without changing the desktop layer", () => {
+  const css = read("public/style.css");
+  const marker = css.indexOf("v0.3.44 — volledige kaart-PNG's");
+  assert.ok(marker > 0);
+  const touchLayer = css.slice(marker);
+  assert.match(touchLayer, /@media \(hover:none\) and \(pointer:coarse\), \(max-width:900px\)/);
+  assert.match(touchLayer, /body\.playerScreen\.inGame\{[\s\S]*overflow-y:auto!important[\s\S]*-webkit-overflow-scrolling:touch/);
+  assert.match(touchLayer, /\.playerActionPanel\{[\s\S]*height:auto!important[\s\S]*overflow:visible!important/);
+  assert.match(touchLayer, /\.confirmBtn,[\s\S]*#wolfConfirmBtn,[\s\S]*#submitWitch\{[\s\S]*position:sticky[\s\S]*safe-area-inset-bottom/);
+  assert.match(touchLayer, /\.hostScreen \.grid,[\s\S]*grid-template-columns:minmax\(0,1fr\)!important/);
+  assert.match(touchLayer, /body\.infoScreen\{[\s\S]*overflow-y:auto!important/);
+  assert.match(touchLayer, /\.infoScreen \.viewerHero\{[\s\S]*min-height:100dvh!important[\s\S]*overflow:visible!important/);
+});
+
+test("role PNGs use contained aspect-ratio boxes and wolf winner cards cannot be clipped", () => {
+  const css = read("public/style.css");
+  const marker = css.indexOf("v0.3.44 — volledige kaart-PNG's");
+  const finalLayer = css.slice(marker);
+  assert.match(finalLayer, /\.playerIdentityCard\.choiceIdentity,[\s\S]*aspect-ratio:1061 \/ 1483[\s\S]*overflow:visible!important/);
+  assert.match(finalLayer, /\.playerTargetChoice \.wolfTargetMeta\{[\s\S]*position:static!important/);
+  assert.match(finalLayer, /\.winnerRoleCard,[\s\S]*object-fit:contain!important[\s\S]*object-position:center!important/);
+  assert.match(finalLayer, /\.winnerMainCards \.winnerPlayerCard\{[\s\S]*height:auto!important[\s\S]*overflow:visible!important/);
+  assert.match(finalLayer, /\.winnerMainCards \.winnerRoleCard\{[\s\S]*height:var\(--winner-card-art-height,220px\)!important/);
 });
 
 test("Witch target selection uses responsive action-colored player cards without extra emoji icons", () => {

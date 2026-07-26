@@ -66,8 +66,8 @@ function toast(text){
 function nameOf(key){ return (state?.players||[]).find(p=>p.key===key)?.name || "—"; }
 function titleHtml(text){ return esc(text).replace(/\n/g, "<br>"); }
 
-$("joinBtn")?.addEventListener("click", join);
-$("nameInput").addEventListener("keydown", e=>{ if(e.key==="Enter") join(); });
+$("joinForm")?.addEventListener("submit", e=>{ e.preventDefault(); join(); });
+$("nameInput").addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); join(); } });
 window.addEventListener("load",()=>setTimeout(()=>$('nameInput')?.focus(),80));
 
 // Join-scherm debug: D spammen of woord "in" lang indrukken.
@@ -214,9 +214,9 @@ function renderAction(){
     return;
   }
 
-  const deathRevealUntil = state?.dayVote?.result?.eliminatedKey === state?.me?.key ? Number(state.dayVote.result.revealUntil || 0) : 0;
-  if(!state.me.alive && deathRevealUntil && Date.now() < deathRevealUntil){
-    clearTimeout(window.__deathRevealTimer); window.__deathRevealTimer = setTimeout(render, Math.max(60, deathRevealUntil - Date.now() + 80));
+  const ownEliminationPending = state?.dayVote?.result?.eliminatedKey === state?.me?.key
+    && (state.dayVote.result.revealed === false || state.dayVote.result.publicRevealed === false);
+  if(!state.me.alive && ownEliminationPending){
     box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1>${roleCard(true)}</div>`;
     return;
   }
@@ -234,9 +234,7 @@ function renderAction(){
   }
 
   if(a.kind === "mayor_result_wait"){
-    const revealUntil = Number(a.revealUntil || 0);
-    if(revealUntil && Date.now() < revealUntil){
-      clearTimeout(window.__mayorRevealTimer); window.__mayorRevealTimer = setTimeout(render, Math.max(60, revealUntil - Date.now() + 80));
+    if(!a.revealed){
       box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1>${roleCard(true)}</div>`;
     } else {
       box.innerHTML = `<div class="playerCenter"><h1>${titleHtml(a.finalTitle || "de burgemeester is bekend")}</h1>${roleCard(true)}</div>`;
