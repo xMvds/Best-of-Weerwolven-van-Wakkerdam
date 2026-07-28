@@ -4,15 +4,17 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Wakkerdam Online Helper — Infoscherm</title>
-  <link rel="stylesheet" href="/style.css?v=0.3.44" />
+  <link rel="stylesheet" href="/style.css?v=0.3.50" />
 </head>
 <body class="infoScreen">
   <div class="bg"></div>
   <main class="infoMain">
     <section id="hero" class="viewerHero night">
       <div class="infoContent">
-        <h1 id="bigStatus" class="bigStatus">Lobby</h1>
-        <p id="subStatus" class="subStatus">Wacht op spelers.</p>
+        <header class="infoHeadline">
+          <h1 id="bigStatus" class="bigStatus">Lobby</h1>
+          <p id="subStatus" class="subStatus">Wacht op spelers.</p>
+        </header>
         <div id="deaths" class="deathCards"></div>
         <div id="viewerPlayers" class="viewerPlayers"></div>
       </div>
@@ -29,6 +31,6 @@
     </section>
   </main>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/viewer.js?v=0.3.44"></script>
+  <script src="/viewer.js?v=0.3.50"></script>
 </body>
 </html>

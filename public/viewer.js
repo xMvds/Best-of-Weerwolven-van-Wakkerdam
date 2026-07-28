@@ -6,28 +6,98 @@ let lastDayResultKey="";
 let lastWinnerKey="";
 let displayedState=null;
 let winnerTransitionTimer=null;
+let hunterTransitionTimer=null;
+let hunterTransitionEndTimer=null;
+let hunterTransitionPendingKey="";
+let viewerRenderFrame=null;
+let queuedRenderState=null;
+let viewerPlayersKey="";
+let centralSceneKey="";
 const acknowledgedRevealTokens=new Set();
+const revealMemoryKey="wakkerdam_seen_reveals_v0350";
+function loadSeenRevealTokens(){
+  try{
+    const stored=JSON.parse(sessionStorage.getItem(revealMemoryKey) || "[]");
+    return new Set(Array.isArray(stored) ? stored : []);
+  }catch(_error){
+    sessionStorage.removeItem(revealMemoryKey);
+    return new Set();
+  }
+}
+const seenRevealTokens=loadSeenRevealTokens();
+let resizeTimer=null;
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));}
+function hunterBullseye(className=""){
+  return `<span class="hunterBullseyeIcon ${className}" aria-hidden="true"></span>`;
+}
+function scheduleViewerRender(s){
+  queuedRenderState=s;
+  if(viewerRenderFrame!==null) return;
+  viewerRenderFrame=requestAnimationFrame(()=>{
+    viewerRenderFrame=null;
+    const next=queuedRenderState;
+    queuedRenderState=null;
+    if(next) render(next);
+  });
+}
+function runHunterBlackTransition(s){
+  const transitionKey=`${s?.phase||""}:${s?.hunterSequence?.stage||""}:${s?.hunterSequence?.hunterKey||""}`;
+  if(hunterTransitionPendingKey===transitionKey) return;
+  hunterTransitionPendingKey=transitionKey;
+  clearTimeout(hunterTransitionTimer);
+  clearTimeout(hunterTransitionEndTimer);
+  document.body.classList.remove("hunterTransitionBlack");
+  void document.body.offsetWidth;
+  document.body.classList.add("hunterTransitionBlack");
+  hunterTransitionTimer=setTimeout(()=>{
+    displayedState=s;
+    scheduleViewerRender(s);
+  },840);
+  hunterTransitionEndTimer=setTimeout(()=>{
+    document.body.classList.remove("hunterTransitionBlack");
+    hunterTransitionPendingKey="";
+  },1650);
+}
+function hasSeenReveal(token){ return !!token && seenRevealTokens.has(token); }
 function acknowledgeReveal(kind, token){
   if(!token || acknowledgedRevealTokens.has(token)) return;
   acknowledgedRevealTokens.add(token);
+  seenRevealTokens.add(token);
+  sessionStorage.setItem(revealMemoryKey, JSON.stringify([...seenRevealTokens].slice(-80)));
   socket.emit("viewer_reveal_ack", { kind, token });
 }
 const ROLE_ART = {
-  "Burger": ["/assets/cards/burger_man.png", "/assets/cards/burger_woman.png"],
+  "Burger": ["/assets/cards/burger_1.png", "/assets/cards/burger_2.png", "/assets/cards/burger_3.png", "/assets/cards/burger_4.png"],
   "Weerwolf": ["/assets/cards/weerwolf.png"],
+  "Grote Boze Wolf": ["/assets/cards/grote_boze_wolf.png"],
+  "Cupido": ["/assets/cards/cupido.png"],
   "Ziener": ["/assets/cards/Ziener.png"],
   "Fluitspeler": ["/assets/cards/fluitspeler.png"],
-  "Heks": ["/assets/cards/Heks.png"]
+  "Heks": ["/assets/cards/Heks.png"],
+  "Jager": ["/assets/cards/jager.png"]
 };
 function stableHash(str){ let h=0; str=String(str||""); for(let i=0;i<str.length;i++) h=((h<<5)-h+str.charCodeAt(i))|0; return Math.abs(h); }
 function deathVisual(d){
   const artList = ROLE_ART[d.roleName] || [];
   if(artList.length){
-    const src = artList[stableHash(d.key||d.name)%artList.length];
+    const variantIndex = d.roleName === "Burger" && Number(d.cardVariant) >= 1 && Number(d.cardVariant) <= artList.length
+      ? Number(d.cardVariant) - 1
+      : stableHash(d.key||d.name)%artList.length;
+    const src = artList[variantIndex];
     return { html:`<img class="deathRoleCard" src="${esc(src)}" alt="${esc(d.roleName)}">`, hasArt:true };
   }
   return { html:`<span class="emoji">${esc(d.roleEmoji)}</span>`, hasArt:false };
+}
+function deathCardHtml(d, className=""){
+  const visual = deathVisual(d);
+  const causeMark = d.cause === "hunter" ? `<span class="deathCauseMark hunterCause" aria-label="Uitgeschakeld door de Jager">${hunterBullseye("hunterBullseyeMini")}</span>` : "";
+  const roleMark = d.roleName === "Jager" ? `<span class="deathRoleMark hunterRoleMark" aria-label="Jager">${hunterBullseye("hunterBullseyeMini")}</span>` : "";
+  return `<div class="deathCard deathCardWithArt ${className} ${d.cause==="hunter"?"hunterDeathCard":""}"><h3>${esc(d.name)}</h3>${visual.html}${visual.hasArt ? "" : `<p class="muted">${esc(d.roleName || "")}</p>`}${roleMark}${causeMark}</div>`;
+}
+function linkedDeathHtml(primary, linkedDeaths=[]){
+  const linked = (linkedDeaths || []).filter(d => d?.cause === "love" && d.linkedToKey === primary?.key);
+  if(!linked.length) return deathCardHtml(primary);
+  return `<div class="linkedDeathReveal">${deathCardHtml(primary,"primaryDeathCard")}<div class="loverDeathStack">${linked.map(d=>`${deathCardHtml(d,"loverDeathCard")}<span class="brokenHeartMark" aria-label="Overleden door liefdesverdriet">💔</span>`).join("")}</div></div>`;
 }
 
 function topVoteRows(rows, limit=5, includeZero=false){
@@ -50,13 +120,56 @@ function finalMayorText(result){
   if(result?.tied) return 'geen burgemeester gekozen door gelijke score';
   return 'geen burgemeester gekozen';
 }
+function centralKeyForState(s, mayorActive, voteActive, mayorStage){
+  if(s.winner){
+    return `winner:${s.winner.team||""}:${(s.players||[]).map(p=>`${p.key}:${p.alive?1:0}:${p.roleName||""}`).join("|")}`;
+  }
+  if(s.phase === "hunter" && s.hunterSequence){
+    const h=s.hunterSequence;
+    return `hunter:${h.stage||""}:${h.hunterKey||""}:${(h.shotDeaths||[]).map(d=>`${d.key}:${d.cause}`).join("|")}`;
+  }
+  if(mayorActive){
+    const voters=(s.mayorElection?.voters||[]).map(v=>`${v.key}:${v.voted?1:0}`).join("|");
+    const result=s.mayorElection?.result||{};
+    return `mayor:${mayorStage}:${voters}:${(result.counts||[]).map(r=>`${r.key}:${r.votes}`).join("|")}:${result.winnerKey||""}`;
+  }
+  if(voteActive){
+    return `voting:${(s.dayVote?.voters||[]).map(v=>`${v.key}:${v.voted?1:0}`).join("|")}`;
+  }
+  if(s.dayVote?.result && s.phase === "day"){
+    const result=s.dayVote.result;
+    return `day-result:${(result.counts||[]).map(r=>`${r.key}:${r.votes}`).join("|")}:${result.eliminatedKey||""}:${result.tied?1:0}`;
+  }
+  return `deaths:${s.phase}:${(s.lastDeaths||[]).map(d=>`${d.key}:${d.cause}:${d.linkedToKey||""}`).join("|")}`;
+}
 socket.emit("register_viewer");
 socket.on("connect",()=>socket.emit("register_viewer"));
+window.addEventListener("resize",()=>{
+  clearTimeout(resizeTimer);
+  resizeTimer=setTimeout(()=>{ if(displayedState?.winner) render(displayedState); },120);
+});
 socket.on("state",s=>{
   const startsWinner = !!s?.winner && !s?.winnerPublicRevealed && (!displayedState || !displayedState.winner);
+  const startsHunterEvent = !startsWinner
+    && displayedState?.phase === "hunter"
+    && displayedState?.hunterSequence?.stage === "announcement"
+    && s?.phase === "hunter"
+    && s?.hunterSequence?.stage === "choosing";
+  const returnsFromHunter = !startsWinner
+    && displayedState?.phase === "hunter"
+    && displayedState?.hunterSequence?.stage === "summary"
+    && s?.phase !== "hunter";
+  if(startsHunterEvent){
+    runHunterBlackTransition(s);
+    return;
+  }
+  if(returnsFromHunter){
+    runHunterBlackTransition(s);
+    return;
+  }
   if(!startsWinner){
     displayedState=s;
-    render(s);
+    scheduleViewerRender(s);
     return;
   }
   clearTimeout(winnerTransitionTimer);
@@ -65,7 +178,7 @@ socket.on("state",s=>{
   document.body.classList.add("winnerTransitionBlack");
   winnerTransitionTimer=setTimeout(()=>{
     displayedState=s;
-    render(s);
+    scheduleViewerRender(s);
     acknowledgeReveal("winner", s.winnerRevealToken);
   },840);
   setTimeout(()=>document.body.classList.remove("winnerTransitionBlack"),1650);
@@ -74,12 +187,15 @@ function render(s){
   if($("version")) $("version").textContent=`v${s.version}`;
   const hero=$("hero");
   const infoClass = getInfoPhaseClass(s);
+  const transientHeroClasses=["deathPulse","hunterImpact"].filter(className=>hero.classList.contains(className));
   hero.className=`viewerHero ${infoClass}`;
+  transientHeroClasses.forEach(className=>hero.classList.add(className));
   const mayorActive = s.phase === "mayor" && !!s.mayorElection?.open;
   const voteActive = s.phase === "voting" && !!s.dayVote?.open;
   const mayorStage = s.mayorElection?.stage || "idle";
   const deathIds=(s.lastDeaths||[]).map(d=>d.key+':'+d.cause).join('|');
-  if(!mayorActive && deathIds && deathIds!==lastDeathIds){ hero.classList.add('deathPulse'); setTimeout(()=>hero.classList.remove('deathPulse'),1200); }
+  const hunterShotBuilding = s.phase === "hunter" && s.hunterSequence?.stage === "shot_suspense";
+  if(!mayorActive && !hunterShotBuilding && deathIds && deathIds!==lastDeathIds){ hero.classList.add('deathPulse'); setTimeout(()=>hero.classList.remove('deathPulse'),1200); }
   lastDeathIds=deathIds;
   let title="Lobby", sub="Wacht op spelers.";
   if(s.winner){ title=s.winner.title; sub=s.winner.text; lastWinnerKey = `${s.winner.team || ""}:${s.winner.title || ""}`; }
@@ -94,45 +210,71 @@ function render(s){
   }
   else if(s.phase==="voting"){ title="Stemming"; sub="Er wordt gestemd."; }
   else if(s.phase==="hunter"){
-    title="Dag";
-    sub=(s.lastDeaths||[]).length ? "Deze spelers hebben de nacht niet overleefd." : "De Jager kiest een slachtoffer.";
+    const hunterStage = s.hunterSequence?.stage || "announcement";
+    if(hunterStage === "announcement"){
+      title="De Jager is uitgeschakeld";
+      sub=`${s.hunterSequence?.hunterName || "De Jager"} lost nog één laatste schot.`;
+    } else if(hunterStage === "choosing"){
+      title="Het laatste schot";
+      sub="";
+    } else if(hunterStage === "shot_suspense"){
+      title="Het laatste schot";
+      sub="Wie neemt de Jager mee?";
+    } else {
+      title="Jager-overzicht";
+      sub="Dit zijn de gevolgen van het laatste schot.";
+    }
   }
   else if(s.phase==="ended"){ title=s.winner?.title||"Einde"; sub=s.winner?.text||"Het spel is afgelopen."; }
   $("bigStatus").textContent=title;
   $("subStatus").textContent=sub || "";
   $("subStatus").classList.toggle("hidden", !sub);
 
-  if(s.winner){
-    renderWinnerCentral("deaths", s);
-  } else if(mayorActive){
-    // Burgemeesterfase neemt het centrale podium over: geen oude eliminatiekaarten tonen.
-    if(mayorStage === "candidates") renderCandidatesCentral("deaths", s.mayorElection?.candidates||[]);
-    else if(mayorStage === "voting") renderMayorVotingHidden("deaths", s.mayorElection?.voters||[]);
-    else if(mayorStage === "result") renderMayorResultCentral("deaths", s.mayorElection?.result || {}, s.mayorElection?.candidates||[]);
-    else renderCandidatesCentral("deaths", s.mayorElection?.candidates||[]);
-  } else if(voteActive){
-    renderDayVotingHidden("deaths", s.dayVote?.voters || []);
-  } else if(s.dayVote?.result && s.phase === "day"){
-    // Dagstemming-uitslag moet ook als grafiek/reveal worden getoond wanneer de stem iemand elimineert.
-    // Eerder wonnen lastDeaths/deathCards deze render-tak, waardoor de dagstemgrafiek niet verscheen.
-    renderDayVoteResultCentral("deaths", s.dayVote.result);
-  } else {
-    $("deaths").innerHTML=(s.lastDeaths||[]).map(d=>{
-      const visual = deathVisual(d);
-      return `<div class="deathCard deathCardWithArt"><h3>${esc(d.name)}</h3>${visual.html}${visual.hasArt ? "" : `<p class="muted">${esc(d.roleName)}</p>`}</div>`;
-    }).join("");
+  const nextCentralSceneKey=centralKeyForState(s,mayorActive,voteActive,mayorStage);
+  if(nextCentralSceneKey!==centralSceneKey){
+    centralSceneKey=nextCentralSceneKey;
+    if(s.winner){
+      renderWinnerCentral("deaths", s);
+    } else if(s.phase === "hunter" && s.hunterSequence){
+      renderHunterCentral("deaths", s);
+    } else if(mayorActive){
+      // Burgemeesterfase neemt het centrale podium over: geen oude eliminatiekaarten tonen.
+      if(mayorStage === "candidates") renderCandidatesCentral("deaths", s.mayorElection?.candidates||[]);
+      else if(mayorStage === "voting") renderMayorVotingHidden("deaths", s.mayorElection?.voters||[]);
+      else if(mayorStage === "result") renderMayorResultCentral("deaths", s.mayorElection?.result || {}, s.mayorElection?.candidates||[]);
+      else renderCandidatesCentral("deaths", s.mayorElection?.candidates||[]);
+    } else if(voteActive){
+      renderDayVotingHidden("deaths", s.dayVote?.voters || []);
+    } else if(s.dayVote?.result && s.phase === "day"){
+      renderDayVoteResultCentral("deaths", s.dayVote.result);
+    } else {
+      const deaths = s.lastDeaths || [];
+      const linkedKeys = new Set(deaths.filter(d=>d.cause==="love" && d.linkedToKey).map(d=>d.key));
+      $("deaths").innerHTML=deaths.filter(d=>!linkedKeys.has(d.key)).map(d=>linkedDeathHtml(d,deaths)).join("");
+      if(s.deathRevealToken && !s.deathPublicRevealed){
+        const delay = hasSeenReveal(s.deathRevealToken) ? 0 : 1800;
+        setTimeout(()=>acknowledgeReveal("deaths",s.deathRevealToken),delay);
+      }
+    }
   }
 
   const playerList = $("viewerPlayers");
   if(s.winner){
-    playerList.className="viewerPlayers";
-    playerList.innerHTML="";
+    if(viewerPlayersKey!=="winner"){
+      viewerPlayersKey="winner";
+      playerList.className="viewerPlayers";
+      playerList.innerHTML="";
+    }
   } else {
     const players = s.players || [];
     const density = players.length > 48 ? "ultraDense" : players.length > 24 ? "veryDense" : players.length > 12 ? "dense" : "";
-    playerList.className=`viewerPlayers ${density}`.trim();
-    playerList.style.setProperty("--info-player-count", String(Math.max(1, players.length)));
-    playerList.innerHTML=players.map(p=>`<span class="viewerPlayer ${p.isMayor?'mayor':''} ${p.alive?'':'dead'}" title="${esc(p.name)}">${esc(p.name)}${p.isMayor?' 👑':''}${p.enchanted?' 🎵':''}</span>`).join("");
+    const nextPlayersKey=`${density}:${players.map(p=>`${p.key}:${p.name}:${p.alive?1:0}:${p.isMayor?1:0}`).join("|")}`;
+    if(nextPlayersKey!==viewerPlayersKey){
+      viewerPlayersKey=nextPlayersKey;
+      playerList.className=`viewerPlayers ${density}`.trim();
+      playerList.style.setProperty("--info-player-count", String(Math.max(1, players.length)));
+      playerList.innerHTML=players.map(p=>`<span class="viewerPlayer ${p.isMayor?'mayor':''} ${p.alive?'':'dead'}" title="${esc(p.name)}">${esc(p.name)}${p.isMayor?' 👑':''}</span>`).join("");
+    }
   }
   // Burgemeester-informatie wordt centraal op het Infoscherm getoond, niet in een extra onderpaneel.
   $("infoVotePanels").classList.add("hidden");
@@ -141,12 +283,46 @@ function render(s){
   $("mayorBars").innerHTML = "";
   $("voteBars").innerHTML = "";
 }
+
+function renderHunterCentral(id, s){
+  const sequence = s.hunterSequence || {};
+  const allDeaths = sequence.allDeaths || s.lastDeaths || [];
+  const hunterDeath = sequence.hunterDeath || allDeaths.find(d=>d.key===sequence.hunterKey);
+  if(sequence.stage === "announcement"){
+    $(id).innerHTML = `<div class="hunterAnnouncement hunterCenteredScene">${hunterDeath?deathCardHtml(hunterDeath,"hunterPrimaryCard"):""}<div class="hunterLastShotSeal">${hunterBullseye("hunterBullseyeSeal")}<strong>Laatste schot</strong><small>De Host gaat verder, anders start de keuze na tien seconden.</small></div></div>`;
+    return;
+  }
+  if(sequence.stage === "choosing"){
+    $(id).innerHTML = `<div class="hunterChoiceSuspense hunterCenteredScene">${hunterBullseye("hunterCrosshair")}<strong>De Jager kiest…</strong><small>Het dorp houdt zijn adem in.</small></div>`;
+    return;
+  }
+  if(sequence.stage === "shot_suspense"){
+    const shotDeaths = sequence.shotDeaths || [];
+    const showShot = ()=>{
+      const linkedKeys = new Set(shotDeaths.filter(d=>d.cause==="love"&&d.linkedToKey).map(d=>d.key));
+      $(id).innerHTML = `<div class="hunterShotReveal hunterCenteredScene">${hunterBullseye("hunterBullseyeImpact")}<div class="hunterShotCopy"><strong>Het schot is gelost</strong><small>Het dorp ziet wie er is geraakt.</small></div><div class="hunterShotCards">${shotDeaths.filter(d=>!linkedKeys.has(d.key)).map(d=>linkedDeathHtml(d,shotDeaths)).join("")}</div></div>`;
+      const hero=$("hero");
+      hero?.classList.remove("hunterImpact");
+      if(hero) void hero.offsetWidth;
+      hero?.classList.add("hunterImpact");
+      setTimeout(()=>hero?.classList.remove("hunterImpact"),1100);
+      acknowledgeReveal("hunter_shot",sequence.shotToken);
+    };
+    $(id).innerHTML = `<div class="hunterChoiceSuspense hunterCenteredScene shotFired">${hunterBullseye("hunterCrosshair")}<strong>Het schot klinkt…</strong><small>Wie is geraakt?</small></div>`;
+    setTimeout(showShot,hasSeenReveal(sequence.shotToken)?0:3600);
+    return;
+  }
+  const shotDeaths = sequence.shotDeaths || [];
+  const linkedKeys = new Set(shotDeaths.filter(d=>d.cause==="love"&&d.linkedToKey).map(d=>d.key));
+  $(id).innerHTML = `<div class="hunterRoundSummary hunterCenteredScene">${hunterBullseye("hunterBullseyeSummary")}<div class="hunterShotCards">${shotDeaths.filter(d=>!linkedKeys.has(d.key)).map(d=>linkedDeathHtml(d,shotDeaths)).join("")}</div></div>`;
+}
 function getInfoPhaseClass(s){
   if(s?.winner || s?.phase === "ended") return "ended";
   if(s?.phase === "night") return "night";
   if(s?.phase === "mayor") return "day mayor";
   if(s?.phase === "voting") return "day voting";
-  if(["day","hunter"].includes(s?.phase)) return "day";
+  if(s?.phase === "hunter") return "day hunter";
+  if(s?.phase === "day") return "day";
   return "lobby";
 }
 
@@ -168,6 +344,9 @@ function renderMayorResultCentral(id, result, fallbackRows){
   if(result?.automaticSingleCandidate){
     $(id).innerHTML = `<div class="infoMayorResult singleMayorResult"><h3 class="voteFinalText">${esc(finalText)}</h3></div>`;
     lastMayorResultKey = `single:${result?.winnerKey||result?.winnerName||''}`;
+    if(result.publicRevealed === false){
+      setTimeout(()=>acknowledgeReveal("mayor",result.revealToken),hasSeenReveal(result.revealToken)?0:900);
+    }
     return;
   }
   let rows = topVoteRows(result.counts || fallbackRows || [], 5, true);
@@ -175,17 +354,25 @@ function renderMayorResultCentral(id, result, fallbackRows){
   const max = Math.max(1, ...rows.map(r=>r.votes||0));
   const resultKey = JSON.stringify(rows.map(r=>[r.key||r.name,r.votes||0])) + ':' + (result?.winnerName||'') + ':' + (result?.tied?'tie':'');
   $(id).innerHTML = `<div class="infoMayorResult"><h3 class="voteFinalText hidden">${esc(finalText)}</h3><div class="mayorResultBars">${rows.map((r,i)=>`<div class="mayorResultBar" style="--bar-height:${Math.max(10,Math.round(((r.votes||0)/max)*100))}%;--pop-index:${i}"><span class="mayorBarFill" data-height="${Math.max(10,Math.round(((r.votes||0)/max)*100))}"></span><strong>${esc(r.name)}</strong><small class="countUp" data-final="${r.votes||0}">0</small></div>`).join("")}</div></div>`;
-  const reveal = () => $(id).querySelector(".voteFinalText")?.classList.remove("hidden");
-  if(resultKey !== lastMayorResultKey){
+  const reveal = (animate=true) => {
+    const text = $(id).querySelector(".voteFinalText");
+    if(!animate) text?.classList.add("noReplay");
+    text?.classList.remove("hidden");
+  };
+  const alreadyRevealed = result.publicRevealed !== false || hasSeenReveal(result.revealToken);
+  if(alreadyRevealed) $(id).querySelector(".infoMayorResult")?.classList.add("noReplay");
+  if(resultKey !== lastMayorResultKey && !alreadyRevealed){
     lastMayorResultKey = resultKey;
     animateCountUps($(id), ()=>{
       reveal();
       acknowledgeReveal("mayor", result.revealToken);
     }, result);
   } else {
+    lastMayorResultKey = resultKey;
     $(id).querySelectorAll(".countUp").forEach(el=>el.textContent=el.dataset.final||"0");
-    $(id).querySelectorAll(".mayorBarFill").forEach(bar=>{ bar.style.height = `${Number(bar.dataset.height || 10)}%`; });
-    reveal();
+    $(id).querySelectorAll(".mayorBarFill").forEach(bar=>{ bar.style.height = `${Number(bar.dataset.height || 10)}%`; bar.style.setProperty("--graph-progress","1"); });
+    reveal(false);
+    if(result.publicRevealed === false) acknowledgeReveal("mayor",result.revealToken);
   }
 }
 
@@ -201,26 +388,43 @@ function renderDayVoteResultCentral(id, result){
   const max = Math.max(1, ...rows.map(r=>r.votes||0));
   const finalText = result.eliminatedName?`${result.eliminatedName} is geëlimineerd.`:result.tied?'gelijke stand':'geen speler geëlimineerd';
   const resultKey = JSON.stringify(rows.map(r=>[r.key||r.name,r.votes||0])) + ':' + (result?.eliminatedKey||'') + ':' + (result?.tied?'tie':'');
-  const eliminatedVisual = result.eliminatedName ? deathVisual({ key: result.eliminatedKey, name: result.eliminatedName, roleName: result.eliminatedRoleName, roleEmoji: result.eliminatedRoleEmoji }) : null;
-  const revealCard = eliminatedVisual ? `<div class="dayElimReveal hidden"><div class="deathCard deathCardWithArt"><h3>${esc(result.eliminatedName)}</h3>${eliminatedVisual.html}${eliminatedVisual.hasArt ? "" : `<p class="muted">${esc(result.eliminatedRoleName || '')}</p>`}</div></div>` : "";
+  const eliminatedVisual = result.eliminatedName ? deathVisual({ key: result.eliminatedKey, name: result.eliminatedName, roleName: result.eliminatedRoleName, roleEmoji: result.eliminatedRoleEmoji, cardVariant:result.eliminatedCardVariant }) : null;
+  const eliminatedDeath = result.eliminatedName ? { key:result.eliminatedKey, name:result.eliminatedName, roleName:result.eliminatedRoleName, roleEmoji:result.eliminatedRoleEmoji, cardVariant:result.eliminatedCardVariant, cause:"vote" } : null;
+  const revealCard = eliminatedVisual ? `<div class="dayElimReveal hidden">${linkedDeathHtml(eliminatedDeath,result.linkedDeaths||[])}</div>` : "";
   $(id).innerHTML = `<div class="dayVoteResultStage ${eliminatedVisual?'hasReveal':''}"><div class="dayVoteRevealColumn">${revealCard}</div><div class="infoMayorResult dayVoteGraphColumn"><h3 class="voteFinalText hidden">${esc(finalText)}</h3><div class="mayorResultBars dayResultBars">${rows.map((r,i)=>`<div class="mayorResultBar ${result.eliminatedKey===r.key?'willEliminate':''}" data-key="${esc(r.key||'')}" style="--bar-height:${Math.max(10,Math.round(((r.votes||0)/max)*100))}%;--pop-index:${i}"><span class="mayorBarFill" data-height="${Math.max(10,Math.round(((r.votes||0)/max)*100))}"></span><strong>${esc(r.name)}</strong><small class="countUp" data-final="${r.votes||0}">0</small></div>`).join("")}</div></div></div>`;
-  const reveal = () => {
+  const reveal = (animate=true) => {
     const stage = $(id).querySelector(".dayVoteResultStage");
-    $(id).querySelector(".voteFinalText")?.classList.remove("hidden");
+    const text = $(id).querySelector(".voteFinalText");
+    if(!animate) text?.classList.add("noReplay");
+    text?.classList.remove("hidden");
     $(id).querySelectorAll(".willEliminate").forEach(el=>el.classList.add("eliminatedBar"));
-    stage?.classList.add("revealReady");
-    $(id).querySelector(".dayElimReveal")?.classList.remove("hidden");
+    const card = $(id).querySelector(".dayElimReveal");
+    if(!animate){
+      card?.classList.add("noReplay");
+      stage?.classList.add("graphShifted","revealReady");
+      card?.classList.remove("hidden");
+      return;
+    }
+    stage?.classList.add("graphShifted");
+    setTimeout(()=>{
+      stage?.classList.add("revealReady");
+      card?.classList.remove("hidden");
+      acknowledgeReveal("day_vote", result.revealToken);
+    },card?320:180);
   };
-  if(resultKey !== lastDayResultKey){
+  const alreadyRevealed = result.publicRevealed !== false || hasSeenReveal(result.revealToken);
+  if(alreadyRevealed) $(id).querySelector(".infoMayorResult")?.classList.add("noReplay");
+  if(resultKey !== lastDayResultKey && !alreadyRevealed){
     lastDayResultKey = resultKey;
     animateCountUps($(id), ()=>{
       reveal();
-      acknowledgeReveal("day_vote", result.revealToken);
     }, result);
   } else {
+    lastDayResultKey = resultKey;
     $(id).querySelectorAll(".countUp").forEach(el=>el.textContent=el.dataset.final||"0");
-    $(id).querySelectorAll(".mayorBarFill").forEach(bar=>{ bar.style.height = `${Number(bar.dataset.height || 10)}%`; bar.style.animation = "none"; });
-    reveal();
+    $(id).querySelectorAll(".mayorBarFill").forEach(bar=>{ bar.style.height = `${Number(bar.dataset.height || 10)}%`; bar.style.animation = "none"; bar.style.setProperty("--graph-progress","1"); });
+    reveal(false);
+    if(result.publicRevealed === false) acknowledgeReveal("day_vote",result.revealToken);
   }
 }
 
@@ -228,10 +432,16 @@ function animateCountUps(root, done, timing={}){
   const els = [...root.querySelectorAll(".countUp")];
   const bars = [...root.querySelectorAll(".mayorBarFill")];
   const finals = els.map(el => Number(el.dataset.final || 0));
-  const start = performance.now();
-  const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
-  const duration = reduceMotion ? 120 : Math.max(1000, Number(timing.revealDurationMs || 6500));
-  bars.forEach(bar=>{ bar.style.height = "0%"; bar.style.animation = "none"; bar.style.transform = "none"; });
+  const elapsedBeforeStart = timing.revealStartedAt ? Math.max(0, Date.now() - Number(timing.revealStartedAt)) : 0;
+  const duration = Math.max(1000, Number(timing.revealDurationMs || 3000));
+  const start = performance.now() - Math.min(duration, elapsedBeforeStart);
+  bars.forEach(bar=>{
+    bar.style.height = `${Number(bar.dataset.height || 10)}%`;
+    bar.style.animation = "none";
+    bar.style.transition = "none";
+    bar.style.transformOrigin = "bottom";
+    bar.style.setProperty("--graph-progress","0");
+  });
   function frame(now){
     const elapsed = now - start;
     const progress = Math.min(1, elapsed / duration);
@@ -242,27 +452,28 @@ function animateCountUps(root, done, timing={}){
       const final = finals[i] || 0;
       el.textContent = String(progress >= 1 ? final : Math.floor(final * eased));
     });
-    bars.forEach((bar, i)=>{
-      const final = finals[i] || 0;
-      const finalHeight = Number(bar.dataset.height || 10);
-      bar.style.height = `${Math.max(final > 0 ? 1 : 0, finalHeight * eased)}%`;
-    });
+    bars.forEach(bar=>{ bar.style.setProperty("--graph-progress",String(eased)); });
     if(elapsed < duration) requestAnimationFrame(frame);
     else {
       els.forEach(el=>el.textContent = el.dataset.final || "0");
-      bars.forEach(bar=>{ bar.style.height = `${Number(bar.dataset.height || 10)}%`; });
+      bars.forEach(bar=>{
+        bar.style.height = `${Number(bar.dataset.height || 10)}%`;
+        bar.style.setProperty("--graph-progress","1");
+      });
       if(typeof done === "function") done();
     }
   }
   requestAnimationFrame(frame);
 }
 
-function roleArtForName(roleName, seed){
+function roleArtForName(roleName, seed, cardVariant=null){
   const artList = ROLE_ART[roleName] || [];
-  return artList.length ? artList[stableHash(seed||roleName)%artList.length] : null;
+  if(!artList.length) return null;
+  if(roleName === "Burger" && Number(cardVariant) >= 1 && Number(cardVariant) <= artList.length) return artList[Number(cardVariant)-1];
+  return artList[stableHash(seed||roleName)%artList.length];
 }
 function winnerPlayerCard(p, defeated=false){
-  const src = roleArtForName(p.roleName, p.key || p.name);
+  const src = roleArtForName(p.roleName, p.key || p.name, p.cardVariant);
   const visual = src ? `<img class="winnerRoleCard" src="${esc(src)}" alt="${esc(p.roleName || '')}">` : `<span class="emoji winnerEmoji">${esc(p.roleEmoji || '🃏')}</span><p class="muted">${esc(p.roleName || '')}</p>`;
   return `<div class="winnerPlayerCard ${p.alive?'alive':'dead'} ${defeated?'defeated':''}"><h3>${esc(p.name)}</h3>${visual}</div>`;
 }
@@ -279,9 +490,13 @@ function renderWinnerCentral(id, s){
   } else {
     main = players;
   }
-  const winnerColumns = Math.min(Math.max(1, main.length), Math.max(2, Math.ceil(Math.sqrt(Math.max(1, main.length) * 1.6))));
+  const viewportWidth = Math.max(320, window.innerWidth || 1280);
+  const maxColumns = viewportWidth <= 600 ? 4 : viewportWidth <= 900 ? 6 : viewportWidth <= 1300 ? 8 : 10;
+  const winnerColumns = Math.min(Math.max(1, main.length), maxColumns, Math.max(2, Math.ceil(Math.sqrt(Math.max(1, main.length) * (viewportWidth > 900 ? 1.65 : 1.2)))));
   const winnerRows = Math.max(1, Math.ceil(Math.max(1, main.length) / winnerColumns));
-  const winnerSizing = `--winner-count:${Math.max(1, main.length)};--winner-cols:${winnerColumns};--winner-rows:${winnerRows};--winner-card-width:clamp(62px,${(72 / winnerColumns).toFixed(2)}vw,170px);--winner-card-art-height:clamp(58px,${(52 / winnerRows).toFixed(2)}svh,220px)`;
+  const minArt = viewportWidth <= 600 ? 44 : viewportWidth <= 900 ? 50 : 58;
+  const availableHeight = viewportWidth <= 600 ? 35 : viewportWidth <= 900 ? 44 : 52;
+  const winnerSizing = `--winner-count:${Math.max(1, main.length)};--winner-cols:${winnerColumns};--winner-rows:${winnerRows};--winner-card-width:clamp(54px,${(82 / winnerColumns).toFixed(2)}vw,170px);--winner-card-art-height:clamp(${minArt}px,${(availableHeight / winnerRows).toFixed(2)}svh,220px)`;
   const defeatedWidth = Math.min(500, Math.max(210, 90 + defeated.length * 135));
   const defeatedHtml = defeated.length?`<aside class="defeatedWolves" style="--defeated-count:${defeated.length};--defeated-panel-width:${defeatedWidth}px"><h4>Verslagen wolven</h4><div class="winnerCards small">${defeated.map(p=>winnerPlayerCard(p,true)).join('')}</div></aside>`:'';
   const groupTitle = s.winner?.team === "village" ? "Het Dorp" : s.winner?.team === "wolves" ? "De Weerwolven" : "";

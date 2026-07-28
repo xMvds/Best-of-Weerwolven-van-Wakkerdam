@@ -3,11 +3,14 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 
-const VERSION = "0.3.44";
+const VERSION = "0.3.50";
 const PORT = process.env.PORT || 3000;
-const VOTE_REVEAL_MS = 6500;
+const VOTE_REVEAL_MS = 3000;
 const RESULT_REVEAL_FALLBACK_MS = 5000;
 const WINNER_REVEAL_FALLBACK_MS = 8000;
+const DEATH_REVEAL_FALLBACK_MS = 6000;
+const HUNTER_INTRO_FALLBACK_MS = 10000;
+const HUNTER_SHOT_FALLBACK_MS = 6200;
 
 const app = express();
 const server = http.createServer(app);
@@ -27,7 +30,7 @@ const ROLES = {
     short: "Burger",
     group: "Burgers",
     team: "village",
-    max: 7,
+    max: 50,
     emoji: "🟡",
     order: 10,
     desc: "Geen nachtactie. Overleef, praat mee en probeer de weerwolven via discussie en stemming te vinden."
@@ -186,7 +189,7 @@ const ROLES = {
     group: "Burgers",
     team: "village",
     max: 1,
-    emoji: "🏹",
+    emoji: "◎",
     order: 39,
     desc: "Als de Jager sterft, mag hij direct nog één levende speler meenemen."
   },
@@ -244,6 +247,8 @@ const DEFAULT_ROLE_COUNTS = {
   hunter: 1
 };
 
+const VILLAGER_CARD_VARIANTS = [1, 2, 3, 4];
+
 function newGame() {
   return {
     lobbyId: uid("lobby"),
@@ -266,6 +271,8 @@ function newGame() {
     dayAftermath: { active: false, fromNight: false },
     pendingHunter: null,
     pendingContinue: null,
+    hunterSequence: null,
+    deathReveal: null,
     pendingWinner: null,
     winner: null,
     publicWinnerRevealed: true,
@@ -403,6 +410,7 @@ function playerCardIdentity(observer, target, { revealActual = false } = {}) {
     cardRoleName: def.name,
     cardRoleEmoji: def.emoji,
     cardRevealed: actualVisible,
+    cardVariant: roleId === "villager" ? (target?.cardVariant || 1) : null,
   };
 }
 
@@ -432,6 +440,27 @@ function countSelectedRoles() {
   return Object.values(game.selectedRoleCounts).reduce((a, b) => a + Number(b || 0), 0);
 }
 
+function normalizePreassignedRoles() {
+  const used = {};
+  for (const p of orderedPlayers(true)) {
+    const roleId = p.assignedRoleId;
+    if (!roleId || !ROLES[roleId] || Number(game.selectedRoleCounts[roleId] || 0) <= Number(used[roleId] || 0)) {
+      p.assignedRoleId = null;
+      continue;
+    }
+    used[roleId] = Number(used[roleId] || 0) + 1;
+  }
+}
+
+function preassignedRoleCounts(excludeKey = null) {
+  const counts = {};
+  for (const p of orderedPlayers(true)) {
+    if (p.key === excludeKey || !p.assignedRoleId) continue;
+    counts[p.assignedRoleId] = Number(counts[p.assignedRoleId] || 0) + 1;
+  }
+  return counts;
+}
+
 function syncRoleCountToPlayers() {
   // Bij testen met debugspelers moet het aantal geselecteerde tegels
   // automatisch met het spelersaantal mee kunnen bewegen, anders blijft Start onnodig geblokkeerd.
@@ -455,6 +484,7 @@ function syncRoleCountToPlayers() {
     game.selectedRoleCounts[roleId] -= 1;
     total--;
   }
+  normalizePreassignedRoles();
 }
 
 function selectedRoleDeck() {
@@ -476,12 +506,14 @@ function shuffle(arr) {
 
 function resetPlayerForGame(p) {
   p.roleId = null;
+  p.cardVariant = null;
   p.alive = true;
   p.infected = false;
   p.wolfDogChoice = null;
   p.wildChildModelKey = null;
   p.wildChildTurned = false;
   p.loverKey = null;
+  p.loverHeartPulse = null;
   p.enchanted = false;
   p.isMayor = false;
   p.isCandidate = false;
@@ -493,7 +525,128 @@ function resetPlayerForGame(p) {
   p.foxPowerLost = false;
   p.elderWolfShieldUsed = false;
   p.seerKnowledge = {};
+  p.cupidLoverKeys = [];
+  p.foxKnowledge = [];
   p.privateLog = [];
+}
+
+function assignBalancedVillagerCards(players) {
+  const variants = shuffle(players.map((_, index) => VILLAGER_CARD_VARIANTS[index % VILLAGER_CARD_VARIANTS.length]));
+  players.forEach((p, index) => {
+    p.cardVariant = variants[index] || VILLAGER_CARD_VARIANTS[0];
+  });
+}
+
+function persistentLinksForHost(p) {
+  const links = [];
+  if (p.loverKey) {
+    links.push({
+      kind: "love",
+      icon: "♥",
+      label: `Geliefd met ${game.players[p.loverKey]?.name || "onbekend"}`,
+    });
+  }
+  if (p.enchanted) {
+    links.push({
+      kind: "enchanted",
+      icon: "♪",
+      label: "Betoverd door de Fluitspeler",
+    });
+  }
+  const witchChoices = [];
+  if (game.night?.witchSaveKey) witchChoices.push({ key: game.night.witchSaveKey, kind: "witch-save" });
+  if (game.night?.witchPoisonKey) witchChoices.push({ key: game.night.witchPoisonKey, kind: "witch-poison" });
+  if (game.currentStep?.kind === "witch") {
+    for (const choice of [
+      ...Object.values(game.currentStep.previews || {}),
+      ...Object.values(game.currentStep.submissions || {}),
+    ]) {
+      const saveKey = choice?.saveKey || choice?.saveTarget?.key || null;
+      const poisonKey = choice?.poisonKey || choice?.poisonTarget?.key || null;
+      if (saveKey) witchChoices.push({ key: saveKey, kind: "witch-save" });
+      if (poisonKey) witchChoices.push({ key: poisonKey, kind: "witch-poison" });
+    }
+  }
+  if (witchChoices.some(choice => choice.key === p.key && choice.kind === "witch-save")) {
+    links.push({
+      kind: "witch-save",
+      icon: "✚",
+      label: "Gekozen voor de levensdrank van de Heks",
+    });
+  }
+  if (witchChoices.some(choice => choice.key === p.key && choice.kind === "witch-poison")) {
+    links.push({
+      kind: "witch-poison",
+      icon: "☠",
+      label: "Gekozen voor de gifdrank van de Heks",
+    });
+  }
+  const modeledBy = orderedPlayers(true).filter(q => q.wildChildModelKey === p.key);
+  if (modeledBy.length) {
+    links.push({
+      kind: "role-model",
+      icon: "✦",
+      label: `Rolmodel van ${modeledBy.map(q => q.name).join(", ")}`,
+    });
+  }
+  return links;
+}
+
+function roleInformationForPlayer(p) {
+  if (!p?.roleId) return null;
+  const role = roleDef(p.roleId);
+  const facts = [];
+
+  if (p.roleId === "seer") {
+    const people = Object.keys(p.seerKnowledge || {})
+      .map(key => game.players[key])
+      .filter(Boolean)
+      .map(target => playerTargetOption(p, target, { revealActual: true }));
+    if (people.length) facts.push({ kind: "people", title: "Bekeken spelers", people });
+  }
+
+  if (p.roleId === "piper") {
+    const people = orderedPlayers(true)
+      .filter(target => target.enchanted && target.key !== p.key)
+      .map(target => playerTargetOption(p, target));
+    if (people.length) facts.push({ kind: "people", title: "Door jou bespeeld", people });
+  }
+
+  if (p.roleId === "cupid" && Array.isArray(p.cupidLoverKeys) && p.cupidLoverKeys.length) {
+    const people = p.cupidLoverKeys
+      .map(key => game.players[key])
+      .filter(Boolean)
+      .map(target => playerTargetOption(p, target));
+    facts.push({ kind: "people", title: "Door jou gekoppeld", people });
+  }
+
+  if (Array.isArray(p.foxKnowledge) && p.foxKnowledge.length) {
+    facts.push({
+      kind: "texts",
+      title: "Onderzoeken",
+      texts: p.foxKnowledge.map(item => ({
+        title: item.targetName,
+        text: item.foundWolfLike
+          ? `Rond ${item.targetName} zit minstens één wolfachtige.`
+          : `Rond ${item.targetName} zat geen wolfachtige.`,
+      })),
+    });
+  }
+
+  if (p.loverKey && game.players[p.loverKey]) {
+    facts.push({
+      kind: "people",
+      title: "Jouw geliefde",
+      people: [playerTargetOption(p, game.players[p.loverKey])],
+    });
+  }
+
+  return {
+    roleId: role.id,
+    roleName: role.name,
+    objective: role.desc,
+    facts,
+  };
 }
 
 function privateLog(p, text, type = "info") {
@@ -512,6 +665,7 @@ function hostState() {
     dayNumber: game.dayNumber,
     roles: roleList(),
     selectedRoleCounts: game.selectedRoleCounts,
+    preassignedRoleCounts: preassignedRoleCounts(),
     selectedRoleTotal: countSelectedRoles(),
     started: game.started,
     currentStep: hostStepView(),
@@ -532,9 +686,13 @@ function hostState() {
       alive: p.alive,
       seat: p.seat,
       roleId: p.roleId,
+      assignedRoleId: p.assignedRoleId || null,
+      assignedRoleName: p.assignedRoleId ? roleDef(p.assignedRoleId).name : "Geen rol",
       roleName: p.roleId ? roleDef(p.roleId).name : "Nog geen rol",
       roleEmoji: p.roleId ? roleDef(p.roleId).emoji : "❔",
       roleSummary: p.roleId ? displayRoleForHost(p) : "Nog geen rol",
+      cardVariant: p.cardVariant || null,
+      persistentLinks: persistentLinksForHost(p),
       team: effectiveTeam(p),
       wolfLike: isWolfLike(p),
       isMayor: p.isMayor,
@@ -559,6 +717,8 @@ function hostState() {
     dayVote: dayVoteView(),
     dayAftermath: game.dayAftermath || { active: false, fromNight: false },
     lastDeaths: game.lastDeaths,
+    hunterSequence: hunterSequenceView({ forHost: true }),
+    deathReveal: game.deathReveal,
     recentPublicLog: game.recentPublicLog,
     winner: game.winner,
     pendingWinner: game.pendingWinner,
@@ -572,20 +732,62 @@ function resultIsPublic(result) {
   return !result || result.publicRevealed !== false;
 }
 
+function pendingVoteDeathKeys() {
+  if (!game.dayVote?.result || resultIsPublic(game.dayVote.result)) return new Set();
+  const primaryKey = game.dayVote.result.eliminatedKey;
+  const keys = new Set(primaryKey ? [primaryKey] : []);
+  for (const death of game.lastDeaths || []) {
+    if (death.cause === "love" && death.linkedToKey === primaryKey) keys.add(death.key);
+  }
+  return keys;
+}
+
+function activeDeathRevealKeys() {
+  if (!game.deathReveal || game.deathReveal.publicRevealed !== false) return new Set();
+  return new Set((game.deathReveal.pendingKeys || []).filter(Boolean));
+}
+
+function pendingPublicDeathKeys() {
+  return new Set([...pendingVoteDeathKeys(), ...activeDeathRevealKeys()]);
+}
+
+function hunterSequenceView({ forHost = false, forViewer = false } = {}) {
+  const sequence = game.hunterSequence;
+  if (!sequence) return null;
+  const hunter = game.players[sequence.hunterKey] || null;
+  const hunterDeath = (game.lastDeaths || []).find(d => d.key === sequence.hunterKey) || null;
+  const shotDeaths = (sequence.shotDeathKeys || [])
+    .map(key => (game.lastDeaths || []).find(d => d.key === key))
+    .filter(Boolean);
+  return {
+    stage: sequence.stage,
+    source: sequence.source,
+    hunterKey: sequence.hunterKey,
+    hunterName: hunter?.name || hunterDeath?.name || "De Jager",
+    hunterDeath,
+    autoAdvanceAt: sequence.stage === "announcement" ? sequence.autoAdvanceAt || null : null,
+    introToken: forViewer ? sequence.introToken : null,
+    shotToken: forViewer ? sequence.shotToken : null,
+    shotDeaths: (forHost || forViewer || sequence.stage === "summary") ? shotDeaths : [],
+    allDeaths: (forHost || forViewer || sequence.stage === "summary") ? (game.lastDeaths || []) : [],
+  };
+}
+
 function publicState({ forViewer = false } = {}) {
   const publicWinnerVisible = !game.winner || forViewer || game.publicWinnerRevealed;
   const publicPhase = game.winner && !publicWinnerVisible ? (game.publicPhaseBeforeWinner || "day") : game.phase;
   const voteRevealPending = !!game.dayVote?.result && !resultIsPublic(game.dayVote.result);
-  const pendingEliminatedKey = voteRevealPending ? game.dayVote.result.eliminatedKey : null;
+  const pendingDeathKeys = pendingPublicDeathKeys();
   const publicPlayers = orderedPlayers(true).map(p => ({
     key: p.key,
     name: p.name,
     connected: p.connected,
-    alive: pendingEliminatedKey === p.key ? true : p.alive,
+    alive: pendingDeathKeys.has(p.key) && !forViewer ? true : p.alive,
     seat: p.seat,
     isMayor: p.isMayor,
     isCandidate: p.isCandidate,
     enchanted: p.enchanted,
+    cardVariant: p.cardVariant || null,
     isBot: !!p.isBot,
     roleName: publicWinnerVisible && (game.phase === "ended" || game.winner) && p.roleId ? roleDef(p.roleId).name : null,
     roleEmoji: publicWinnerVisible && (game.phase === "ended" || game.winner) && p.roleId ? roleDef(p.roleId).emoji : null,
@@ -605,8 +807,11 @@ function publicState({ forViewer = false } = {}) {
     mayorElection: forViewer ? publicMayorElectionView() : playerMayorElectionView(null),
     dayVote: forViewer ? publicDayVoteView() : playerDayVoteView(null),
     dayAftermath: game.dayAftermath || { active: false, fromNight: false },
-    lastDeaths: voteRevealPending ? (game.lastDeaths || []).filter(d => d.key !== pendingEliminatedKey) : game.lastDeaths,
+    lastDeaths: !forViewer && pendingDeathKeys.size ? (game.lastDeaths || []).filter(d => !pendingDeathKeys.has(d.key)) : game.lastDeaths,
     aftermathActive: ["day", "mayor", "voting", "hunter"].includes(game.phase) && Array.isArray(game.lastDeaths) && game.lastDeaths.length > 0,
+    deathRevealToken: forViewer && game.deathReveal?.publicRevealed === false ? game.deathReveal.token : null,
+    deathPublicRevealed: !game.deathReveal || game.deathReveal.publicRevealed !== false,
+    hunterSequence: hunterSequenceView({ forViewer }),
     recentPublicLog: game.recentPublicLog.slice(0, 8),
     currentPublicMoment: publicMoment(),
     winner: publicWinnerVisible ? game.winner : null,
@@ -674,7 +879,7 @@ function playerState(p) {
   const publicWinnerVisible = !game.winner || game.publicWinnerRevealed;
   const voteRevealPending = !!game.dayVote?.result && !resultIsPublic(game.dayVote.result);
   const mayorRevealPending = !!game.mayorElection?.result && !resultIsPublic(game.mayorElection.result);
-  const pendingEliminatedKey = voteRevealPending ? game.dayVote.result.eliminatedKey : null;
+  const pendingDeathKeys = pendingPublicDeathKeys();
   const role = p.roleId ? roleDef(p.roleId) : null;
   return {
     version: VERSION,
@@ -688,10 +893,11 @@ function playerState(p) {
     me: {
       key: p.key,
       name: p.name,
-      alive: pendingEliminatedKey === p.key ? true : p.alive,
+      alive: pendingDeathKeys.has(p.key) ? true : p.alive,
       connected: p.connected,
       role,
       roleId: p.roleId,
+      cardVariant: p.cardVariant || null,
       team: effectiveTeam(p),
       wolfLike: isWolfLike(p),
       infected: p.infected,
@@ -700,6 +906,9 @@ function playerState(p) {
       wildChildTurned: p.wildChildTurned,
       loverKey: p.loverKey,
       loverName: p.loverKey ? game.players[p.loverKey]?.name : null,
+      loverHeartPulse: p.loverHeartPulse && Number(p.loverHeartPulse.until || 0) > Date.now()
+        ? { ...p.loverHeartPulse }
+        : null,
       enchanted: p.enchanted,
       isMayor: mayorRevealPending ? false : p.isMayor,
       isCandidate: p.isCandidate,
@@ -710,7 +919,7 @@ function playerState(p) {
     },
     players: orderedPlayers(true).map(q => ({
       ...playerTargetOption(p, q),
-      alive: pendingEliminatedKey === q.key ? true : q.alive,
+      alive: pendingDeathKeys.has(q.key) ? true : q.alive,
       connected: q.connected,
       isMayor: mayorRevealPending ? false : q.isMayor,
       isCandidate: q.isCandidate,
@@ -718,10 +927,13 @@ function playerState(p) {
       isBot: !!q.isBot,
     })),
     action: actionForPlayer(p),
+    roleInfo: roleInformationForPlayer(p),
     mayorElection: playerMayorElectionView(p.key),
     dayVote: playerDayVoteView(p.key),
     dayAftermath: game.dayAftermath || { active: false, fromNight: false },
-    lastDeaths: voteRevealPending ? (game.lastDeaths || []).filter(d => d.key !== pendingEliminatedKey) : game.lastDeaths,
+    lastDeaths: pendingDeathKeys.size ? (game.lastDeaths || []).filter(d => !pendingDeathKeys.has(d.key)) : game.lastDeaths,
+    publicDeathPending: pendingDeathKeys.size > 0,
+    hunterSequence: game.hunterSequence ? { stage: game.hunterSequence.stage, hunterKey: game.hunterSequence.hunterKey } : null,
     privateLog: p.privateLog || [],
     recentPublicLog: game.recentPublicLog.slice(0, 8),
     winner: publicWinnerVisible ? game.winner : null,
@@ -1112,7 +1324,16 @@ function hostStepView() {
     label: step.label,
     help: step.help,
     actorKeys: step.actorKeys || [],
-    actors: actors.map(p => ({ key: p.key, name: p.name, roleName: roleDef(p.roleId).name, alive: p.alive, isBot: !!p.isBot })),
+    actors: actors.map(p => ({
+      key: p.key,
+      name: p.name,
+      roleName: roleDef(p.roleId).name,
+      alive: p.alive,
+      isBot: !!p.isBot,
+      cardRoleId: "villager",
+      cardRoleName: "Burger",
+      cardVariant: p.cardVariant || null,
+    })),
     submissionCount: step.kind === "wolves" ? Object.keys(game.night?.wolfConfirms || {}).length : Object.keys(submitted).length,
     expectedCount,
     ready: isStepReady(step),
@@ -1125,6 +1346,9 @@ function hostStepView() {
 
 function isStepReady(step) {
   if (!step) return true;
+  // Betoverden bekijken elkaar alleen. Deze pagina wordt bewust door de Host
+  // doorgeklikt en vraagt geen individuele "Klaar"-bevestigingen.
+  if (step.kind === "enchanted_info") return true;
   const actors = (step.actorKeys || []).map(k => game.players[k]).filter(Boolean).filter(p => p.alive);
   if (step.kind === "wolves") return wolfConsensusReady(step);
   const humanActors = actors.filter(p => !p.isBot);
@@ -1245,7 +1469,12 @@ function buildNightSteps() {
   const whiteActors = playersByRole("white_wolf").filter(() => n % 2 === 0).map(p => p.key);
   steps.push(makeStep("white_wolf", "Witte Weerwolf slaat toe", whiteActors, "Om de nacht mag de Witte Weerwolf een wolfachtige speler uitschakelen."));
 
-  steps.push(makeStep("witch", "Heks gebruikt drankjes", playersByRole("witch").map(p => p.key), "Kan één slachtoffer redden en/of één speler vergiftigen."));
+  steps.push(makeStep(
+    "witch",
+    "Heks gebruikt drankjes",
+    playersByRole("witch").filter(p => !p.witchSaveUsed || !p.witchPoisonUsed).map(p => p.key),
+    "Kan één slachtoffer redden en/of één speler vergiftigen."
+  ));
   steps.push(makeStep("fox", "Vos speurt", playersByRole("fox").filter(p => !p.foxPowerLost).map(p => p.key), "Kies een speler; de app controleert die speler plus twee buren."));
   steps.push(makeStep("piper", "Fluitspeler betovert", playersByRole("piper").map(p => p.key), "Kies maximaal twee spelers om te betoveren."));
 
@@ -1258,12 +1487,17 @@ function buildNightSteps() {
 function actionForPlayer(p) {
   if (!p || !p.alive) {
     if (game.phase === "hunter" && game.pendingHunter === p?.key) {
-      return hunterAction(p);
+      return game.hunterSequence?.stage === "choosing" ? hunterAction(p) : hunterWaitAction(p);
+    }
+    if (game.phase === "hunter" && game.hunterSequence?.hunterKey === p?.key) {
+      return hunterWaitAction(p);
     }
     return null;
   }
 
-  if (game.phase === "hunter" && game.pendingHunter === p.key) return hunterAction(p);
+  if (game.phase === "hunter" && game.pendingHunter === p.key) {
+    return game.hunterSequence?.stage === "choosing" ? hunterAction(p) : hunterWaitAction(p);
+  }
 
   if (game.phase === "mayor" && game.mayorElection.open) {
     const stage = game.mayorElection.stage || "candidates";
@@ -1299,7 +1533,12 @@ function actionForPlayer(p) {
       currentVote,
       selectedTargetKey,
       submitted: !!currentVote,
-      submission: currentVote ? { targetKey: currentVote, targetName: game.players[currentVote]?.name, mayorVote: true } : null,
+      submission: currentVote ? {
+        targetKey: currentVote,
+        targetName: game.players[currentVote]?.name,
+        targetCard: playerTargetOption(p, game.players[currentVote]),
+        mayorVote: true
+      } : null,
     };
   }
 
@@ -1315,7 +1554,12 @@ function actionForPlayer(p) {
       currentVote,
       selectedTargetKey,
       submitted: !!currentVote,
-      submission: currentVote ? { targetKey: currentVote, targetName: game.players[currentVote]?.name, dayVote: true } : null,
+      submission: currentVote ? {
+        targetKey: currentVote,
+        targetName: game.players[currentVote]?.name,
+        targetCard: playerTargetOption(p, game.players[currentVote]),
+        dayVote: true
+      } : null,
     };
   }
 
@@ -1340,14 +1584,14 @@ function actionForPlayer(p) {
     case "wild_child":
       return { ...base, options: targetOptions({ exclude: [p.key], aliveOnly: true, observer: p }) };
     case "cupid":
-      return { ...base, options: targetOptions({ aliveOnly: true, observer: p }) };
+      return { ...base, options: targetOptions({ exclude: [p.key], aliveOnly: true, observer: p }) };
     case "lovers_info": {
       const lover = p.loverKey ? game.players[p.loverKey] : null;
       return {
         ...base,
         title: "Jouw geliefde",
         text: "Kijk om je heen om je geliefde te spotten.",
-        lover: lover ? playerTargetOption(p, lover, { revealActual: true }) : null,
+        lover: lover ? playerTargetOption(p, lover) : null,
         infoOnly: true,
       };
     }
@@ -1403,8 +1647,17 @@ function actionForPlayer(p) {
     case "piper":
       return { ...base, options: targetOptions({ exclude: [p.key], aliveOnly: true, observer: p }).filter(o => !game.players[o.key]?.enchanted), maxTargets: 2 };
     case "enchanted_info": {
-      const names = alivePlayers().filter(q => q.enchanted).map(q => q.name).join(", ");
-      return { ...base, text: `Betoverde spelers: ${names}. Tik op klaar.`, infoOnly: true };
+      const people = alivePlayers()
+        .filter(q => q.enchanted && q.key !== p.key)
+        .map(q => playerTargetOption(p, q));
+      return {
+        ...base,
+        title: "De Betoverden",
+        text: "Dit zijn de andere betoverde spelers.",
+        people,
+        infoOnly: true,
+        hostControlled: true,
+      };
     }
     default:
       return base;
@@ -1418,6 +1671,24 @@ function hunterAction(p) {
     title: "Jager: laatste schot",
     text: "Je bent uitgeschakeld. Kies één levende speler die je meeneemt.",
     options: targetOptions({ aliveOnly: true, exclude: [p.key], observer: p })
+  };
+}
+
+function hunterWaitAction(p) {
+  const stage = game.hunterSequence?.stage || "announcement";
+  return {
+    id: `hunter_wait_${stage}`,
+    kind: "hunter_wait",
+    title: stage === "shot_suspense"
+      ? "Je keuze is doorgevoerd"
+      : stage === "summary"
+        ? "Je laatste schot is bekend"
+        : "Je laatste schot wordt aangekondigd",
+    text: stage === "shot_suspense"
+      ? "Het Infoscherm onthult zo wie je hebt meegenomen."
+      : "",
+    waitingOnly: true,
+    actorRoleName: roleDef(p?.roleId).name,
   };
 }
 
@@ -1435,6 +1706,16 @@ function startGame() {
   if (players.length < 3) return { ok: false, error: "Je hebt minimaal 3 spelers nodig om prettig te testen." };
   const deck = selectedRoleDeck();
   if (deck.length !== players.length) return { ok: false, error: `Aantal geselecteerde tegels (${deck.length}) moet gelijk zijn aan aantal spelers (${players.length}).` };
+  normalizePreassignedRoles();
+  const preassigned = new Map(players.map(p => [p.key, p.assignedRoleId || null]));
+  const remainingDeck = deck.slice();
+  for (const p of players) {
+    const roleId = preassigned.get(p.key);
+    if (!roleId) continue;
+    const index = remainingDeck.indexOf(roleId);
+    if (index < 0) return { ok: false, error: `${p.name} kan niet als ${roleDef(roleId).name} starten: die rol is niet meer beschikbaar.` };
+    remainingDeck.splice(index, 1);
+  }
 
   game.phase = "night";
   game.started = true;
@@ -1442,6 +1723,10 @@ function startGame() {
   game.nightNumber = 1;
   game.dayNumber = 0;
   game.lastDeaths = [];
+  game.pendingHunter = null;
+  game.pendingContinue = null;
+  game.hunterSequence = null;
+  game.deathReveal = null;
   game.winner = null;
   game.pendingWinner = null;
   game.recentPublicLog = [];
@@ -1453,9 +1738,11 @@ function startGame() {
   game.dayAftermath = { active: false, fromNight: false };
 
   for (const p of players) resetPlayerForGame(p);
-  const shuffled = shuffle(deck);
-  players.forEach((p, i) => {
-    p.roleId = shuffled[i];
+  assignBalancedVillagerCards(players);
+  const shuffled = shuffle(remainingDeck);
+  players.forEach(p => {
+    p.roleId = preassigned.get(p.key) || shuffled.shift();
+    p.assignedRoleId = null;
     privateLog(p, `Je rol is: ${roleDef(p.roleId).name}`, "role");
   });
   game.night = freshNightState();
@@ -1497,6 +1784,10 @@ function startNextNight() {
   game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
   game.dayAftermath = { active: false, fromNight: false };
   game.lastDeaths = [];
+  game.pendingHunter = null;
+  game.pendingContinue = null;
+  game.hunterSequence = null;
+  game.deathReveal = null;
   game.pendingWinner = null;
   logPublic(`Nacht ${game.nightNumber} begint.`, "phase");
 }
@@ -1552,7 +1843,12 @@ function autoSubmitBotActions(step) {
           game.players[b].loverKey = a;
           privateLog(game.players[a], `Cupido heeft jou gekoppeld aan ${game.players[b].name}.`, "love");
           privateLog(game.players[b], `Cupido heeft jou gekoppeld aan ${game.players[a].name}.`, "love");
-          step.submissions[p.key] = { lovers: targets.map(k => game.players[k].name), bot: true };
+          p.cupidLoverKeys = targets.slice();
+          step.submissions[p.key] = {
+            lovers: targets.map(k => game.players[k].name),
+            people: targets.map(k => playerTargetOption(p, game.players[k])),
+            bot: true
+          };
         } else step.submissions[p.key] = { bot: true, skipped: true };
         break;
       }
@@ -1567,7 +1863,20 @@ function autoSubmitBotActions(step) {
         if (targetKey) {
           const target = game.players[targetKey];
           const targetRole = roleDef(target.roleId);
-          step.submissions[p.key] = { targetKey, targetName: target.name, targetRoleId: target.roleId, targetRoleName: targetRole.name, targetRoleEmoji: targetRole.emoji, result: targetRole.name, wolfLike: isWolfLike(target), bot: true };
+          p.seerKnowledge = p.seerKnowledge || {};
+          p.seerKnowledge[target.key] = target.roleId;
+          step.submissions[p.key] = {
+            targetKey,
+            targetName: target.name,
+            targetRoleId: target.roleId,
+            targetRoleName: targetRole.name,
+            targetRoleEmoji: targetRole.emoji,
+            targetCardVariant: target.cardVariant || null,
+            targetCard: playerTargetOption(p, target, { revealActual: true }),
+            result: targetRole.name,
+            wolfLike: isWolfLike(target),
+            bot: true
+          };
         } else step.submissions[p.key] = { bot: true, skipped: true };
         break;
       }
@@ -1624,7 +1933,11 @@ function autoSubmitBotActions(step) {
           privateLog(game.players[k], "Je bent betoverd door de Fluitspeler.", "magic");
         });
         game.night.piperTargets = targets;
-        step.submissions[p.key] = { targets: targets.map(k => game.players[k].name), bot: true };
+        step.submissions[p.key] = {
+          targets: targets.map(k => game.players[k].name),
+          people: targets.map(k => playerTargetOption(p, game.players[k])),
+          bot: true
+        };
         break;
       }
       default: {
@@ -1635,17 +1948,17 @@ function autoSubmitBotActions(step) {
 }
 
 function hostNextStep({ force = false } = {}) {
+  if (game.phase === "hunter") {
+    advanceHunterFromHost({ force });
+    return;
+  }
   if (game.phase !== "night") return;
   if (!game.night) game.night = freshNightState();
 
   if (game.currentStep) {
     if (!isStepReady(game.currentStep)) {
-      if (force && game.currentStep.kind === "wolves" && forceFinalizeWolfVotesByMajority(game.currentStep)) {
-        game.currentStep.done = true;
-        game.currentStep = null;
-      } else {
-        return;
-      }
+      if (!force) return;
+      forceCompleteNightStep(game.currentStep);
     } else {
       finishStep(game.currentStep);
     }
@@ -1661,6 +1974,45 @@ function hostNextStep({ force = false } = {}) {
   logPublic(`De nacht gaat verder.`, "phase");
 }
 
+function forceCompleteNightStep(step) {
+  if (!step || step.done) return;
+  if (step.kind === "wolves") {
+    let finalized = forceFinalizeWolfVotesByMajority(step);
+    if (!finalized) {
+      const target = randomChoice(targetOptions({ aliveOnly: true, notWolfPack: true }));
+      if (target) {
+        game.night.wolfSelections = game.night.wolfSelections || {};
+        game.night.wolfConfirms = game.night.wolfConfirms || {};
+        for (const key of step.actorKeys || []) {
+          game.night.wolfSelections[key] = target.key;
+          game.night.wolfConfirms[key] = true;
+          step.submissions[key] = { targetKey: target.key, targetName: target.name, confirmed: true, forced: true };
+        }
+        game.night.wolfVictimKey = target.key;
+        game.night.wolfLockedTargetKey = target.key;
+        game.night.wolfLocked = true;
+        finalized = true;
+      }
+    }
+    if (!finalized) {
+      step.skipped = true;
+      step.done = true;
+      game.currentStep = null;
+    } else {
+      finishStep(step);
+    }
+  } else {
+    for (const key of step.actorKeys || []) {
+      if (step.submissions[key]) continue;
+      step.submissions[key] = step.kind === "witch"
+        ? { saveName: null, poisonName: null, forced: true }
+        : { ready: true, skipped: true, forced: true };
+    }
+    finishStep(step);
+  }
+  logPublic(`${step.label} is door de host geforceerd afgerond.`, "warning");
+}
+
 function finishStep(step) {
   if (!step || step.done) return;
   if (step.kind === "wolves") {
@@ -1668,6 +2020,7 @@ function finishStep(step) {
     finalizeWolfVotes();
   }
   if (step.kind === "cupid") ensureLoversInfoStepAfter(step);
+  if (step.kind === "piper") ensureEnchantedInfoStepAfter(step);
   step.done = true;
   if (game.currentStep?.id === step.id) game.currentStep = null;
 }
@@ -1679,6 +2032,28 @@ function ensureLoversInfoStepAfter(step) {
   const idx = game.nightSteps.findIndex(s => s.id === step.id);
   const infoStep = makeStep("lovers_info", "Geliefden zien elkaar", lovers, "Geliefden krijgen elkaars naam te zien.");
   game.nightSteps.splice(idx >= 0 ? idx + 1 : 0, 0, infoStep);
+}
+
+function ensureEnchantedInfoStepAfter(step) {
+  const enchanted = alivePlayers().filter(p => p.enchanted).map(p => p.key);
+  if (!enchanted.length) return;
+  const existing = game.nightSteps.find(s => s.kind === "enchanted_info" && !s.done);
+  if (existing) {
+    // Neem ook iedereen mee die pas tijdens de huidige Fluitspelerstap
+    // betoverd werd.
+    existing.actorKeys = enchanted;
+    existing.submissions = {};
+    existing.previews = {};
+    return;
+  }
+  const idx = game.nightSteps.findIndex(s => s.id === step.id);
+  const infoStep = makeStep(
+    "enchanted_info",
+    "Betoverden zien elkaar",
+    enchanted,
+    "Alle betoverde spelers zien de volledige actuele groep."
+  );
+  game.nightSteps.splice(idx >= 0 ? idx + 1 : game.nightSteps.length, 0, infoStep);
 }
 
 function skipCurrentStep() {
@@ -1779,14 +2154,10 @@ function handleAction(socket, payload = {}) {
   }
 
   if (payload.kind === "hunter_shot") {
-    if (game.phase !== "hunter" || game.pendingHunter !== p.key) return;
+    if (game.phase !== "hunter" || game.pendingHunter !== p.key || game.hunterSequence?.stage !== "choosing") return;
     const target = getPlayer(payload.targetKey);
     if (target && target.alive && target.key !== p.key) {
-      privateLog(p, `Je nam ${target.name} mee met je laatste schot.`, "action");
-      const cont = game.pendingContinue || { phase: "day" };
-      game.pendingHunter = null;
-      game.pendingContinue = null;
-      handleDeaths([{ key: target.key, cause: "hunter", publicReason: "meegenomen door de Jager" }], cont);
+      applyHunterShot(target.key, { forced: false });
     }
     emitAll();
     return;
@@ -1809,24 +2180,42 @@ function handleAction(socket, payload = {}) {
       if (target && target.alive && target.key !== p.key) {
         p.wildChildModelKey = target.key;
         privateLog(p, `Je rolmodel is ${target.name}.`, "action");
-        step.submissions[p.key] = { targetKey: target.key, targetName: target.name };
+        step.submissions[p.key] = {
+          targetKey: target.key,
+          targetName: target.name,
+          targetCard: playerTargetOption(p, target)
+        };
       }
       break;
     }
     case "cupid": {
       const keys = Array.isArray(payload.targetKeys) ? payload.targetKeys.filter(Boolean) : [];
-      const unique = [...new Set(keys)].filter(k => isAlive(k));
+      const unique = [...new Set(keys)].filter(k => isAlive(k) && k !== p.key);
       if (unique.length === 2) {
         const [a, b] = unique;
         game.players[a].loverKey = b;
         game.players[b].loverKey = a;
         privateLog(game.players[a], `Cupido heeft jou gekoppeld aan ${game.players[b].name}.`, "love");
         privateLog(game.players[b], `Cupido heeft jou gekoppeld aan ${game.players[a].name}.`, "love");
-        step.submissions[p.key] = { lovers: unique.map(k => game.players[k].name) };
+        p.cupidLoverKeys = unique.slice();
+        step.submissions[p.key] = {
+          lovers: unique.map(k => game.players[k].name),
+          people: unique.map(k => playerTargetOption(p, game.players[k]))
+        };
       }
       break;
     }
-    case "lovers_info":
+    case "lovers_info": {
+      const lover = p.loverKey ? game.players[p.loverKey] : null;
+      if (lover) {
+        lover.loverHeartPulse = {
+          token: uid("lover_heart"),
+          until: Date.now() + 2400,
+        };
+      }
+      step.submissions[p.key] = { ready: true };
+      break;
+    }
     case "sisters_info":
     case "enchanted_info": {
       step.submissions[p.key] = { ready: true };
@@ -1839,7 +2228,17 @@ function handleAction(socket, payload = {}) {
         p.seerKnowledge = p.seerKnowledge || {};
         p.seerKnowledge[target.key] = target.roleId;
         privateLog(p, `${target.name} is: ${targetRole.name}${isWolfLike(target) ? " (wolfachtig)" : ""}.`, "result");
-        step.submissions[p.key] = { targetKey: target.key, targetName: target.name, targetRoleId: target.roleId, targetRoleName: targetRole.name, targetRoleEmoji: targetRole.emoji, result: targetRole.name, wolfLike: isWolfLike(target) };
+        step.submissions[p.key] = {
+          targetKey: target.key,
+          targetName: target.name,
+          targetRoleId: target.roleId,
+          targetRoleName: targetRole.name,
+          targetRoleEmoji: targetRole.emoji,
+          targetCardVariant: target.cardVariant || null,
+          targetCard: playerTargetOption(p, target, { revealActual: true }),
+          result: targetRole.name,
+          wolfLike: isWolfLike(target)
+        };
       }
       break;
     }
@@ -1869,6 +2268,7 @@ function handleAction(socket, payload = {}) {
         step.submissions[p.key] = {
           targetKey: target.key,
           targetName: target.name,
+          targetCard: playerTargetOption(p, target),
           confirmed: !!game.night.wolfConfirms[p.key],
         };
         finalizeWolfVotes();
@@ -1890,7 +2290,11 @@ function handleAction(socket, payload = {}) {
       const target = getPlayer(payload.targetKey);
       if (target && target.alive && !isWolfPackMember(target) && target.key !== game.night?.wolfVictimKey) {
         game.night.bigBadVictimKey = target.key;
-        step.submissions[p.key] = { targetKey: target.key, targetName: target.name };
+        step.submissions[p.key] = {
+          targetKey: target.key,
+          targetName: target.name,
+          targetCard: playerTargetOption(p, target)
+        };
       }
       break;
     }
@@ -1898,7 +2302,11 @@ function handleAction(socket, payload = {}) {
       const target = getPlayer(payload.targetKey);
       if (target && target.alive && target.key !== p.key && isWolfLike(target)) {
         game.night.whiteWolfVictimKey = target.key;
-        step.submissions[p.key] = { targetKey: target.key, targetName: target.name };
+        step.submissions[p.key] = {
+          targetKey: target.key,
+          targetName: target.name,
+          targetCard: playerTargetOption(p, target)
+        };
       }
       break;
     }
@@ -1917,6 +2325,8 @@ function handleAction(socket, payload = {}) {
       step.submissions[p.key] = {
         saveName: saveKey ? game.players[saveKey]?.name : null,
         poisonName: poisonKey ? game.players[poisonKey]?.name : null,
+        saveTarget: saveKey ? playerTargetOption(p, game.players[saveKey]) : null,
+        poisonTarget: poisonKey ? playerTargetOption(p, game.players[poisonKey]) : null,
       };
       break;
     }
@@ -1927,8 +2337,21 @@ function handleAction(socket, payload = {}) {
         const found = trio.some(k => isWolfLike(game.players[k]));
         if (!found) p.foxPowerLost = true;
         game.night.foxResult = { actorKey: p.key, targetKey: target.key, trio, found };
+        p.foxKnowledge = p.foxKnowledge || [];
+        p.foxKnowledge.push({
+          targetKey: target.key,
+          targetName: target.name,
+          trio: trio.slice(),
+          foundWolfLike: found,
+        });
         privateLog(p, found ? `Vos-resultaat: rond ${target.name} zit minstens één wolfachtige.` : `Vos-resultaat: rond ${target.name} zit geen wolfachtige. Je verliest je kracht.`, "result");
-        step.submissions[p.key] = { targetName: target.name, foundWolfLike: found, checked: trio.map(k => game.players[k]?.name) };
+        step.submissions[p.key] = {
+          targetKey: target.key,
+          targetName: target.name,
+          targetCard: playerTargetOption(p, target),
+          foundWolfLike: found,
+          checked: trio.map(k => game.players[k]?.name)
+        };
       }
       break;
     }
@@ -1940,7 +2363,10 @@ function handleAction(socket, payload = {}) {
         privateLog(game.players[k], "Je bent betoverd door de Fluitspeler.", "magic");
       });
       game.night.piperTargets = valid;
-      step.submissions[p.key] = { targets: valid.map(k => game.players[k].name) };
+      step.submissions[p.key] = {
+        targets: valid.map(k => game.players[k].name),
+        people: valid.map(k => playerTargetOption(p, game.players[k]))
+      };
       break;
     }
     default:
@@ -2016,8 +2442,10 @@ function handleDeaths(deaths, continueTo = { phase: "day" }) {
       name: p.name,
       roleName: roleDef(p.roleId).name,
       roleEmoji: roleDef(p.roleId).emoji,
+      cardVariant: p.cardVariant || null,
       cause: d.cause,
-      publicReason: d.publicReason || "uitgeschakeld"
+      publicReason: d.publicReason || "uitgeschakeld",
+      linkedToKey: d.linkedToKey || null
     });
 
     if (isWolfLike(p)) game.wolfishEverDied = true;
@@ -2041,7 +2469,12 @@ function handleDeaths(deaths, continueTo = { phase: "day" }) {
 
     // Lovers die together.
     if (p.loverKey && isAlive(p.loverKey)) {
-      queue.push({ key: p.loverKey, cause: "love", publicReason: "gestorven van liefdesverdriet" });
+      queue.push({
+        key: p.loverKey,
+        cause: "love",
+        publicReason: "gestorven van liefdesverdriet",
+        linkedToKey: p.key
+      });
     }
 
     // Wild child turns if model dies.
@@ -2054,7 +2487,7 @@ function handleDeaths(deaths, continueTo = { phase: "day" }) {
   }
 
   if (publicDeaths.length) {
-    const appendToRoundReport = !!continueTo?.fromNight && Array.isArray(game.lastDeaths) && game.lastDeaths.length > 0;
+    const appendToRoundReport = !!(continueTo?.fromNight || continueTo?.appendToRoundReport) && Array.isArray(game.lastDeaths) && game.lastDeaths.length > 0;
     game.lastDeaths = appendToRoundReport ? [...game.lastDeaths, ...publicDeaths] : publicDeaths;
     logPublic(`${publicDeaths.map(d => d.name).join(", ")} ${publicDeaths.length === 1 ? "is" : "zijn"} uitgeschakeld.`, "death");
   } else {
@@ -2067,13 +2500,47 @@ function handleDeaths(deaths, continueTo = { phase: "day" }) {
     return;
   }
 
+  if (continueTo?.holdForHunterReveal && game.hunterSequence) {
+    game.phase = "hunter";
+    game.hunterSequence.stage = "shot_suspense";
+    game.hunterSequence.shotDeathKeys = publicDeaths.map(d => d.key);
+    game.hunterSequence.shotToken = uid("hunter_shot_reveal");
+    game.pendingContinue = game.hunterSequence.continueTo || continueTo.afterHunter || { phase: "day" };
+    startDeathReveal(
+      [...activeDeathRevealKeys(), ...publicDeaths.map(d => d.key)],
+      "hunter_shot",
+      game.hunterSequence.shotToken
+    );
+    scheduleHunterShotFallback(game.hunterSequence.shotToken);
+    return;
+  }
+
   const hunter = publicDeaths.map(d => game.players[d.key]).find(p => p?.roleId === "hunter");
   if (hunter) {
-    game.phase = "hunter";
     game.pendingHunter = hunter.key;
     game.pendingContinue = continueTo;
+    game.hunterSequence = {
+      hunterKey: hunter.key,
+      source: continueTo?.deferWinner ? "day_vote" : continueTo?.fromNight ? "night" : "day",
+      stage: continueTo?.deferWinner ? "awaiting_vote_reveal" : "announcement",
+      introToken: uid("hunter_intro"),
+      shotToken: null,
+      shotDeathKeys: [],
+      autoAdvanceAt: null,
+      continueTo,
+    };
     privateLog(hunter, "Je bent gestorven als Jager. Kies je laatste schot.", "action");
+    if (game.hunterSequence.stage === "awaiting_vote_reveal") {
+      game.phase = "day";
+    } else {
+      beginHunterAnnouncement();
+      startDeathReveal(game.lastDeaths.map(d => d.key), "hunter_sequence");
+    }
     return;
+  }
+
+  if (continueTo?.fromNight && publicDeaths.length) {
+    startDeathReveal(game.lastDeaths.map(d => d.key), "night_deaths");
   }
 
   const win = checkWinCondition();
@@ -2168,10 +2635,202 @@ function hasRegisteredViewer() {
   return (io.sockets.adapter.rooms.get("viewer")?.size || 0) > 0;
 }
 
+function startDeathReveal(keys, kind = "deaths", token = null) {
+  const pendingKeys = [...new Set((keys || []).filter(Boolean))];
+  if (!pendingKeys.length) return null;
+  game.deathReveal = {
+    token: token || uid(`${kind}_reveal`),
+    kind,
+    pendingKeys,
+    publicRevealed: false,
+    startedAt: Date.now(),
+  };
+  if (!kind.startsWith("hunter")) scheduleDeathReleaseFallback(game.deathReveal);
+  return game.deathReveal;
+}
+
+function releaseDeathToPlayers(token) {
+  if (!game.deathReveal || game.deathReveal.token !== token || game.deathReveal.publicRevealed !== false) return false;
+  game.deathReveal.publicRevealed = true;
+  emitAll();
+  return true;
+}
+
+function scheduleDeathReleaseFallback(reveal) {
+  setTimeout(() => {
+    if (game.deathReveal !== reveal || reveal.publicRevealed !== false) return;
+    if (!hasRegisteredViewer()) {
+      releaseDeathToPlayers(reveal.token);
+      return;
+    }
+    setTimeout(() => releaseDeathToPlayers(reveal.token), DEATH_REVEAL_FALLBACK_MS);
+  }, 2200);
+}
+
+function beginHunterAnnouncement() {
+  const sequence = game.hunterSequence;
+  if (!sequence) return false;
+  sequence.stage = "announcement";
+  sequence.autoAdvanceAt = Date.now() + HUNTER_INTRO_FALLBACK_MS;
+  game.phase = "hunter";
+  game.currentStep = null;
+  const token = sequence.introToken;
+  setTimeout(() => {
+    if (game.hunterSequence !== sequence || sequence.stage !== "announcement") return;
+    advanceHunterIntro(token);
+  }, HUNTER_INTRO_FALLBACK_MS);
+  return true;
+}
+
+function advanceHunterIntro(token) {
+  const sequence = game.hunterSequence;
+  if (!sequence || sequence.introToken !== token || sequence.stage !== "announcement") return false;
+  sequence.stage = "choosing";
+  sequence.autoAdvanceAt = null;
+  game.phase = "hunter";
+  emitAll();
+  scheduleBotHunterChoice(sequence);
+  return true;
+}
+
+function scheduleBotHunterChoice(sequence) {
+  const hunter = sequence ? game.players[sequence.hunterKey] : null;
+  if (!hunter?.isBot) return;
+  setTimeout(() => {
+    if (game.hunterSequence !== sequence || sequence.stage !== "choosing") return;
+    const options = alivePlayers().filter(p => p.key !== hunter.key);
+    if (!options.length) {
+      finishHunterSequence();
+      emitAll();
+      return;
+    }
+    const target = options[Math.floor(Math.random() * options.length)];
+    if (applyHunterShot(target.key)) emitAll();
+  }, 5000);
+}
+
+function applyHunterShot(targetKey, { forced = false } = {}) {
+  const sequence = game.hunterSequence;
+  const hunter = sequence ? game.players[sequence.hunterKey] : null;
+  const target = game.players[targetKey];
+  if (!sequence || sequence.stage !== "choosing" || !hunter || !target?.alive || target.key === hunter.key) return false;
+  privateLog(hunter, `Je nam ${target.name} mee met je laatste schot.`, "action");
+  if (forced) logPublic(`De host forceerde het laatste schot van de Jager op ${target.name}.`, "warning");
+  sequence.stage = "shot_processing";
+  game.pendingHunter = null;
+  handleDeaths(
+    [{ key: target.key, cause: "hunter", publicReason: "meegenomen door de Jager" }],
+    {
+      phase: "hunter",
+      fromNight: !!sequence.continueTo?.fromNight,
+      appendToRoundReport: true,
+      holdForHunterReveal: true,
+      afterHunter: sequence.continueTo || { phase: "day" },
+    }
+  );
+  return true;
+}
+
+function scheduleHunterShotFallback(token) {
+  setTimeout(() => {
+    const sequence = game.hunterSequence;
+    if (!sequence || sequence.shotToken !== token || sequence.stage !== "shot_suspense") return;
+    if (!hasRegisteredViewer()) {
+      revealHunterShot(token);
+      return;
+    }
+    setTimeout(() => revealHunterShot(token), HUNTER_SHOT_FALLBACK_MS);
+  }, 2400);
+}
+
+function revealHunterShot(token) {
+  const sequence = game.hunterSequence;
+  if (!sequence || sequence.shotToken !== token || sequence.stage !== "shot_suspense") return false;
+  sequence.stage = "summary";
+  releaseDeathToPlayers(token);
+  emitAll();
+  return true;
+}
+
+function finishHunterSequence() {
+  const sequence = game.hunterSequence;
+  if (!sequence) return false;
+  const continueTo = sequence.continueTo || game.pendingContinue || { phase: "day" };
+  if (game.deathReveal?.publicRevealed === false) releaseDeathToPlayers(game.deathReveal.token);
+  game.hunterSequence = null;
+  game.pendingHunter = null;
+  game.pendingContinue = null;
+
+  const win = checkWinCondition();
+  if (win) {
+    if (continueTo?.deferWinner) {
+      game.pendingWinner = win;
+      game.phase = "day";
+      game.currentStep = null;
+      game.hostNote = bearGrowlNote();
+      game.dayAftermath = { active: false, fromNight: false };
+    } else if (continueTo?.fromNight && (game.lastDeaths || []).length) {
+      game.pendingWinner = win;
+      beginDayFlow({ fromNight: true });
+    } else {
+      endGame(win);
+    }
+    emitAll();
+    return true;
+  }
+
+  if (continueTo.phase === "day") {
+    if (continueTo.fromNight) beginDayFlow({ fromNight: true });
+    else {
+      game.phase = "day";
+      game.currentStep = null;
+      game.hostNote = bearGrowlNote();
+      game.dayAftermath = { active: false, fromNight: false };
+    }
+  } else if (continueTo.phase === "night") {
+    startNextNight();
+  } else if (continueTo.phase) {
+    game.phase = continueTo.phase;
+  }
+  emitAll();
+  return true;
+}
+
+function advanceHunterFromHost({ force = false } = {}) {
+  const sequence = game.hunterSequence;
+  if (!sequence) return false;
+  if (sequence.stage === "awaiting_vote_reveal") {
+    if (!force) return false;
+    const result = game.dayVote?.result;
+    if (result?.publicRevealed === false) releaseResultToPlayers("day_vote", result.revealToken);
+    else beginHunterAnnouncement();
+    return true;
+  }
+  if (sequence.stage === "announcement") {
+    return advanceHunterIntro(sequence.introToken);
+  }
+  if (sequence.stage === "choosing") {
+    if (!force) return false;
+    const target = randomChoice(alivePlayers().filter(p => p.key !== sequence.hunterKey));
+    if (target) return applyHunterShot(target.key, { forced: true });
+    sequence.stage = "summary";
+    return true;
+  }
+  if (sequence.stage === "shot_suspense") {
+    if (!force) return false;
+    return revealHunterShot(sequence.shotToken);
+  }
+  if (sequence.stage === "summary") return finishHunterSequence();
+  return false;
+}
+
 function releaseResultToPlayers(kind, token) {
   const result = kind === "mayor" ? game.mayorElection?.result : game.dayVote?.result;
   if (!result || result.revealToken !== token || result.publicRevealed !== false) return false;
   result.publicRevealed = true;
+  if (kind === "day_vote" && game.hunterSequence?.stage === "awaiting_vote_reveal") {
+    beginHunterAnnouncement();
+  }
   emitAll();
   return true;
 }
@@ -2271,13 +2930,21 @@ function startMayorVoting() {
     game.mayorElection.votes = {};
     game.mayorElection.selections = {};
     game.mayorElection.runoffCandidates = null;
-    game.mayorElection.result = {
+    const revealStartedAt = Date.now();
+    const automaticResult = {
       winnerKey: winner.key,
       winnerName: winner.name,
       tied: false,
       automaticSingleCandidate: true,
-      counts: [{ key: winner.key, name: winner.name, votes: 1 }]
+      counts: [{ key: winner.key, name: winner.name, votes: 1 }],
+      revealStartedAt,
+      revealUntil: revealStartedAt + 1200,
+      revealDurationMs: 1200,
+      revealToken: uid("mayor_auto_reveal"),
+      publicRevealed: false,
     };
+    game.mayorElection.result = automaticResult;
+    scheduleResultReleaseFallback("mayor", automaticResult);
     logPublic(`${winner.name} is burgemeester geworden.`, "vote");
     return { ok: true, automatic: true };
   }
@@ -2366,6 +3033,7 @@ function closeDayVote({ fillMissing = true } = {}) {
     eliminatedName: null,
     eliminatedRoleName: null,
     eliminatedRoleEmoji: null,
+    eliminatedCardVariant: null,
     tied: false,
     revealStartedAt,
     revealUntil: revealStartedAt + VOTE_REVEAL_MS,
@@ -2401,9 +3069,13 @@ function closeDayVote({ fillMissing = true } = {}) {
   if (eliminatedPlayer?.roleId) {
     result.eliminatedRoleName = roleDef(eliminatedPlayer.roleId).name;
     result.eliminatedRoleEmoji = roleDef(eliminatedPlayer.roleId).emoji;
+    result.eliminatedCardVariant = eliminatedPlayer.cardVariant || null;
   }
   game.dayVote.result = result;
   handleDeaths([{ key: top.key, cause: "vote", publicReason: "weggestemd door het dorp" }], { phase: "day", fromNight: false, deferWinner: true });
+  result.linkedDeaths = (game.lastDeaths || [])
+    .filter(d => d.cause === "love" && d.linkedToKey === top.key)
+    .map(d => ({ ...d }));
   game.dayVote.result = result;
 }
 
@@ -2430,6 +3102,7 @@ function resetGameKeepPlayers() {
     p.wildChildModelKey = null;
     p.wildChildTurned = false;
     p.loverKey = null;
+    p.loverHeartPulse = null;
     p.enchanted = false;
     p.isMayor = false;
     p.isCandidate = false;
@@ -2440,6 +3113,10 @@ function resetGameKeepPlayers() {
     p.infectUsed = false;
     p.foxPowerLost = false;
     p.elderWolfShieldUsed = false;
+    p.cardVariant = null;
+    p.cupidLoverKeys = [];
+    p.foxKnowledge = [];
+    p.seerKnowledge = {};
     p.privateLog = [];
     p.connected = !!p.isBot || connectedKeys.has(p.key);
   }
@@ -2577,12 +3254,15 @@ function createTestPlayer() {
     connected: true,
     isBot: true,
     roleId: null,
+    assignedRoleId: null,
+    cardVariant: null,
     alive: true,
     infected: false,
     wolfDogChoice: null,
     wildChildModelKey: null,
     wildChildTurned: false,
     loverKey: null,
+    loverHeartPulse: null,
     enchanted: false,
     isMayor: false,
     isCandidate: false,
@@ -2594,6 +3274,8 @@ function createTestPlayer() {
     foxPowerLost: false,
     elderWolfShieldUsed: false,
     seerKnowledge: {},
+    cupidLoverKeys: [],
+    foxKnowledge: [],
     privateLog: []
   };
   game.players[key] = p;
@@ -2619,6 +3301,18 @@ io.on("connection", (socket) => {
     if (!socket.rooms.has("viewer") || !token) return;
     if (kind === "winner") {
       releaseWinnerToPlayers(token);
+      return;
+    }
+    if (kind === "deaths") {
+      releaseDeathToPlayers(token);
+      return;
+    }
+    if (kind === "hunter_intro") {
+      advanceHunterIntro(token);
+      return;
+    }
+    if (kind === "hunter_shot") {
+      revealHunterShot(token);
       return;
     }
     if (kind === "mayor" || kind === "day_vote") releaseResultToPlayers(kind, token);
@@ -2648,12 +3342,15 @@ io.on("connection", (socket) => {
         connected: true,
         isBot: false,
         roleId: null,
+        assignedRoleId: null,
+        cardVariant: null,
         alive: true,
         infected: false,
         wolfDogChoice: null,
         wildChildModelKey: null,
         wildChildTurned: false,
         loverKey: null,
+        loverHeartPulse: null,
         enchanted: false,
         isMayor: false,
         isCandidate: false,
@@ -2665,6 +3362,8 @@ io.on("connection", (socket) => {
         foxPowerLost: false,
         elderWolfShieldUsed: false,
         seerKnowledge: {},
+        cupidLoverKeys: [],
+        foxKnowledge: [],
         privateLog: []
       };
       game.players[key] = p;
@@ -2738,8 +3437,10 @@ io.on("connection", (socket) => {
       step.previews[p.key] = {
         saveKey,
         saveName: saveKey ? game.players[saveKey]?.name || null : null,
+        saveTarget: saveKey ? playerTargetOption(p, game.players[saveKey]) : null,
         poisonKey,
         poisonName: poisonKey ? game.players[poisonKey]?.name || null : null,
+        poisonTarget: poisonKey ? playerTargetOption(p, game.players[poisonKey]) : null,
       };
       emitAll();
       return;
@@ -2758,6 +3459,7 @@ io.on("connection", (socket) => {
       step.previews[p.key] = {
         targetKeys,
         targetNames: targetKeys.map(targetKey => game.players[targetKey]?.name || "?"),
+        people: targetKeys.map(targetKey => playerTargetOption(p, game.players[targetKey])),
       };
       emitAll();
       return;
@@ -2773,6 +3475,7 @@ io.on("connection", (socket) => {
       step.previews[p.key] = {
         targetKey: target.key,
         targetName: target.name,
+        targetCard: playerTargetOption(p, target),
       };
       emitAll();
     }
@@ -2783,6 +3486,29 @@ io.on("connection", (socket) => {
     if (!ROLES[roleId] || game.started) return;
     const max = ROLES[roleId].max || 1;
     game.selectedRoleCounts[roleId] = Math.max(0, Math.min(max, Number(count || 0)));
+    normalizePreassignedRoles();
+    emitAll();
+  });
+
+  socket.on("host_assign_role", ({ playerKey, roleId } = {}) => {
+    if (game.started) return;
+    const player = getPlayer(playerKey);
+    if (!player) return;
+    if (!roleId) {
+      player.assignedRoleId = null;
+      emitAll();
+      return;
+    }
+    if (!ROLES[roleId] || Number(game.selectedRoleCounts[roleId] || 0) < 1) {
+      socket.emit("host_error", "Deze rol zit niet in het volgende spel.");
+      return;
+    }
+    const assignedElsewhere = Number(preassignedRoleCounts(player.key)[roleId] || 0);
+    if (assignedElsewhere >= Number(game.selectedRoleCounts[roleId] || 0)) {
+      socket.emit("host_error", "Alle beschikbare exemplaren van deze rol zijn al toegewezen.");
+      return;
+    }
+    player.assignedRoleId = roleId;
     emitAll();
   });
 
@@ -2792,6 +3518,7 @@ io.on("connection", (socket) => {
       const counts = {};
       for (const r of roleList()) counts[r.id] = 0;
       game.selectedRoleCounts = counts;
+      normalizePreassignedRoles();
       emitAll();
       return;
     }
@@ -2816,6 +3543,7 @@ io.on("connection", (socket) => {
     total = Object.values(counts).reduce((a, b) => a + b, 0);
     while (total < n && (counts.villager || 0) < ROLES.villager.max) { counts.villager = (counts.villager || 0) + 1; total++; }
     game.selectedRoleCounts = counts;
+    normalizePreassignedRoles();
     emitAll();
   });
 

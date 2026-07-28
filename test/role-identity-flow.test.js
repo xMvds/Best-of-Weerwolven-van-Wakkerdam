@@ -91,7 +91,7 @@ test("role-card permissions survive a complete Cupid, Ziener, Wolves and Witch n
   await waitUntil(() => hostState, "Host state");
 
   const players = [];
-  for (let index = 1; index <= 5; index += 1) {
+  for (let index = 1; index <= 6; index += 1) {
     const player = await joinPlayer(url, `Kaartspeler ${index}`);
     players.push(player);
     sockets.push(player.socket);
@@ -99,12 +99,27 @@ test("role-card permissions survive a complete Cupid, Ziener, Wolves and Witch n
 
   host.emit("host_apply_preset", { preset: "custom" });
   await waitUntil(() => hostState?.selectedRoleTotal === 0, "empty role preset");
-  for (const roleId of ["villager", "werewolf", "seer", "witch", "cupid"]) {
+  host.emit("host_set_role_count", { roleId: "villager", count: 2 });
+  for (const roleId of ["werewolf", "seer", "witch", "cupid"]) {
     host.emit("host_set_role_count", { roleId, count: 1 });
   }
-  await waitUntil(() => hostState?.selectedRoleTotal === 5, "five selected roles");
+  await waitUntil(() => hostState?.selectedRoleTotal === 6, "six selected roles");
+  host.emit("host_assign_role", { playerKey: players[0].key, roleId: "cupid" });
+  host.emit("host_assign_role", { playerKey: players[1].key, roleId: "seer" });
+  await waitUntil(
+    () => hostState?.players?.find(p => p.key === players[0].key)?.assignedRoleId === "cupid"
+      && hostState?.players?.find(p => p.key === players[1].key)?.assignedRoleId === "seer",
+    "preassigned Cupid and Seer",
+  );
   host.emit("host_start_game");
   await waitUntil(() => players.every(player => player.latest?.me?.roleId), "assigned roles");
+  assert.equal(players[0].latest.me.roleId, "cupid");
+  assert.equal(players[1].latest.me.roleId, "seer");
+
+  const variants = hostState.players.map(player => player.cardVariant);
+  assert.ok(variants.every(variant => [1, 2, 3, 4].includes(variant)));
+  const variantCounts = [1, 2, 3, 4].map(variant => variants.filter(value => value === variant).length);
+  assert.ok(Math.max(...variantCounts) - Math.min(...variantCounts) <= 1);
 
   const byRole = roleId => players.find(player => player.latest.me.roleId === roleId);
   const cupid = byRole("cupid");
@@ -112,14 +127,21 @@ test("role-card permissions survive a complete Cupid, Ziener, Wolves and Witch n
   const wolf = byRole("werewolf");
   const witch = byRole("witch");
   const villager = byRole("villager");
-  assert.ok(cupid && seer && wolf && witch && villager);
+  const spareVillager = players.find(player => player.latest.me.roleId === "villager" && player.key !== villager?.key);
+  assert.ok(cupid && seer && wolf && witch && villager && spareVillager);
 
   host.emit("host_next_step");
   await waitUntil(() => hostState?.currentStep?.kind === "cupid", "Cupid step");
   await waitUntil(() => cupid.latest?.action?.kind === "cupid", "Cupid player action");
   assert.ok(cupid.latest.action.options.every(option => option.cardRoleId === "villager" && !option.cardRevealed));
+  assert.ok(cupid.latest.action.options.every(option => option.key !== cupid.key), "Cupid must not be able to choose themself");
   cupid.socket.emit("player_action", { kind: "cupid", targetKeys: [wolf.key, villager.key] });
   await waitUntil(() => cupid.latest?.action?.submitted, "Cupid confirmation");
+  await waitUntil(
+    () => hostState.players.find(player => player.key === wolf.key)?.persistentLinks?.some(link => link.kind === "love"),
+    "Host lover badges",
+  );
+  assert.equal(cupid.latest.roleInfo.facts.find(fact => fact.title === "Door jou gekoppeld")?.people.length, 2);
 
   host.emit("host_next_step");
   await waitUntil(() => hostState?.currentStep?.kind === "lovers_info", "lovers step");
@@ -129,12 +151,14 @@ test("role-card permissions survive a complete Cupid, Ziener, Wolves and Witch n
   );
   assert.equal(wolf.latest.action.lover.key, villager.key);
   assert.equal(wolf.latest.action.lover.cardRoleId, "villager");
-  assert.equal(wolf.latest.action.lover.cardRevealed, true);
+  assert.equal(wolf.latest.action.lover.cardRevealed, false);
   assert.equal(villager.latest.action.lover.key, wolf.key);
-  assert.equal(villager.latest.action.lover.cardRoleId, "werewolf");
-  assert.equal(villager.latest.action.lover.cardRevealed, true);
+  assert.equal(villager.latest.action.lover.cardRoleId, "villager");
+  assert.equal(villager.latest.action.lover.cardRevealed, false);
   wolf.socket.emit("player_action", { kind: "lovers_info", ready: true });
+  await waitUntil(() => !!villager.latest?.me?.loverHeartPulse?.token, "lover heart for villager");
   villager.socket.emit("player_action", { kind: "lovers_info", ready: true });
+  await waitUntil(() => !!wolf.latest?.me?.loverHeartPulse?.token, "lover heart for wolf");
   await waitUntil(() => hostState?.currentStep?.ready, "lovers ready");
 
   host.emit("host_next_step");
@@ -164,13 +188,19 @@ test("role-card permissions survive a complete Cupid, Ziener, Wolves and Witch n
   await waitUntil(() => hostState?.currentStep?.kind === "witch", "Witch step");
   await waitUntil(() => witch.latest?.action?.kind === "witch", "Witch player action");
   assert.ok(witch.latest.action.allTargets.every(option => option.cardRoleId === "villager"));
-  witch.socket.emit("player_action", { kind: "witch", saveKey: null, poisonKey: null });
+  witch.socket.emit("player_action", { kind: "witch", saveKey: wolfVictim.key, poisonKey: spareVillager.key });
   await waitUntil(() => witch.latest?.action?.submitted, "Witch confirmation");
+  await waitUntil(
+    () => hostState.players.find(player => player.key === wolfVictim.key)?.persistentLinks?.some(link => link.kind === "witch-save")
+      && hostState.players.find(player => player.key === spareVillager.key)?.persistentLinks?.some(link => link.kind === "witch-poison"),
+    "Host Witch badges",
+  );
 
   host.emit("host_next_step");
   await waitUntil(() => hostState?.phase === "day", "day after the first night");
   host.emit("host_start_next_night");
   await waitUntil(() => hostState?.phase === "night" && hostState?.nightNumber === 2, "second night");
+  assert.equal(hostState.nightSteps.some(step => step.kind === "witch"), false, "Witch must not wake after both potions are used");
   host.emit("host_next_step");
   await waitUntil(() => hostState?.currentStep?.kind === "seer", "second Seer step");
   await waitUntil(() => seer.latest?.action?.kind === "seer" && !seer.latest.action.submitted, "second Seer action");

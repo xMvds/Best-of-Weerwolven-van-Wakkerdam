@@ -10,11 +10,11 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 test("release version is coherent in server, package and browser cache keys", () => {
   const pkg = JSON.parse(read("package.json"));
-  assert.equal(pkg.version, "0.3.44");
-  assert.match(read("server.js"), /const VERSION = "0\.3\.44";/);
+  assert.equal(pkg.version, "0.3.50");
+  assert.match(read("server.js"), /const VERSION = "0\.3\.50";/);
   for (const file of ["public/host.html", "public/index.html", "public/viewer.html"]) {
-    assert.match(read(file), /\?v=0\.3\.44/);
-    assert.doesNotMatch(read(file), /\?v=0\.3\.43/);
+    assert.match(read(file), /\?v=0\.3\.50/);
+    assert.doesNotMatch(read(file), /\?v=0\.3\.49/);
   }
 });
 
@@ -25,7 +25,7 @@ test("browser scripts remain syntactically valid", () => {
   }
 });
 
-test("general v0.3.39 centering layer is reverted while the reveal animation remains", () => {
+test("stable reveal animation remains while the approved centered Info composition is preserved", () => {
   const css = read("public/style.css");
   assert.doesNotMatch(css, /v0\.3\.39 — één stabiele centreerlaag/);
   const marker = css.indexOf("v0.3.40 — oorspronkelijke HUD-layout hersteld");
@@ -38,18 +38,25 @@ test("general v0.3.39 centering layer is reverted while the reveal animation rem
   assert.match(finalLayer, /\.infoVoters \.candidatePill[\s\S]*width:auto!important[\s\S]*font-size:var\(--voter-font-size,22px\)/);
   assert.match(finalLayer, /\.hostScreen #phasePills\{min-height:34px/);
   assert.doesNotMatch(finalLayer, /\.playerCenter\.action-wolves>h1/);
-  assert.doesNotMatch(finalLayer, /\.viewerPlayers\.ultraDense/);
+  assert.match(finalLayer, /v0\.3\.49 — gerichte regressieherstel/);
+  assert.match(finalLayer, /\.viewerHero\.night \.viewerPlayers\.ultraDense \.viewerPlayer\{[\s\S]*font-size:clamp\(8px,\.8vw,11px\)/);
+  assert.match(finalLayer, /\.infoScreen \.viewerHero\.hunter \.viewerPlayers\s*\{display:none!important;\}/);
+  assert.doesNotMatch(finalLayer, /\.infoScreen \.viewerHero:not\(\.viewerEnded\)\{[\s\S]*grid-template-rows/);
 });
 
 test("info voting reaches and holds the final vote", () => {
   const viewer = read("public/viewer.js");
   const server = read("server.js");
   assert.match(viewer, /--voter-font-size:\$\{Math\.max\(11,22-Math\.max\(0,String\(v\.name\|\|""\)\.length-10\)\*\.55\)\.toFixed\(1\)\}px/);
-  assert.match(server, /const VOTE_REVEAL_MS = 6500;/);
-  assert.match(viewer, /Number\(timing\.revealDurationMs \|\| 6500\)/);
+  assert.match(server, /const VOTE_REVEAL_MS = 3000;/);
+  assert.match(viewer, /Number\(timing\.revealDurationMs \|\| 3000\)/);
+  assert.match(viewer, /const elapsedBeforeStart = timing\.revealStartedAt/);
   assert.match(viewer, /const progress = Math\.min\(1, elapsed \/ duration\)/);
   assert.match(viewer, /const eased = progress;/);
-  assert.match(viewer, /progress >= 1 \? final : Math\.floor\(final \* eased\)/);
+  assert.match(viewer, /Math\.floor\(final \* eased\)/);
+  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress",String\(eased\)\)/);
+  assert.match(viewer, /Math\.max\(10,Math\.round\(\(\(r\.votes\|\|0\)\/max\)\*100\)\)/);
+  assert.doesNotMatch(viewer, /travelRatio|localProgress|function voteHeight/);
   assert.doesNotMatch(viewer, /1 - Math\.pow\(1 - progress, 3\)|finalVoteHold|countDuration/);
   assert.doesNotMatch(viewer, /ownDuration = final <= 0/);
 });
@@ -79,10 +86,12 @@ test("Seer confirmation shows the selected player's name and role card on Player
   const server = read("server.js");
   const player = read("public/player.js");
   const host = read("public/host.js");
-  assert.match(server, /targetRoleId: target\.roleId, targetRoleName: targetRole\.name, targetRoleEmoji: targetRole\.emoji/);
+  assert.match(server, /targetRoleId: target\.roleId,[\s\S]*targetRoleName: targetRole\.name,[\s\S]*targetRoleEmoji: targetRole\.emoji/);
   assert.match(player, /class="seerRevealResult"/);
   assert.match(player, /getRoleArt\(sub\.targetRoleId, sub\.targetKey/);
-  assert.match(player, /const ownCard = a\.kind === "seer" \? "" : roleCard\(true\)/);
+  assert.match(player, /<h2>\$\{esc\(sub\.targetName \|\| "Speler"\)\} is de<\/h2>/);
+  assert.doesNotMatch(player, /<h2>Te zien<\/h2>/);
+  assert.doesNotMatch(player, /const ownCard =/);
   assert.match(host, /roleTargetDecision\("Bekijkt", value\)/);
   assert.match(host, /class="hostTargetRoleCard"/);
 });
@@ -90,8 +99,11 @@ test("Seer confirmation shows the selected player's name and role card on Player
 test("public results remain gated until their reveal boundary while Host stays live", () => {
   const server = read("server.js");
   assert.match(server, /const voteRevealPending = !!game\.dayVote\?\.result && !resultIsPublic\(game\.dayVote\.result\)/);
-  assert.match(server, /alive: pendingEliminatedKey === p\.key \? true : p\.alive/);
-  assert.match(server, /lastDeaths: voteRevealPending \? \(game\.lastDeaths \|\| \[\]\)\.filter/);
+  assert.match(server, /const pendingDeathKeys = pendingPublicDeathKeys\(\)/);
+  assert.match(server, /alive: pendingDeathKeys\.has\(p\.key\)/);
+  assert.match(server, /lastDeaths: !forViewer && pendingDeathKeys\.size[\s\S]*filter\(d => !pendingDeathKeys\.has\(d\.key\)\)/);
+  assert.match(server, /function startDeathReveal\(/);
+  assert.match(server, /function releaseDeathToPlayers\(/);
   assert.match(server, /game\.publicWinnerRevealed = false/);
   assert.match(server, /socket\.on\("viewer_reveal_ack"/);
   assert.match(server, /releaseResultToPlayers\(kind, token\)/);
@@ -106,33 +118,30 @@ test("winner page swaps only after the Infoscherm is fully black", () => {
   const viewer = read("public/viewer.js");
   const css = read("public/style.css");
   assert.match(viewer, /document\.body\.classList\.add\("winnerTransitionBlack"\)/);
-  assert.match(viewer, /setTimeout\(\(\)=>\{[\s\S]*displayedState=s;[\s\S]*render\(s\);[\s\S]*acknowledgeReveal\("winner", s\.winnerRevealToken\);[\s\S]*\},840\)/);
+  assert.match(viewer, /setTimeout\(\(\)=>\{[\s\S]*displayedState=s;[\s\S]*scheduleViewerRender\(s\);[\s\S]*acknowledgeReveal\("winner", s\.winnerRevealToken\);[\s\S]*\},840\)/);
   assert.match(css, /@keyframes winnerPageSwap\{[\s\S]*50%\{opacity:1\}[\s\S]*56%\{opacity:1\}/);
 });
 
-test("touch layouts scroll on Player, Host and Info without changing the desktop layer", () => {
+test("choice screens fit their full grid and confirmation control inside touch viewports", () => {
   const css = read("public/style.css");
-  const marker = css.indexOf("v0.3.44 — volledige kaart-PNG's");
+  const marker = css.indexOf("v0.3.46 — viewport-fit keuzes");
   assert.ok(marker > 0);
   const touchLayer = css.slice(marker);
-  assert.match(touchLayer, /@media \(hover:none\) and \(pointer:coarse\), \(max-width:900px\)/);
-  assert.match(touchLayer, /body\.playerScreen\.inGame\{[\s\S]*overflow-y:auto!important[\s\S]*-webkit-overflow-scrolling:touch/);
-  assert.match(touchLayer, /\.playerActionPanel\{[\s\S]*height:auto!important[\s\S]*overflow:visible!important/);
-  assert.match(touchLayer, /\.confirmBtn,[\s\S]*#wolfConfirmBtn,[\s\S]*#submitWitch\{[\s\S]*position:sticky[\s\S]*safe-area-inset-bottom/);
-  assert.match(touchLayer, /\.hostScreen \.grid,[\s\S]*grid-template-columns:minmax\(0,1fr\)!important/);
-  assert.match(touchLayer, /body\.infoScreen\{[\s\S]*overflow-y:auto!important/);
-  assert.match(touchLayer, /\.infoScreen \.viewerHero\{[\s\S]*min-height:100dvh!important[\s\S]*overflow:visible!important/);
+  assert.match(touchLayer, /grid-template-columns:repeat\(var\(--choice-cols,3\),minmax\(0,1fr\)\)!important/);
+  assert.match(touchLayer, /height:clamp\(70px,var\(--choice-card-vh,24svh\),250px\)!important/);
+  assert.match(touchLayer, /@media\(max-width:900px\), \(hover:none\) and \(pointer:coarse\)/);
+  assert.match(touchLayer, /body\.playerScreen\.inGame\{[\s\S]*overflow:hidden!important/);
+  assert.match(touchLayer, /grid-template-columns:repeat\(var\(--choice-mobile-cols,2\),minmax\(0,1fr\)\)!important/);
+  assert.match(touchLayer, /#submitWitch\{[\s\S]*height:44px!important/);
 });
 
 test("role PNGs use contained aspect-ratio boxes and wolf winner cards cannot be clipped", () => {
   const css = read("public/style.css");
-  const marker = css.indexOf("v0.3.44 — volledige kaart-PNG's");
+  const marker = css.indexOf("v0.3.46 — viewport-fit keuzes");
   const finalLayer = css.slice(marker);
-  assert.match(finalLayer, /\.playerIdentityCard\.choiceIdentity,[\s\S]*aspect-ratio:1061 \/ 1483[\s\S]*overflow:visible!important/);
-  assert.match(finalLayer, /\.playerTargetChoice \.wolfTargetMeta\{[\s\S]*position:static!important/);
+  assert.match(finalLayer, /\.playerIdentityCard\.choiceIdentity,[\s\S]*aspect-ratio:2 \/ 3!important[\s\S]*overflow:hidden!important/);
   assert.match(finalLayer, /\.winnerRoleCard,[\s\S]*object-fit:contain!important[\s\S]*object-position:center!important/);
-  assert.match(finalLayer, /\.winnerMainCards \.winnerPlayerCard\{[\s\S]*height:auto!important[\s\S]*overflow:visible!important/);
-  assert.match(finalLayer, /\.winnerMainCards \.winnerRoleCard\{[\s\S]*height:var\(--winner-card-art-height,220px\)!important/);
+  assert.match(finalLayer, /\.winnerMainCards \.winnerPlayerCard,[\s\S]*overflow:visible!important/);
 });
 
 test("Witch target selection uses responsive action-colored player cards without extra emoji icons", () => {
@@ -141,13 +150,15 @@ test("Witch target selection uses responsive action-colored player cards without
   assert.match(player, /class="witchChoiceTile \$\{tone\} \$\{selected===key\?"selected":""\}"/);
   assert.match(player, /renderPlayerIdentity\(person,"witchIdentity"\)/);
   assert.doesNotMatch(player, /"💚"|"☠"/);
-  assert.match(css, /\.witchChoices[\s\S]*display:flex[\s\S]*flex-wrap:wrap/);
+  assert.match(css, /v0\.3\.46 — viewport-fit keuzes[\s\S]*\.witchChoices\{[\s\S]*display:grid!important/);
+  assert.match(player, /const sharedMobileVh = Math\.max\(4\.4, Math\.min\(14, 52 \/ combinedMobileRows\)\)/);
   assert.match(css, /\.witchChoiceTile\.save\.selected/);
   assert.match(css, /\.witchChoiceTile\.poison\.selected/);
 });
 
 test("player identities default to Burger cards and reveal only authorized role cards", () => {
   const server = read("server.js");
+  const host = read("public/host.js");
   const player = read("public/player.js");
   const css = read("public/style.css");
   assert.match(server, /function playerCardIdentity\(observer, target/);
@@ -160,10 +171,12 @@ test("player identities default to Burger cards and reveal only authorized role 
   assert.match(css, /\.playerTargetChoice[\s\S]*flex-direction:column!important/);
 });
 
-test("lovers see each other's name and real role card without an automatic camera connection", () => {
+test("lovers see who they are linked to without learning each other's role", () => {
   const server = read("server.js");
   const player = read("public/player.js");
-  assert.match(server, /case "lovers_info":[\s\S]*playerTargetOption\(p, lover, \{ revealActual: true \}\)/);
+  assert.match(server, /case "lovers_info":[\s\S]*lover: lover \? playerTargetOption\(p, lover\) : null/);
+  assert.doesNotMatch(server, /case "lovers_info":[\s\S]{0,500}revealActual: true/);
+  assert.match(server, /title: "Jouw geliefde"[\s\S]*playerTargetOption\(p, lover\)/);
   assert.match(server, /Kijk om je heen om je geliefde te spotten/);
   assert.match(player, /function renderLoversInfo\(a\)/);
   assert.match(player, /class="loverReveal"/);
@@ -171,9 +184,51 @@ test("lovers see each other's name and real role card without an automatic camer
   assert.doesNotMatch(player, /getUserMedia|RTCPeerConnection/);
 });
 
+test("lover deaths stay linked to the original reveal and remain gated for Players", () => {
+  const server = read("server.js");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  assert.match(server, /linkedToKey: p\.key/);
+  assert.match(server, /function pendingVoteDeathKeys\(\)/);
+  assert.match(server, /result\.linkedDeaths = \(game\.lastDeaths \|\| \[\]\)/);
+  assert.match(viewer, /function linkedDeathHtml\(primary, linkedDeaths=\[\]\)/);
+  assert.match(viewer, /class="brokenHeartMark"/);
+  assert.match(viewer, /linkedDeathHtml\(eliminatedDeath,result\.linkedDeaths\|\|\[\]\)/);
+  assert.match(css, /\.loverDeathStack[\s\S]*position:absolute[\s\S]*top:0[\s\S]*left:0/);
+});
+
+test("action tiles are square and all vote bars start and stop together", () => {
+  const player = read("public/player.js");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  assert.match(player, /class="witchNoActionIcon"/);
+  assert.match(css, /v0\.3\.45 final cascade[\s\S]*\.playerScreen \.playerTargetChoice[\s\S]*border-radius:0!important/);
+  assert.match(css, /\.playerScreen \.witchPanel>h3\{text-align:center!important;\}/);
+  assert.doesNotMatch(viewer, /travelRatio|localProgress|const delay=/);
+  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress",String\(eased\)\)/);
+  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress","1"\)/);
+  assert.match(css, /\.mayorBarFill\{[\s\S]*transform:scaleY\(var\(--graph-progress,0\)\)!important/);
+});
+
+test("completed vote reveals never replay their popup animation after refresh", () => {
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  assert.match(viewer, /JSON\.parse\(sessionStorage\.getItem\(revealMemoryKey\)/);
+  assert.match(viewer, /const seenRevealTokens=loadSeenRevealTokens\(\)/);
+  assert.match(viewer, /const alreadyRevealed = result\.publicRevealed !== false \|\| hasSeenReveal\(result\.revealToken\)/);
+  assert.match(viewer, /classList\.add\("noReplay"\)/);
+  assert.match(css, /\.voteFinalText\.noReplay[\s\S]*animation:none!important/);
+  assert.match(css, /\.infoMayorResult\.noReplay \.mayorResultBar\{animation:none!important;\}/);
+});
+
 test("submitted night actions use the sleep message and never show Ingestuurd", () => {
   const player = read("public/player.js");
-  assert.match(player, /const submittedTitle = voteAction \? a\.title : "Je antwoord is doorgevoerd"/);
+  assert.match(player, /const submittedTitle = voteAction \? a\.title : "Je koos"/);
+  assert.match(player, /"Te redden"/);
+  assert.match(player, /"Te vergiftigen"/);
+  assert.match(player, /"Te betoveren"/);
+  assert.doesNotMatch(player, /Je antwoord is doorgevoerd/);
+  assert.doesNotMatch(player, /\$\{sleepMessage\}\$\{ownCard\}/);
   assert.match(player, /De \$\{esc\(sleepRole\)\} gaat weer slapen/);
   assert.doesNotMatch(player, /<p>Ingestuurd\.<\/p>/);
 });
@@ -190,7 +245,8 @@ test("Player vote data stays hidden while Host remains live", () => {
 test("village winner cards stay equal with defeated wolves in a responsive red side panel", () => {
   const viewer = read("public/viewer.js");
   const css = read("public/style.css");
-  assert.match(viewer, /const winnerColumns = Math\.min\([\s\S]*Math\.ceil\(Math\.sqrt\(Math\.max\(1, main\.length\) \* 1\.6\)\)/);
+  assert.match(viewer, /const maxColumns = viewportWidth <= 600 \? 4 : viewportWidth <= 900 \? 6 : viewportWidth <= 1300 \? 8 : 10/);
+  assert.match(viewer, /const winnerColumns = Math\.min\([\s\S]*maxColumns/);
   assert.match(viewer, /class="winnerCards winnerMainCards"/);
   assert.match(viewer, /class="winnerGroupTitle"/);
   assert.match(viewer, /const groupTitle = s\.winner\?\.team === "village" \? "Het Dorp"/);
@@ -199,17 +255,193 @@ test("village winner cards stay equal with defeated wolves in a responsive red s
   assert.match(css, /\.winnerStage\.hasDefeated \.winnerLayout[\s\S]*grid-template-columns:minmax\(0,1fr\) max-content!important/);
   assert.match(css, /\.winnerMainCards[\s\S]*grid-template-columns:repeat\(var\(--winner-cols,1\),minmax\(0,1fr\)\)!important[\s\S]*width:100%!important/);
   assert.match(css, /\.winnerStage\.hasDefeated \.defeatedWolves[\s\S]*width:var\(--defeated-panel-width,180px\)[\s\S]*background:linear-gradient/);
+  assert.match(css, /\.infoScreen \.winnerStage\.hasDefeated \.defeatedWolves\{[\s\S]*align-self:center!important/);
+  assert.doesNotMatch(viewer, /denseWinner|ultraDenseWinner/);
   assert.match(css, /\.viewerHero\.ended \.winnerStage>h3[\s\S]*display:none!important/);
   assert.match(css, /\.viewerHero\.ended \.deathCards[\s\S]*flex:1 1 auto[\s\S]*min-height:0/);
   assert.match(css, /@media\(max-width:600px\)[\s\S]*\.winnerStage\.hasDefeated \.winnerLayout\{grid-template-columns:1fr!important/);
 });
 
-test("player target tiles keep a natural size and distribute without edge-to-edge stretching", () => {
+test("player target tiles expose count-aware desktop and mobile grid metrics", () => {
   const player = read("public/player.js");
   const css = read("public/style.css");
   assert.match(player, /--choice-font-size:\$\{nameFontSize\}px/);
-  assert.match(css, /\.playerCenter\.active \.playerChoices[\s\S]*display:flex!important[\s\S]*flex-wrap:wrap[\s\S]*justify-content:space-evenly/);
-  assert.match(css, /\.playerCenter\.active \.playerChoices \.choice[\s\S]*flex:0 1 clamp\(160px,25vw,245px\)!important/);
+  assert.match(player, /function choiceGridMetrics\(count\)/);
+  assert.match(player, /--choice-cols:\$\{desktopCols\}/);
+  assert.match(player, /--choice-mobile-cols:\$\{mobileCols\}/);
+  assert.match(css, /v0\.3\.46 — viewport-fit keuzes[\s\S]*display:grid!important[\s\S]*--choice-card-vh/);
+});
+
+test("Host can force unfinished choices while the Hunter announcement and summary remain normal clicks", () => {
+  const server = read("server.js");
+  const host = read("public/host.js");
+  assert.match(server, /function forceCompleteNightStep\(step\)/);
+  assert.match(server, /step\.submissions\[key\] = step\.kind === "witch"/);
+  assert.match(server, /function advanceHunterFromHost\(\{ force = false \} = \{\}\)/);
+  assert.match(server, /if \(sequence\.stage === "announcement"\) \{\s*return advanceHunterIntro\(sequence\.introToken\)/);
+  assert.match(server, /applyHunterShot\(target\.key, \{ forced: true \}\)/);
+  assert.match(host, /\["choosing","shot_suspense"\]\.includes\(hunterStage\)/);
+  assert.match(host, /hunterStage === "announcement" \? "Laat de Jager kiezen"/);
+  assert.match(host, /hunterStage === "summary" \? "Naar volledig dagoverzicht"/);
+  assert.match(host, /Forceren beschikbaar over \$\{forceAdvanceSeconds\}/);
+  assert.match(host, /btn\.textContent = "Nu forceren"/);
+  assert.match(host, /socket\.emit\("host_next_step", \{ force:true \}\)/);
+});
+
+test("lobby preassignment, balanced Burger identities and persistent Host links are wired", () => {
+  const server = read("server.js");
+  const host = read("public/host.js");
+  assert.match(server, /function assignBalancedVillagerCards\(players\)/);
+  assert.match(server, /VILLAGER_CARD_VARIANTS\[index % VILLAGER_CARD_VARIANTS\.length\]/);
+  assert.match(server, /socket\.on\("host_assign_role"/);
+  assert.match(server, /preassignedRoleCounts\(player\.key\)/);
+  assert.match(server, /function persistentLinksForHost\(p\)/);
+  assert.match(host, /data-assigned-role=/);
+  assert.match(host, /socket\.emit\("host_assign_role"/);
+  assert.match(host, /class="persistentLinkBadge/);
+});
+
+test("Player role-info drawer keeps objectives and collected role knowledge available", () => {
+  const html = read("public/index.html");
+  const server = read("server.js");
+  const player = read("public/player.js");
+  const css = read("public/style.css");
+  assert.match(html, /id="roleInfoFab"[^>]*>I<\/button>/);
+  assert.match(html, /id="roleInfoPanel"/);
+  assert.match(server, /function roleInformationForPlayer\(p\)/);
+  assert.match(server, /title: "Bekeken spelers"/);
+  assert.match(server, /title: "Door jou bespeeld"/);
+  assert.match(player, /function renderRoleInfo\(\)/);
+  assert.match(player, /\},7000\)/);
+  assert.match(css, /\.roleInfoFab\{[\s\S]*border-radius:50%/);
+});
+
+test("v0.3.49 keeps scenes stable and presents Host, lover and enchanted details without duplicates", () => {
+  const server = read("server.js");
+  const host = read("public/host.js");
+  const player = read("public/player.js");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  assert.match(server, /if \(step\.kind === "enchanted_info"\) return true/);
+  assert.match(server, /function ensureEnchantedInfoStepAfter\(step\)/);
+  assert.match(server, /const enchanted = alivePlayers\(\)\.filter\(p => p\.enchanted\)\.map\(p => p\.key\)/);
+  assert.match(player, /function renderEnchantedInfo\(a\)/);
+  assert.match(player, /De Host gaat verder wanneer iedereen elkaar heeft gezien/);
+  assert.doesNotMatch(player, /if\(state\.me\.loverName\) tags\.push/);
+  assert.match(host, /class="hostEliminationOverview"/);
+  assert.match(host, /function deathCauseLabel\(death\)/);
+  assert.match(host, /step\.kind === "enchanted_info"/);
+  assert.doesNotMatch(host, /Alle betoverde spelers zien elkaar nu\. De Host klikt deze ronde door\./);
+  assert.match(viewer, /function centralKeyForState\(s, mayorActive, voteActive, mayorStage\)/);
+  assert.match(viewer, /if\(nextCentralSceneKey!==centralSceneKey\)/);
+  assert.match(viewer, /if\(s\.winner\)\{[\s\S]*else if\(s\.phase === "hunter" && s\.hunterSequence\)\{/);
+  assert.doesNotMatch(viewer, /\$\{p\.enchanted\?' 🎵':''\}/);
+  assert.ok(viewer.indexOf('stage?.classList.add("graphShifted")') < viewer.indexOf('stage?.classList.add("revealReady")'));
+  assert.match(css, /\.hostScreen \.preassignRole select option\{[\s\S]*color:#fff0cb!important[\s\S]*background:#080c14!important/);
+  assert.match(css, /\.hostScreen:not\(\.gameActive\) \.playerRow\{[\s\S]*height:96px!important[\s\S]*max-height:96px!important/);
+  assert.match(css, /\.playerIdentityCard\.loverIdentity\{[\s\S]*aspect-ratio:2 \/ 3!important[\s\S]*overflow:visible!important/);
+  assert.match(css, /v0\.3\.49 — gerichte regressieherstel[\s\S]*\.infoScreen \.linkedDeathReveal \.loverDeathStack \.deathCard\.loverDeathCard\{[\s\S]*width:clamp\(112px,10vw,150px\)!important/);
+  assert.match(css, /\.infoScreen \.linkedDeathReveal \.loverDeathStack \.deathCard\.loverDeathCard h3\{[\s\S]*font-size:clamp\(15px,1\.45vw,22px\)!important/);
+});
+
+test("Witch wake-up, previews and Host badges reflect the live potion state", () => {
+  const server = read("server.js");
+  const host = read("public/host.js");
+  const css = read("public/style.css");
+  assert.match(server, /playersByRole\("witch"\)\.filter\(p => !p\.witchSaveUsed \|\| !p\.witchPoisonUsed\)/);
+  assert.match(server, /targetCard: playerTargetOption\(p, target\)/);
+  assert.match(host, /roleTargetDecision\("Levensdrank · redt", value\.saveTarget, "save"\)/);
+  assert.match(host, /roleTargetDecision\("Gifdrank · vergiftigt", value\.poisonTarget, "poison"\)/);
+  assert.match(server, /kind: "witch-save"[\s\S]*icon: "✚"/);
+  assert.match(server, /kind: "witch-poison"[\s\S]*icon: "☠"/);
+  assert.match(css, /\.persistentLinkBadge\.witch-save/);
+  assert.match(css, /\.persistentLinkBadge\.witch-poison/);
+});
+
+test("confirmed lovers trigger a temporary heart while all lover role identities remain private", () => {
+  const server = read("server.js");
+  const player = read("public/player.js");
+  const css = read("public/style.css");
+  assert.match(server, /case "lovers_info":[\s\S]*lover\.loverHeartPulse = \{[\s\S]*until: Date\.now\(\) \+ 2400/);
+  assert.match(server, /loverHeartPulse: p\.loverHeartPulse && Number\(p\.loverHeartPulse\.until \|\| 0\) > Date\.now\(\)/);
+  assert.match(player, /function renderLoverHeartPulse\(\)/);
+  assert.match(player, /aria-label", "Je geliefde heeft bevestigd"/);
+  assert.match(css, /\.loverHeartPulse\{[\s\S]*animation:loverHeartBeat 2\.35s ease-out both/);
+  assert.match(css, /@keyframes loverHeartBeat/);
+  assert.doesNotMatch(server, /title: "Jouw geliefde"[\s\S]{0,350}revealActual: true/);
+});
+
+test("Host aftermath, mayor bars and live target cards update immediately without changing Info placement", () => {
+  const host = read("public/host.js");
+  const server = read("server.js");
+  const player = read("public/player.js");
+  const css = read("public/style.css");
+  assert.match(host, /state\.phase === "day" && state\.dayAftermath\?\.active && \(state\.lastDeaths\|\|\[\]\)\.length/);
+  assert.doesNotMatch(host, /dayAftermath[\s\S]{0,120}deathReveal\?\.publicRevealed/);
+  assert.match(host, /const toneClass = type === "burgemeester" \? " mayorVoteBars" : ""/);
+  assert.match(css, /\.hostScreen \.liveVoteBars\.mayorVoteBars \.voteFill\{[\s\S]*#f0c95a/);
+  assert.match(server, /people: targetKeys\.map\(targetKey => playerTargetOption\(p, game\.players\[targetKey\]\)\)/);
+  assert.match(server, /targetCard: playerTargetOption\(p, target\)/);
+  assert.doesNotMatch(player, /if\(state\.me\.enchanted\) tags\.push\("betoverd"\)/);
+  assert.match(css, /\.playerScreen \.submittedPeople\.magic \.playerIdentityCard\{[\s\S]*rgba\(179,122,255/);
+});
+
+test("Player confirmations clear the gold edge and Seer follows the standard sleep result", () => {
+  const player = read("public/player.js");
+  const css = read("public/style.css");
+  assert.match(css, /body\.playerScreen\.inGame \.confirmBtn,[\s\S]*bottom:max\(18px,env\(safe-area-inset-bottom,0px\)\)!important/);
+  assert.match(player, /const sleepMessage = voteAction \? "" : `<p class="sleepStatus">De \$\{esc\(sleepRole\)\} gaat weer slapen\.<\/p>`/);
+  assert.match(player, /const sleepRole = a\.actorRoleName \|\| state\.me\.role\?\.name \|\| "rol"/);
+  assert.match(player, /if\(a\.kind === "seer" && sub\.result\)/);
+  assert.match(player, /cupid:"Te koppelen aan"/);
+});
+
+test("Hunter uses an Info-led announcement, choice, shot reveal and summary sequence", () => {
+  const server = read("server.js");
+  const host = read("public/host.js");
+  const player = read("public/player.js");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  assert.match(server, /stage: continueTo\?\.deferWinner \? "awaiting_vote_reveal" : "announcement"/);
+  assert.match(server, /game\.hunterSequence\?\.stage === "choosing" \? hunterAction\(p\) : hunterWaitAction\(p\)/);
+  assert.match(server, /function applyHunterShot\(/);
+  assert.match(server, /holdForHunterReveal: true/);
+  assert.match(server, /function revealHunterShot\(token\)/);
+  assert.match(server, /function scheduleBotHunterChoice\(sequence\)/);
+  assert.match(server, /\}, 5000\);/);
+  assert.match(server, /const HUNTER_INTRO_FALLBACK_MS = 10000/);
+  assert.match(server, /sequence\.autoAdvanceAt = Date\.now\(\) \+ HUNTER_INTRO_FALLBACK_MS/);
+  assert.match(viewer, /function renderHunterCentral\(id, s\)/);
+  assert.doesNotMatch(viewer, /acknowledgeReveal\("hunter_intro"/);
+  assert.match(viewer, /acknowledgeReveal\("hunter_shot"/);
+  assert.match(viewer, /class="deathCauseMark hunterCause"/);
+  assert.match(viewer, /const shotDeaths = sequence\.shotDeaths \|\| \[\]/);
+  assert.match(viewer, /returnsFromHunter/);
+  assert.match(viewer, /runHunterBlackTransition\(s\)/);
+  assert.match(viewer, /hero\?\.classList\.add\("hunterImpact"\)/);
+  assert.match(host, /const deaths = sequence\.shotDeaths \|\| \[\]/);
+  assert.match(player, /\["hunter_shot","hunter_wait"\]\.includes\(a\.kind\)/);
+  assert.match(css, /\.hunterCrosshair[\s\S]*animation:hunterAim/);
+  assert.match(viewer, /classList\.add\("hunterTransitionBlack"\)/);
+  assert.match(css, /\.infoScreen\.hunterTransitionBlack::after/);
+  assert.match(css, /\.hunterBullseyeIcon\{/);
+  assert.match(css, /\.infoScreen \.viewerHero\.hunter \.bigStatus\{/);
+  assert.match(css, /@keyframes hunterImpactFlash/);
+});
+
+test("live rendering is frame-coalesced and scrolling avoids the heaviest repaint effects", () => {
+  const host = read("public/host.js");
+  const player = read("public/player.js");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  assert.match(host, /function scheduleRender\(\)[\s\S]*requestAnimationFrame/);
+  assert.match(player, /function schedulePlayerRender\(\)[\s\S]*requestAnimationFrame/);
+  assert.match(viewer, /function scheduleViewerRender\(s\)[\s\S]*requestAnimationFrame/);
+  assert.match(host, /if\(nextMarkup === playersMarkup\) return/);
+  assert.match(host, /if\(nextMarkup === rolesMarkup\) return/);
+  assert.match(viewer, /if\(nextPlayersKey!==viewerPlayersKey\)/);
+  assert.match(css, /Vermijd dure volledige hertekeningen[\s\S]*backdrop-filter:none!important/);
+  assert.match(css, /\.hostScreen \.roleTile\{contain:layout paint style;\}/);
 });
 
 test("Host current step is simplified and receives live unconfirmed role choices", () => {
@@ -219,10 +451,11 @@ test("Host current step is simplified and receives live unconfirmed role choices
   const renderStep = host.slice(host.indexOf("function renderStep"), host.indexOf("function renderHostMayorStep"));
   assert.match(renderStep, /renderHostRoleChoices\(s\)/);
   assert.doesNotMatch(renderStep, /formatNightPreview|class="progress"|✅|⏳/);
-  assert.match(host, /roleDecision\("Levensdrank", `Redt \$\{value\.saveName \|\| "niemand"\}`/);
-  assert.match(host, /roleDecision\("Gifdrank", `Vergiftigt \$\{value\.poisonName \|\| "niemand"\}`/);
-  assert.match(host, /roleDecision\("Bekijkt", value\.targetName \|\| "Nog niemand gekozen"/);
-  assert.match(host, /roleDecision\("Geliefde 1"[\s\S]*roleDecision\("Geliefde 2"/);
+  assert.match(host, /roleTargetDecision\("Levensdrank · redt", value\.saveTarget, "save"\)/);
+  assert.match(host, /roleTargetDecision\("Gifdrank · vergiftigt", value\.poisonTarget, "poison"\)/);
+  assert.match(host, /value\.targetName \? roleTargetDecision\("Bekijkt", value\)/);
+  assert.match(host, /people\[0\] \? roleTargetDecision\("Geliefde 1"/);
+  assert.match(host, /people\[1\] \? roleTargetDecision\("Geliefde 2"/);
   assert.match(server, /previews: step\.previews \|\| \{\}/);
   assert.match(server, /step\.previews = step\.previews \|\| \{\}/);
   assert.match(server, /const preview = !submitted \? step\.previews\?\.\[p\.key\] \|\| null : null/);
@@ -236,8 +469,14 @@ test("Host current step is simplified and receives live unconfirmed role choices
   assert.match(player, /selectedSingle = selectedSingle === key \? null : key/);
 });
 
-test("Heks and Ziener card PNGs exist and are wired to player and info views", () => {
-  for (const file of ["public/assets/cards/Heks.png", "public/assets/cards/Ziener.png"]) {
+test("all supplied role-card PNGs exist and are wired to the three views", () => {
+  const supplied = [
+    "burger_1.png", "burger_2.png", "burger_3.png", "burger_4.png",
+    "cupido.png", "fluitspeler.png", "grote_boze_wolf.png", "Heks.png",
+    "jager.png", "weerwolf.png", "Ziener.png"
+  ];
+  for (const name of supplied) {
+    const file = `public/assets/cards/${name}`;
     const bytes = fs.readFileSync(path.join(root, file));
     assert.ok(bytes.length > 1_000_000, `${file} is unexpectedly small`);
     assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
@@ -245,9 +484,25 @@ test("Heks and Ziener card PNGs exist and are wired to player and info views", (
   const player = read("public/player.js");
   assert.match(player, /seer:\s*\[\{ src: "\/assets\/cards\/Ziener\.png"/);
   assert.match(player, /witch:\s*\[\{ src: "\/assets\/cards\/Heks\.png"/);
+  assert.match(player, /cupid:\s*\[\{ src: "\/assets\/cards\/cupido\.png"/);
+  assert.match(player, /hunter:\s*\[\{ src: "\/assets\/cards\/jager\.png"/);
+  assert.match(player, /big_bad_wolf:\s*\[\{ src: "\/assets\/cards\/grote_boze_wolf\.png"/);
   const viewer = read("public/viewer.js");
   assert.match(viewer, /"Ziener": \["\/assets\/cards\/Ziener\.png"\]/);
   assert.match(viewer, /"Heks": \["\/assets\/cards\/Heks\.png"\]/);
+  assert.match(viewer, /"Jager": \["\/assets\/cards\/jager\.png"\]/);
+});
+
+test("winner layouts support fifty players and center the title block on every viewport", () => {
+  const server = read("server.js");
+  const viewer = read("public/viewer.js");
+  const html = read("public/viewer.html");
+  const css = read("public/style.css");
+  assert.match(server, /villager:[\s\S]*max: 50/);
+  assert.match(html, /<header class="infoHeadline">/);
+  assert.match(viewer, /const maxColumns = viewportWidth <= 600 \? 4/);
+  assert.match(css, /\.viewerHero\.ended \.infoHeadline\{[\s\S]*min-height:clamp\(135px,24svh,290px\)/);
+  assert.match(css, /\.winnerMainCards\{[\s\S]*repeat\(var\(--winner-cols,1\)/);
 });
 
 test("Windows starter waits for the server and opens all three screens", () => {

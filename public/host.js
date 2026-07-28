@@ -4,9 +4,16 @@ let state=null;
 let rolesDetailsTouched=false;
 let rolesDetailsProgrammatic=false;
 let lastActiveGame = false;
-let forceWolfNextArmed = false;
+let forceAdvanceTimer = null;
+let forceAdvanceSeconds = 0;
+let forceAdvanceReady = false;
+let forceAdvanceContext = "";
 let pendingKickKey = null;
 let pendingKickTimer = null;
+let renderFrame = null;
+let playersMarkup = "";
+let rolesMarkup = "";
+let currentStepMarkup = "";
 window.__hostConsole = [];
 (function captureConsole(){
   const push=(level,args)=>{
@@ -20,26 +27,58 @@ window.__hostConsole = [];
   window.addEventListener("unhandledrejection", e=>push("error", ["Unhandled promise", e.reason]));
 })();
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));}
+function hunterBullseye(className=""){
+  return `<span class="hunterBullseyeIcon ${className}" aria-hidden="true"></span>`;
+}
 function initials(name){return String(name||"?").split(/\s+/).map(x=>x[0]).join("").slice(0,2).toUpperCase();}
 function toast(text){const el=$("toast");el.textContent=text;el.classList.remove("hidden");clearTimeout(window.__t);window.__t=setTimeout(()=>el.classList.add("hidden"),2600);}
+function scheduleRender(){
+  if(renderFrame !== null) return;
+  renderFrame = requestAnimationFrame(()=>{
+    renderFrame = null;
+    render();
+  });
+}
+function setCurrentStep(markup){
+  if(markup===currentStepMarkup) return;
+  currentStepMarkup=markup;
+  $("currentStep").innerHTML=markup;
+}
 
 socket.emit("register_host");
 socket.on("connect",()=>socket.emit("register_host"));
-socket.on("host_state", s=>{state=s;render();});
+socket.on("host_state", s=>{state=s;scheduleRender();});
 socket.on("host_error", toast);
 
 const bind=(id,event)=>$(id).addEventListener("click",()=>socket.emit(event));
 bind("startBtn","host_start_game");
 $("nextStepBtn").addEventListener("click",()=>{
-  if(state?.phase === "night" && state?.currentStep?.kind === "wolves" && !state.currentStep.ready){
-    const ok = confirm("de wolven hebben nog geen gezamenlijk slachtoffer gekozen, weet je het zeker?");
-    if(!ok) return;
+  const hunterStage = state?.hunterSequence?.stage || "";
+  const forceNeeded = (state?.phase === "night" && !!state.currentStep && !state.currentStep.ready)
+    || (state?.phase === "hunter" && ["choosing","shot_suspense"].includes(hunterStage));
+  if(!forceNeeded){
+    clearForceAdvance();
+    socket.emit("host_next_step");
+    return;
+  }
+  const context = state.phase === "hunter" ? `hunter:${hunterStage}` : `night:${state.currentStep?.id || ""}`;
+  if(forceAdvanceReady && forceAdvanceContext === context){
+    clearForceAdvance();
     socket.emit("host_next_step", { force:true });
     return;
   }
-  socket.emit("host_next_step");
+  armForceAdvance(context);
 });
-bind("resolveNightBtn","host_resolve_night"); bind("mayorBtn","host_open_mayor"); bind("startMayorVoteBtn","host_start_mayor_vote"); bind("closeMayorBtn","host_close_mayor"); bind("voteBtn","host_open_day_vote"); bind("closeVoteBtn","host_close_day_vote"); bind("nextNightBtn","host_start_next_night"); bind("resetBtn","host_reset");
+bind("resolveNightBtn","host_resolve_night"); bind("mayorBtn","host_open_mayor"); bind("closeMayorBtn","host_close_mayor"); bind("voteBtn","host_open_day_vote"); bind("closeVoteBtn","host_close_day_vote"); bind("nextNightBtn","host_start_next_night"); bind("resetBtn","host_reset");
+$("startMayorVoteBtn").addEventListener("click",()=>{
+  const candidateCount = state?.mayorElection?.candidates?.length || 0;
+  if(candidateCount > 0){
+    socket.emit("host_start_mayor_vote");
+    return;
+  }
+  const ok = confirm("Er is nog geen kandidaat. Wil je de burgemeesterfase zonder kandidaat afronden?");
+  if(ok) socket.emit("host_start_mayor_vote", { force:true });
+});
 document.addEventListener("click", (e)=>{
   const btn = e.target.closest?.("[data-host-event]");
   if(!btn) return;
@@ -75,6 +114,34 @@ async function copyText(text, ok="Gekopieerd."){
 }
 function showButton(id, show){ $(id).classList.toggle("hidden", !show); }
 function hasRemainingNightStep(){ return (state.nightSteps||[]).some(x=>!x.done&&!x.skipped); }
+function clearForceAdvance(){
+  clearInterval(forceAdvanceTimer);
+  forceAdvanceTimer = null;
+  forceAdvanceSeconds = 0;
+  forceAdvanceReady = false;
+  forceAdvanceContext = "";
+}
+function armForceAdvance(context){
+  if(forceAdvanceContext && forceAdvanceContext !== context) clearForceAdvance();
+  if(forceAdvanceTimer || forceAdvanceReady) return;
+  forceAdvanceContext = context;
+  forceAdvanceSeconds = 3;
+  const btn = $("nextStepBtn");
+  btn.disabled = true;
+  btn.textContent = `Forceren beschikbaar over ${forceAdvanceSeconds}…`;
+  forceAdvanceTimer = setInterval(()=>{
+    forceAdvanceSeconds -= 1;
+    if(forceAdvanceSeconds > 0){
+      btn.textContent = `Forceren beschikbaar over ${forceAdvanceSeconds}…`;
+      return;
+    }
+    clearInterval(forceAdvanceTimer);
+    forceAdvanceTimer = null;
+    forceAdvanceReady = true;
+    btn.disabled = false;
+    btn.textContent = "Nu forceren";
+  },1000);
+}
 
 function render(){
   if(!state) return;
@@ -116,24 +183,37 @@ function renderPhase(){
   const inDay=state.phase==="day";
   const inMayor=state.phase==="mayor";
   const inVoting=state.phase==="voting";
+  const inHunter=state.phase==="hunter";
   const ended=state.phase==="ended";
   const hasLivingMayor=(state.players||[]).some(p=>p.alive && p.isMayor);
   const dayAftermath=!!state.dayAftermath?.active;
   const pendingWinner=!!state.pendingWinner;
   const remaining=hasRemainingNightStep();
   const isWolfStep=inNight && state.currentStep?.kind === "wolves";
-  const canAdvanceNight=inNight && (!state.currentStep || state.currentStep.ready || isWolfStep);
   const noActiveStep=inNight && !state.currentStep;
 
   $("startBtn").disabled=state.started || total!==players || players<3;
   $("startBtn").title = players<3 ? "Minimaal 3 spelers nodig" : (total!==players ? `Kies precies ${players} rollen/tegels` : "Start het spel");
   showButton("startBtn", true);
   showButton("resetBtn", true);
-  showButton("nextStepBtn", inNight);
-  $("nextStepBtn").disabled=!canAdvanceNight;
+  showButton("nextStepBtn", inNight || inHunter);
+  $("nextStepBtn").disabled=!!forceAdvanceTimer;
   const unfinishedSteps = (state.nightSteps||[]).filter(x=>!x.done&&!x.skipped);
   const currentIsFinalNightStep = !!state.currentStep && state.currentStep.ready && unfinishedSteps.length === 1 && unfinishedSteps[0].id === state.currentStep.id;
-  $("nextStepBtn").textContent=noActiveStep ? (remaining ? "Start volgende nachtstap" : "Maak het dag") : (currentIsFinalNightStep ? "Maak het dag" : (state.currentStep?.ready ? "Volgende nachtstap" : (isWolfStep ? "Volgende stap forceren" : "Wacht op speler")));
+  const hunterStage = state.hunterSequence?.stage || "";
+  const forceContext = inHunter ? `hunter:${hunterStage}` : `night:${state.currentStep?.id || ""}`;
+  if(forceAdvanceContext && forceAdvanceContext !== forceContext) clearForceAdvance();
+  if(!forceAdvanceTimer && !forceAdvanceReady){
+    $("nextStepBtn").textContent = inHunter
+      ? (hunterStage === "summary" ? "Naar volledig dagoverzicht" : hunterStage === "announcement" ? "Laat de Jager kiezen" : hunterStage === "choosing" ? "Forceer Jagerkeuze" : hunterStage === "shot_suspense" ? "Forceer onthulling" : "Volgende Jagerstap")
+      : noActiveStep
+        ? (remaining ? "Start volgende nachtstap" : "Maak het dag")
+        : currentIsFinalNightStep
+          ? "Maak het dag"
+          : state.currentStep?.ready
+            ? "Volgende nachtstap"
+            : "Forceer deze stap";
+  }
   showButton("resolveNightBtn", false);
   $("resolveNightBtn").disabled=true;
   const mayorStage = state.mayorElection?.stage || "idle";
@@ -144,8 +224,8 @@ function renderPhase(){
   const normalDayVoteReady = !!(!pendingWinner && state.started && inDay && !ended && !state.dayVote?.open && !state.dayVote?.result && ((state.players||[]).filter(p=>p.alive).length >= 2));
   showButton("mayorBtn", !pendingWinner && state.started && inDay && !state.mayorElection?.open && !hasLivingMayor);
   showButton("startMayorVoteBtn", (inMayor && mayorStage === "candidates") || mayorRunoffReady);
-  $("startMayorVoteBtn").disabled = !(((inMayor && mayorStage === "candidates" && candidateCount > 0) || mayorRunoffReady));
-  $("startMayorVoteBtn").textContent = mayorRunoffReady ? "Start herstemming" : "Laat spelers stemmen";
+  $("startMayorVoteBtn").disabled = !(((inMayor && mayorStage === "candidates") || mayorRunoffReady));
+  $("startMayorVoteBtn").textContent = mayorRunoffReady ? "Start herstemming" : candidateCount > 0 ? "Laat spelers stemmen" : "Ga door zonder kandidaat";
   showButton("closeMayorBtn", inMayor && mayorStage === "voting");
   if(inMayor && mayorStage === "voting") $("closeMayorBtn").textContent = "Burgemeester afronden";
   // Hotfix v0.3.28: na de burgemeesteruitslag moet deze knop altijd zichtbaar zijn in het controlepaneel.
@@ -165,33 +245,67 @@ function renderStep(){
   const timeline=renderTimeline();
   const mayorStage = state.mayorElection?.stage || "idle";
   if(state.phase === "mayor"){
-    $("currentStep").innerHTML = renderHostMayorStep(mayorStage);
+    setCurrentStep(renderHostMayorStep(mayorStage));
     return;
   }
   if(state.phase === "voting"){
-    $("currentStep").innerHTML = renderHostDayVoteStep();
+    setCurrentStep(renderHostDayVoteStep());
+    return;
+  }
+  if(state.phase === "hunter"){
+    setCurrentStep(renderHostHunterStep());
+    return;
+  }
+  if(state.phase === "day" && state.dayAftermath?.active && (state.lastDeaths||[]).length){
+    setCurrentStep(`<div class="hostEliminationOverview"><h3>Overzicht uitgeschakelde spelers</h3><div class="hunterHostOverview">${state.lastDeaths.map(renderHostDeathCard).join("")}</div></div>`);
     return;
   }
   const s=state.currentStep;
   if(!s){
     const next=(state.nightSteps||[]).find(x=>!x.done&&!x.skipped);
-    if(state.pendingWinner){ $("currentStep").innerHTML=`<h3>Winnaar klaar</h3><p class="muted">Toon de winnaar na de eliminaties.</p>`; return; }
-    $("currentStep").innerHTML=state.phase==="night"?`${timeline}<p class="muted">Hierna: ${next?esc(next.label):"dag"}</p>`:(state.phase==="day"&&state.dayAftermath?.active?`<h3>Dag</h3><p class="muted">Ga door naar de burgemeester of dagstemming.</p>`:`<p class="muted">Geen actieve stap.</p>`);
+    if(state.pendingWinner){ setCurrentStep(`<h3>Winnaar klaar</h3><p class="muted">Toon de winnaar na de eliminaties.</p>`); return; }
+    setCurrentStep(state.phase==="night"?`${timeline}<p class="muted">Hierna: ${next?esc(next.label):"dag"}</p>`:(state.phase==="day"&&state.dayAftermath?.active?`<h3>Dag</h3><p class="muted">Ga door naar de burgemeester of dagstemming.</p>`:`<p class="muted">Geen actieve stap.</p>`));
     return;
   }
 
   if(s.kind === "wolves"){
     const sub = formatHostWolfConsensus(s);
-    $("currentStep").innerHTML=`${timeline}<h3 class="wolfStepTitle"><span>${esc(s.label)}</span></h3>${sub}`;
+    setCurrentStep(`${timeline}<h3 class="wolfStepTitle"><span>${esc(s.label)}</span></h3>${sub}`);
     return;
   }
 
-  $("currentStep").innerHTML=`${timeline}<div class="roleStepHeading"><h3>${esc(s.label)}</h3></div>${s.help?`<p class="roleStepHelp">${esc(s.help)}</p>`:""}${renderHostRoleChoices(s)}`;
+  setCurrentStep(`${timeline}<div class="roleStepHeading"><h3>${esc(s.label)}</h3></div>${s.help?`<p class="roleStepHelp">${esc(s.help)}</p>`:""}${renderHostRoleChoices(s)}`);
+}
+
+function renderHostHunterStep(){
+  const sequence = state.hunterSequence || {};
+  const hunterName = sequence.hunterName || "De Jager";
+  if(sequence.stage === "awaiting_vote_reveal"){
+    return `<div class="hunterHostStep"><h3>Jager uitgeschakeld</h3><p>De dagstemuitslag wordt eerst op het Infoscherm onthuld.</p><strong>${esc(hunterName)}</strong></div>`;
+  }
+  if(sequence.stage === "announcement"){
+    return `<div class="hunterHostStep"><span class="hunterHostEmblem">${hunterBullseye("hunterBullseyeHost")}</span><h3>De Jager is uitgeschakeld</h3><p>Laat de Jager kiezen wanneer het aankondigingsscherm rustig gelezen is. Zonder klik gaat dit na tien seconden automatisch.</p><strong>${esc(hunterName)}</strong></div>`;
+  }
+  if(sequence.stage === "choosing"){
+    return `<div class="hunterHostStep suspense"><h3>Laatste schot</h3><p>De keuze wordt gemaakt.</p><strong>${esc(hunterName)}</strong></div>`;
+  }
+  if(sequence.stage === "shot_suspense"){
+    const target = (sequence.shotDeaths || [])[0];
+    return `<div class="hunterHostStep suspense"><h3>Laatste schot bevestigd</h3><p>Het Infoscherm bouwt de onthulling op.</p>${target?`<div class="hunterHostTarget"><strong>${esc(target.name)}</strong><span>wordt meegenomen</span></div>`:""}</div>`;
+  }
+  if(sequence.stage === "summary"){
+    const deaths = sequence.shotDeaths || [];
+    return `<div class="hunterHostStep hunterHostSummary"><span class="hunterHostEmblem">${hunterBullseye("hunterBullseyeHost")}</span><h3>Jager-overzicht</h3><p>Alleen het laatste schot en eventuele gekoppelde gevolgen.</p><div class="hunterHostOverview">${deaths.map(renderHostDeathCard).join("")}</div></div>`;
+  }
+  return `<p class="muted">De Jager-sequentie wordt voorbereid.</p>`;
 }
 
 function renderHostRoleChoices(step){
   const actors = step.actors || [];
   if(!actors.length) return '<p class="muted">Geen speler voor deze stap.</p>';
+  if(step.kind === "enchanted_info"){
+    return `<div class="hostEnchantedOverview"><div class="hunterHostOverview">${actors.map(actor=>`<article class="hostHunterDeathCard enchantedHostCard"><strong>${esc(actor.name)}</strong><img src="${esc(roleCardPath("villager",actor.cardVariant))}" alt="Burgerkaart"></article>`).join("")}</div></div>`;
+  }
   return `<div class="hostRoleChoices">${actors.map(actor=>{
     const submission = step.submissions?.[actor.key] || null;
     const preview = step.previews?.[actor.key] || null;
@@ -207,25 +321,66 @@ function roleDecision(label, value, tone=""){
   return `<div class="roleDecision ${tone}"><span>${esc(label)}</span><strong>${esc(value)}</strong></div>`;
 }
 
-function roleCardPath(roleId){
-  if(["infectious_wolf","big_bad_wolf","white_wolf"].includes(roleId)) return "/assets/cards/weerwolf.png";
+function roleCardPath(roleId, cardVariant=null){
+  if(["infectious_wolf","white_wolf"].includes(roleId)) return "/assets/cards/weerwolf.png";
   return ({
-    villager:"/assets/cards/burger_man.png",
+    villager:`/assets/cards/burger_${Math.max(1,Math.min(4,Number(cardVariant||1)))}.png`,
     werewolf:"/assets/cards/weerwolf.png",
+    big_bad_wolf:"/assets/cards/grote_boze_wolf.png",
+    cupid:"/assets/cards/cupido.png",
     seer:"/assets/cards/Ziener.png",
     witch:"/assets/cards/Heks.png",
+    hunter:"/assets/cards/jager.png",
     piper:"/assets/cards/fluitspeler.png"
   })[roleId] || null;
 }
 
 function roleTargetDecision(label, value, tone=""){
-  const src = value.targetRoleId ? roleCardPath(value.targetRoleId) : null;
-  const card = !value.targetName ? "" : src
-    ? `<img class="hostTargetRoleCard" src="${esc(src)}" alt="${esc(value.targetRoleName || "")}">`
-    : value.targetRoleName
-      ? `<div class="hostTargetRoleFallback"><span>${esc(value.targetRoleEmoji || "🃏")}</span><strong>${esc(value.targetRoleName)}</strong></div>`
+  const target = value?.targetCard || value || {};
+  const targetName = value?.targetName || target?.name || null;
+  const targetRoleId = value?.targetRoleId || target?.cardRoleId || null;
+  const targetRoleName = value?.targetRoleName || target?.cardRoleName || "";
+  const targetRoleEmoji = value?.targetRoleEmoji || target?.cardRoleEmoji || "🃏";
+  const targetCardVariant = value?.targetCardVariant || target?.cardVariant || null;
+  const src = targetRoleId ? roleCardPath(targetRoleId, targetCardVariant) : null;
+  const card = !targetName ? "" : src
+    ? `<img class="hostTargetRoleCard" src="${esc(src)}" alt="${esc(targetRoleName || "Spelerkaart")}">`
+    : targetRoleName
+      ? `<div class="hostTargetRoleFallback"><span>${esc(targetRoleEmoji)}</span><strong>${esc(targetRoleName)}</strong></div>`
       : "";
-  return `<div class="roleDecision roleTargetDecision ${tone}"><span>${esc(label)}</span><strong>${esc(value.targetName || "Nog niemand gekozen")}</strong>${card}</div>`;
+  return `<div class="roleDecision roleTargetDecision ${tone}"><span>${esc(label)}</span><strong>${esc(targetName || "Nog niemand gekozen")}</strong>${card}</div>`;
+}
+
+function hostDeathRoleId(roleName){
+  return ({
+    "Burger":"villager","Weerwolf":"werewolf","Grote Boze Wolf":"big_bad_wolf",
+    "Cupido":"cupid","Ziener":"seer","Heks":"witch","Jager":"hunter","Fluitspeler":"piper"
+  })[roleName] || null;
+}
+function renderHostDeathCard(death){
+  const roleId = hostDeathRoleId(death.roleName);
+  const src = roleId ? roleCardPath(roleId, death.cardVariant) : null;
+  const hunterMark = death.cause === "hunter" ? `<span class="hostHunterCause" title="Uitgeschakeld door de Jager">${hunterBullseye("hunterBullseyeMini")}</span>` : "";
+  const hunterRoleMark = death.roleName === "Jager" ? `<span class="hostHunterRoleMark" title="Jager">${hunterBullseye("hunterBullseyeMini")}</span>` : "";
+  const cause = deathCauseLabel(death);
+  const visual = src
+    ? `<img src="${esc(src)}" alt="${esc(death.roleName || "Rol")}">`
+    : `<span class="hostDeathFallback">${esc(death.roleEmoji || "🃏")}</span>`;
+  return `<article class="hostHunterDeathCard"><strong>${esc(death.name)}</strong>${visual}${hunterRoleMark}${hunterMark}<small class="hostDeathCause">${esc(cause)}</small></article>`;
+}
+
+function deathCauseLabel(death){
+  return ({
+    wolves:"Gedood door de Weerwolven",
+    big_bad_wolf:"Gedood door de Grote Boze Wolf",
+    white_wolf:"Gedood door de Witte Weerwolf",
+    witch_poison:"Vergiftigd door de Heks",
+    love:"Overleden uit liefdesverdriet",
+    vote:"Weggestemd door het dorp",
+    hunter:"Geraakt door het laatste schot",
+    rusty_sword:"Overleden door het roestige zwaard",
+    manual:"Uitgeschakeld door de Host",
+  })[death?.cause] || death?.publicReason || "Uitgeschakeld";
 }
 
 function renderRoleDecisionGrid(kind, submission, preview){
@@ -233,34 +388,40 @@ function renderRoleDecisionGrid(kind, submission, preview){
   let cards = [];
   if(kind === "witch"){
     cards = [
-      roleDecision("Levensdrank", `Redt ${value.saveName || "niemand"}`, value.saveName ? "save" : ""),
-      roleDecision("Gifdrank", `Vergiftigt ${value.poisonName || "niemand"}`, value.poisonName ? "poison" : "")
+      value.saveTarget
+        ? roleTargetDecision("Levensdrank · redt", value.saveTarget, "save")
+        : roleDecision("Levensdrank", "Niemand gered", ""),
+      value.poisonTarget
+        ? roleTargetDecision("Gifdrank · vergiftigt", value.poisonTarget, "poison")
+        : roleDecision("Gifdrank", "Niemand vergiftigd", "")
     ];
   } else if(kind === "cupid"){
     const names = submission?.lovers || preview?.targetNames || [];
+    const people = submission?.people || preview?.people || [];
     cards = [
-      roleDecision("Geliefde 1", names[0] || "Nog niet gekozen", names[0] ? "love" : ""),
-      roleDecision("Geliefde 2", names[1] || "Nog niet gekozen", names[1] ? "love" : "")
+      people[0] ? roleTargetDecision("Geliefde 1", people[0], "love") : roleDecision("Geliefde 1", names[0] || "Nog niet gekozen", names[0] ? "love" : ""),
+      people[1] ? roleTargetDecision("Geliefde 2", people[1], "love") : roleDecision("Geliefde 2", names[1] || "Nog niet gekozen", names[1] ? "love" : "")
     ];
   } else if(kind === "piper"){
     const names = submission?.targets || preview?.targetNames || [];
-    cards = [roleDecision("Betovering", names.length ? names.join(" + ") : "Nog niemand gekozen", names.length ? "magic" : "")];
+    const people = submission?.people || preview?.people || [];
+    cards = people.length
+      ? people.map((person, index)=>roleTargetDecision(`Betovering ${index + 1}`, person, "magic"))
+      : [roleDecision("Betovering", names.length ? names.join(" + ") : "Nog niemand gekozen", names.length ? "magic" : "")];
   } else if(kind === "seer"){
-    cards = [submission
-      ? roleTargetDecision("Bekijkt", value)
-      : roleDecision("Bekijkt", value.targetName || "Nog niemand gekozen")];
+    cards = [value.targetName ? roleTargetDecision("Bekijkt", value) : roleDecision("Bekijkt", "Nog niemand gekozen")];
   } else if(kind === "wild_child"){
-    cards = [roleDecision("Rolmodel", value.targetName || "Nog niemand gekozen", value.targetName ? "choice" : "")];
+    cards = [value.targetName ? roleTargetDecision("Rolmodel", value, "choice") : roleDecision("Rolmodel", "Nog niemand gekozen")];
   } else if(kind === "big_bad_wolf" || kind === "white_wolf"){
-    cards = [roleDecision("Slachtoffer", value.targetName || "Nog niemand gekozen", value.targetName ? "poison" : "")];
+    cards = [value.targetName ? roleTargetDecision("Slachtoffer", value, "poison") : roleDecision("Slachtoffer", "Nog niemand gekozen")];
   } else if(kind === "fox"){
-    cards = [roleDecision("Controleert", value.targetName || "Nog niemand gekozen")];
+    cards = [value.targetName ? roleTargetDecision("Controleert", value, "vision") : roleDecision("Controleert", "Nog niemand gekozen")];
   } else if(kind === "wolf_hound"){
     cards = [roleDecision("Kant", value.choice === "wolf" ? "Wolvenkant" : value.choice === "village" ? "Burgerkant" : "Nog niet gekozen", value.choice ? "choice" : "")];
   } else if(kind === "infectious_wolf"){
     cards = [roleDecision("Besmetting", value.infect ? `Besmet ${value.targetName || "slachtoffer"}` : submission ? "Besmet niemand" : "Nog niet gekozen", value.infect ? "poison" : "")];
   } else if(value.targetName){
-    cards = [roleDecision("Keuze", value.targetName, "choice")];
+    cards = [roleTargetDecision("Keuze", value, "choice")];
   } else if(value.ready){
     cards = [roleDecision("Status", "Klaar")];
   } else {
@@ -323,7 +484,8 @@ function renderVoteBarsHtml(rows, type="stemming"){
   const sorted = (rows || []).slice().sort((a,b)=>(b.votes||0)-(a.votes||0)||String(a.name||"").localeCompare(String(b.name||"")));
   const max=Math.max(1,...sorted.map(r=>r.votes||0));
   const leadText = type === "burgemeester" ? "Live stand burgemeester" : "Live stand dagstemming";
-  return sorted.length?`<div class="liveVoteBars"><div class="resultLabel">${leadText}</div>${sorted.map((r,i)=>`<div class="voteBar liveRank ${i===0&&r.votes>0?'leader':''}"><div class="voteBarTop"><strong>${esc(r.name)}</strong><span>${r.votes||0}</span></div><div class="progress"><div class="voteFill" style="width:${Math.max(3,Math.round((r.votes||0)/max*100))}%"></div></div></div>`).join('')}</div>`:'<p class="muted">Nog geen stemmen.</p>';
+  const toneClass = type === "burgemeester" ? " mayorVoteBars" : "";
+  return sorted.length?`<div class="liveVoteBars${toneClass}"><div class="resultLabel">${leadText}</div>${sorted.map((r,i)=>`<div class="voteBar liveRank ${i===0&&r.votes>0?'leader':''}"><div class="voteBarTop"><strong>${esc(r.name)}</strong><span>${r.votes||0}</span></div><div class="progress"><div class="voteFill" style="width:${Math.max(3,Math.round((r.votes||0)/max*100))}%"></div></div></div>`).join('')}</div>`:'<p class="muted">Nog geen stemmen.</p>';
 }
 function renderTimeline(){
   const steps=state.nightSteps||[];
@@ -366,11 +528,26 @@ function formatHostWolfConsensus(s){
 }
 
 function renderPlayers(){
-  $("players").innerHTML=(state.players||[]).map(p=>{
+  const nextMarkup=(state.players||[]).map(p=>{
     const armed = pendingKickKey === p.key;
     const status = [p.roleSummary||p.roleName, p.alive ? "" : "dood", p.isBot ? "test" : (p.connected ? "" : "offline")].filter(Boolean).join(" · ");
-    return `<div class="playerRow ${p.alive?'':'dead'}"><div class="playerMain"><div class="avatar">${esc(p.roleEmoji||initials(p.name))}</div><div class="playerIdentity"><strong>${esc(p.name)}${p.isMayor?' 👑':''}</strong><div class="roleName">${esc(status)}</div></div></div><div class="btnrow playerActions"><button class="btn danger smallBtn ${armed?'pulseConfirm':''}" title="Verwijder speler" data-kick="${esc(p.key)}">${armed?'Bevestig':'Kick'}</button></div></div>`;
+    const links = (p.persistentLinks || []).map(link=>`<span class="persistentLinkBadge ${esc(link.kind)}" title="${esc(link.label)}">${esc(link.icon)}</span>`).join("");
+    const roleOptions = !state.started ? `<label class="preassignRole"><span>Volgende rol</span><select data-assigned-role="${esc(p.key)}"><option value="">Geen rol</option>${(state.roles||[]).filter(r=>Number(state.selectedRoleCounts?.[r.id]||0)>0).map(r=>{
+      const used = Number(state.preassignedRoleCounts?.[r.id]||0);
+      const available = Number(state.selectedRoleCounts?.[r.id]||0);
+      const selected = p.assignedRoleId === r.id;
+      const disabled = !selected && used >= available;
+      return `<option value="${esc(r.id)}" ${selected?"selected":""} ${disabled?"disabled":""}>${esc(r.name)}${disabled?" — bezet":""}</option>`;
+    }).join("")}</select></label>` : "";
+    const avatar = p.roleId === "hunter" ? hunterBullseye("hunterBullseyeAvatar") : esc(p.roleEmoji||initials(p.name));
+    return `<div class="playerRow ${p.alive?'':'dead'}">${links?`<div class="persistentLinkBadges">${links}</div>`:""}<div class="playerMain"><div class="avatar">${avatar}</div><div class="playerIdentity"><strong>${esc(p.name)}${p.isMayor?' 👑':''}</strong><div class="roleName">${esc(status)}</div>${roleOptions}</div></div><div class="btnrow playerActions"><button class="btn danger smallBtn ${armed?'pulseConfirm':''}" title="Verwijder speler" data-kick="${esc(p.key)}">${armed?'Bevestig':'Kick'}</button></div></div>`;
   }).join("") || '<p class="muted">Geen spelers.</p>';
+  if(nextMarkup === playersMarkup) return;
+  playersMarkup = nextMarkup;
+  $("players").innerHTML=nextMarkup;
+  document.querySelectorAll("[data-assigned-role]").forEach(select=>select.addEventListener("change",()=>{
+    socket.emit("host_assign_role", { playerKey:select.dataset.assignedRole, roleId:select.value || null });
+  }));
   document.querySelectorAll("[data-kick]").forEach(b=>b.addEventListener("click",()=>{
     const key = b.dataset.kick;
     if(pendingKickKey === key){
@@ -388,10 +565,14 @@ function renderPlayers(){
 function renderRoles(){
   const playerCount=state.players.length;
   $("roleTotal").textContent=`${state.selectedRoleTotal}/${playerCount} rollen`;
-  $("roles").innerHTML=(state.roles||[]).map(r=>{
+  const nextMarkup=(state.roles||[]).map(r=>{
     const count=state.selectedRoleCounts[r.id]||0;
-    return `<div class="roleTile"><div class="roleTop"><div><span class="roleEmoji">${esc(r.emoji)}</span><strong> ${esc(r.name)}</strong><div class="roleName">${esc(r.group)} · max ${r.max}</div></div><div class="counter"><button class="btn ghost" data-role-dec="${esc(r.id)}">−</button><span class="num">${count}</span><button class="btn ghost" data-role-inc="${esc(r.id)}">+</button></div></div><p class="muted small">${esc(r.desc)}</p></div>`;
+    const roleIcon = r.id === "hunter" ? hunterBullseye("hunterBullseyeRole") : esc(r.emoji);
+    return `<div class="roleTile"><div class="roleTop"><div><span class="roleEmoji">${roleIcon}</span><strong> ${esc(r.name)}</strong><div class="roleName">${esc(r.group)} · max ${r.max}</div></div><div class="counter"><button class="btn ghost" data-role-dec="${esc(r.id)}">−</button><span class="num">${count}</span><button class="btn ghost" data-role-inc="${esc(r.id)}">+</button></div></div><p class="muted small">${esc(r.desc)}</p></div>`;
   }).join("");
+  if(nextMarkup === rolesMarkup) return;
+  rolesMarkup = nextMarkup;
+  $("roles").innerHTML=nextMarkup;
   document.querySelectorAll("[data-role-inc]").forEach(b=>b.addEventListener("click",()=>setRole(b.dataset.roleInc, (state.selectedRoleCounts[b.dataset.roleInc]||0)+1)));
   document.querySelectorAll("[data-role-dec]").forEach(b=>b.addEventListener("click",()=>setRole(b.dataset.roleDec, (state.selectedRoleCounts[b.dataset.roleDec]||0)-1)));
 }

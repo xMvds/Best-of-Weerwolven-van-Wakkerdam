@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Wakkerdam Online Helper — Speler</title>
-  <link rel="stylesheet" href="/style.css?v=0.3.44" />
+  <link rel="stylesheet" href="/style.css?v=0.3.50" />
 </head>
 <body class="playerScreen">
   <div class="bg"></div>
@@ -23,6 +23,11 @@
       <div id="actionBox" class="playerActionPanel">Wacht op de host...</div>
     </section>
   </main>
+  <button id="roleInfoFab" class="roleInfoFab hidden" type="button" aria-label="Bekijk rolinformatie" aria-expanded="false">I</button>
+  <aside id="roleInfoPanel" class="roleInfoPanel hidden" aria-label="Rolinformatie">
+    <button id="roleInfoClose" class="roleInfoClose" type="button" aria-label="Sluiten">×</button>
+    <div id="roleInfoContent"></div>
+  </aside>
   <button id="playerDebugHotspot" class="playerDebugHotspot" type="button" aria-label="debug"></button>
   <div id="playerDebugFab" class="playerDebugFab hidden">
     <button id="playerDebugClose" class="btn ghost smallBtn" type="button">×</button>
@@ -32,6 +37,6 @@
   </div>
   <div id="toast" class="toast hidden"></div>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/player.js?v=0.3.44"></script>
+  <script src="/player.js?v=0.3.50"></script>
 </body>
 </html>

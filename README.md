@@ -1,4 +1,76 @@
-# Wakkerdam Online Helper — v0.3.43
+# Wakkerdam Online Helper — v0.3.50
+
+## Nieuw in v0.3.50
+
+- De volledige Jagersequentie gebruikt voortaan één herkenbaar bullseye-icoon: in de aankondiging, tijdens het richten, bij het schot en als kleine markering op Jager- en schotkaarten.
+- De uitgeschakelde Jagerkaart, koppen, subtitels, bullseye en schotteksten zijn horizontaal en verticaal opnieuw gecentreerd voor monitor, tablet en telefoon.
+- De aankondiging gaat niet meer na enkele seconden vanzelf naar de keuze. De Host kan normaal doorklikken; pas na tien seconden treedt de automatische fallback in.
+- Het Jager-overzicht toont uitsluitend het schotslachtoffer en eventuele gekoppelde gevolgslachtoffers. Na een aparte Hostklik volgt via zwart het volledige dag-/rondeoverzicht, inclusief de Jager.
+- De live uitschakeling door het schot heeft een gelijktijdige impactflits en kaartimpact zonder dat het Player-resultaat te vroeg zichtbaar wordt.
+- Live socketupdates worden per animatieframe samengevoegd en ongewijzigde Host-/Infoblokken worden niet meer steeds opnieuw opgebouwd.
+- Dure achtergrondvervaging en extreem brede schaduwen op scrollende Host-/Playeronderdelen zijn vervangen door lichtere, visueel overeenkomstige lagen voor vloeiender scrollen en bewegen.
+
+## Nieuw in v0.3.49
+
+- De algemene Lobby-/Dag-/Nachtindeling van het Infoscherm is teruggezet naar de goedgekeurde v0.3.47-compositie. Tekst, kaarten en spelerslijst houden weer hun oorspronkelijke gecentreerde plaats.
+- De stemgrafiek gebruikt weer goed zichtbare lineaire balkhoogtes. Alle balken beginnen tegelijk, tellen tegelijk op en stoppen in hetzelfde frame.
+- Het dorpswinstscherm gebruikt opnieuw de kaartmaten en kolomindeling van v0.3.47; kaarten verkleinen alleen wanneer de beschikbare ruimte dat vereist.
+- Bevestigingsknoppen op alle spelerkeuzeschermen staan iets hoger, met vrije ruimte boven de onderste gouden lijn.
+- De Ziener toont direct **[speler] is de** boven de onthulde rolkaart en gaat daarna zichtbaar weer slapen.
+- De Host ziet voorlopige en bevestigde doelkeuzes met spelersnaam en kaart-PNG. Dit geldt ook voor Heks, Cupido, Fluitspeler, Ziener en andere doelrollen.
+- Heksdoelen krijgen daarnaast een tijdelijk icoon linksboven op hun Host-spelersvak. De Host ziet het eliminatieoverzicht direct zodra de nacht eindigt.
+- De Heks wordt in latere nachten niet meer wakker wanneer beide drankjes al gebruikt zijn.
+- Geliefden zien uitsluitend elkaars naam en publieke Burgerkaart, nooit elkaars geheime rol. Na bevestiging krijgt de geliefde kort een bonzend hart in beeld.
+- Betoverde spelers tonen geen dubbele status onder hun eigen kaart en zien de andere betoverden met een duidelijke paarse gloed.
+- De liefdesverdrietkaart wordt nu werkelijk als volledig rood kaartvak verkleind; naam en gebroken hart blijven leesbaar.
+- Burgemeesterstemmen gebruiken goudgele voortgangslijnen op het Hostscherm.
+
+## Nieuw in v0.3.48
+
+- De lobbyrolkeuze op de Host gebruikt goed leesbare donkere opties en iedere spelersrij houdt dezelfde vaste hoogte, ongeacht de geselecteerde rol.
+- Actieresultaten op het Spelerscherm gebruiken **Je koos** met passende formuleringen zoals **Te zien**, **Te redden**, **Te vergiftigen**, **Te koppelen** en **Te betoveren**. De eigen rolkaart wordt niet dubbel getoond.
+- De Heks toont opgeslagen en vergiftigde spelers als kaartresultaat op de Host. Na een reveal toont de Host bovendien een tijdelijk eliminatieoverzicht met kaart, naam en doodsoorzaak.
+- Alle betoverde spelers zien de volledige actuele groep met namen en vaste Burgerkaarten. Deze pagina heeft geen Klaar-knop en wordt uitsluitend door de Host doorgeklikt.
+- Nacht-, stem- en doodsrevelaties behouden een stabiele scène-identiteit, zodat een bevestigingsupdate of reconnect de inspringanimatie niet opnieuw start.
+- Stembalken bewegen met dezelfde fysieke snelheid en stoppen in hetzelfde frame. Kortere balken starten later; hoge scores blijven daardoor langer bewegen. Een versterkte hoogtecurve maakt bijvoorbeeld 13 tegenover 14 stemmen zichtbaar zonder de grafiek hoger te maken.
+- Na de grafiek schuiven grafiek en resultaattekst naar rechts; de uitgeschakelde spelerkaart verschijnt een fractie later.
+- Het Infoscherm schaalt de onderste spelerslijst dynamisch op monitor, tablet en telefoon. Tijdens het laatste schot verdwijnt die lijst volledig en blijven de normale rolkaarten en het bewegende vizier behouden.
+- Geliefdekaarten worden volledig getoond met een duidelijkere roze gloed. Een door liefdesverdriet gestorven kaart is als geheel kleiner, met leesbare tekst.
+- Het informatieknopje heeft een clipartachtige uitvoering en sluit na zeven seconden automatisch.
+- Grote dorpswinnaarschermen benutten extra breedte en verdelen grote spelersgroepen compacter, terwijl het paneel met verslagen wolven verticaal gecentreerd blijft.
+
+## Nieuw in v0.3.47
+
+- De Host ziet blijvende verbanden zoals geliefden, betoverde spelers en rolmodellen als kleine badges linksboven op de betreffende speler.
+- In de lobby kan de Host een beschikbare rol vooraf aan een specifieke speler toewijzen. De rol wordt één keer voor het volgende spel gereserveerd en kan niet vaker worden toegewezen dan hij in de rolverdeling voorkomt.
+- Alle spelers krijgen per spel een evenwichtig geschudde Burgerkaart uit de vier meegeleverde kaarten. Het verschil in gebruik is maximaal één en de gekozen kaart blijft het hele spel aan dezelfde speler gekoppeld.
+- Het Spelerscherm heeft een rond informatieknopje met het doel van de eigen rol en blijvende verzamelde kennis van onder andere Ziener, Fluitspeler, Cupido en Vos.
+- Cupido kan zichzelf niet meer als geliefde kiezen. Bevestigde Cupido-, Fluitspeler-, Heks-, Ziener- en doelresultaten tonen namen met hun spelerskaarten.
+- De stemgrafiek gebruikt weer een echte gedeelde animatievoortgang en bereikt in drie seconden met alle balken en cijfers tegelijk de eindstand.
+- De volledige Jagersequentie gebruikt een zwarte overgang naar het losse spanningsmoment, verbergt overige HUD-informatie en toont op de Host een echt kaartenoverzicht met Jager-markering.
+- Een automatische Jager wacht vijf seconden voordat hij willekeurig een geldig laatste schot kiest.
+- Gekoppelde liefdesverdrietkaarten zijn compacter gemaakt en de keuze-/resultaatvakken volgen nauwkeuriger de omvang van hun inhoud.
+
+## Nieuw in v0.3.46
+
+- Alle spelerkeuzes berekenen automatisch hoeveel kolommen, rijen en kaarthoogte beschikbaar zijn. Ook grote groepen blijven op telefoon, tablet en monitor volledig zichtbaar met een bereikbare bevestigingsknop.
+- De Heks gebruikt dezelfde schaalbare kaartindeling voor levensdrank en gifdrank; beide groepen verdelen samen de beschikbare schermhoogte.
+- De Host kan iedere onbeantwoorde nachtstap en iedere fase van het laatste Jagerschot bewust forceren. De knop heeft een korte beveiligingstimer om misclicks te voorkomen.
+- De Jager heeft een volledige Infoscherm-gestuurde flow: aankondiging, doelkeuze, spannende schotreveal en een gezamenlijk nachtoverzicht met Jager-markering.
+- Resultaten van dagstemming, burgemeesterstemming, nachtdoden, Jagerschot en einduitslag blijven voor Players verborgen totdat het Infoscherm de bijbehorende reveal heeft bevestigd. De Host ziet alles direct.
+- Stembalken, cijfers en scores gebruiken één gedeelde lineaire klok en bereiken tegelijk hun eindstand. Een verversing speelt een reeds afgeronde popup niet opnieuw af.
+- Eindschermen schalen de kaarten en kolommen automatisch tot vijftig spelers. Ook de wolfkaarten, titel en subtitel blijven volledig zichtbaar.
+- Dubbel geneste resultaatvakken op het Hostscherm zijn verwijderd; spelernaam en rolkaart staan rustig in één resultaatvlak.
+- De meegeleverde rolkaarten voor Burger, Cupido, Fluitspeler, Grote Boze Wolf, Heks, Jager, Weerwolf en Ziener vervangen de oude tijdelijke afbeeldingen.
+
+## Nieuw in v0.3.45
+
+- Een door liefdesverdriet overleden geliefde verschijnt in dezelfde reveal als kleinere gekoppelde kaart linksboven bij het oorspronkelijke slachtoffer, met een gebroken hart.
+- De koppeling werkt bij nachtelijke eliminaties en de open dagstemming; Players zien beide doden pas na de reveal op het Infoscherm.
+- Actie- en Hekskeuzetegels hebben rechte hoeken. Heks-koppen en kaartinhoud zijn gecentreerd.
+- **Niemand redden** en **Niemand vergiftigen** zijn even groot als de spelertegels en tonen een duidelijk niets-doen/bewaren-symbool.
+- **Verslagen wolven** staat verticaal gecentreerd naast de volledige dorpskaartengroep.
+- Alle stembalken bereiken hun eindhoogte en eindcijfer in exact hetzelfde animatieframe.
 
 Een privé online helper/prototype voor een Weerwolven-achtig spel met drie schermen:
 
@@ -210,7 +282,7 @@ Open daarna:
 - Dit is een speelbare basis, geen perfecte vervanging van een menselijke spelleider.
 - Het Onschuldige Meisje is in een online versie vooral een passieve/roleplay-rol; er is geen echte fysieke “gluur”-mechaniek.
 - Testspelers zijn handig voor layout-testen, maar echte spelers moeten met een eigen telefoon/tabblad joinen om acties zelf uit te voeren.
-- De Dorpsoudste, Ridder met Roestige Zwaard, Jager, Geliefden en Wolvenkind hebben basislogica, maar kunnen in zeldzame randgevallen nog hostcontrole nodig hebben.
+- De Dorpsoudste, Ridder met Roestige Zwaard, Geliefden en Wolvenkind hebben basislogica, maar kunnen in zeldzame randgevallen nog hostcontrole nodig hebben.
 - Stemgelijkheid wordt standaard als “niemand automatisch geëlimineerd” afgehandeld. De host kan daarna handmatig iemand elimineren als jullie anders spelen.
 
 ## Structuur
