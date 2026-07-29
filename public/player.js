@@ -1,8 +1,9 @@
 const screenTestMode = new URLSearchParams(location.search).has("screenTest");
+const screenTestSession = new URLSearchParams(location.search).get("screenTestSession") || "";
 const socket = io({autoConnect:!screenTestMode});
 const $ = (id) => document.getElementById(id);
 let state = null;
-let playerKey = sessionStorage.getItem("wakkerdam_player_key") || "";
+let playerKey = screenTestMode ? "" : (sessionStorage.getItem("wakkerdam_player_key") || "");
 let triedStartedReconnect = false;
 let selectedTargets = new Set();
 let selectedSingle = null;
@@ -27,6 +28,7 @@ let foregroundSyncTimer = null;
 let foregroundSyncRequestAt = 0;
 let foregroundSyncSequence = 0;
 let selectionLimitHint = "";
+let activePeekRoot = null;
 
 const ROLE_ART = {
   villager: [
@@ -109,6 +111,51 @@ function schedulePlayerRender(){
   });
 }
 
+function emitPeekInteraction(payload){
+  if(screenTestMode){
+    if(state?.action?.kind !== "little_girl_peek" || !state.action.peek) return;
+    state.action.peek = window.WakkerdamPeekUI?.debugReduce(state.action.peek, payload) || state.action.peek;
+    renderAction();
+    window.parent?.postMessage({type:"wakkerdam-peek-debug-state",sessionId:screenTestSession,peek:state.action.peek},"*");
+    return;
+  }
+  socket.emit("peek_interaction", payload);
+}
+
+function acknowledgePeekInstruction(sessionId){
+  if(screenTestMode){
+    emitPeekInteraction({sessionId,kind:"ack_instruction"});
+    return;
+  }
+  socket.emit("peek_instruction_ack", {sessionId});
+}
+
+function destroyActivePeek(){
+  if(!activePeekRoot) return;
+  window.WakkerdamPeekUI?.destroy(activePeekRoot);
+  activePeekRoot = null;
+}
+
+function mountPeek(action){
+  const root=document.querySelector("[data-peek-mount]");
+  if(!root || !action?.peek) return;
+  if(activePeekRoot && activePeekRoot!==root) window.WakkerdamPeekUI?.destroy(activePeekRoot);
+  activePeekRoot=root;
+  window.WakkerdamPeekUI?.mount(root,{
+    peek:action.peek,
+    acknowledge:acknowledgePeekInstruction,
+    emit:emitPeekInteraction,
+  });
+}
+
+function renderPeekWarning(warning){
+  window.WakkerdamPeekUI?.showWolfWarning(warning,{
+    acknowledge:token=>{
+      if(!screenTestMode) socket.emit("peek_warning_ack",{token});
+    }
+  });
+}
+
 function storedPlayerKey(){
   return playerKey
     || sessionStorage.getItem("wakkerdam_player_key")
@@ -118,6 +165,7 @@ function storedPlayerKey(){
 }
 
 function requestForegroundSync(reason="resume"){
+  if(screenTestMode) return;
   const key = storedPlayerKey();
   if(!key) return;
   playerKey = key;
@@ -145,6 +193,7 @@ function requestForegroundSync(reason="resume"){
 }
 
 function resumePlayerScreen(reason){
+  if(screenTestMode) return;
   if(document.visibilityState === "hidden") return;
   requestAnimationFrame(()=>requestForegroundSync(reason));
 }
@@ -312,6 +361,7 @@ $("roleInfoClose")?.addEventListener("click", ()=>{
 function join(){ socket.emit("join", { name: $("nameInput").value, playerKey }); }
 
 socket.on("connect", ()=>{
+  if(screenTestMode) return;
   if(storedPlayerKey()) socket.emit("join", { playerKey:storedPlayerKey() });
   else setTimeout(()=>$('nameInput')?.focus(),80);
 });
@@ -341,6 +391,15 @@ socket.on("player_state", s=>{
   state=s;
   maybeVibrateForAction(prev,s);
   schedulePlayerRender();
+});
+socket.on("peek_state", peek=>{
+  if(!peek || state?.action?.kind!=="little_girl_peek" || state.action.peek?.id!==peek.id) return;
+  state.action.peek=peek;
+  mountPeek(state.action);
+});
+socket.on("peek_warning_state", warning=>{
+  if(state) state.peekWarning=warning || null;
+  renderPeekWarning(warning || null);
 });
 socket.on("state", s=>{
   lastLobbyId = s.lobbyId || lastLobbyId;
@@ -402,6 +461,7 @@ function render(){
   renderAction();
   renderLoverHeartPulse();
   renderRoleInfo();
+  renderPeekWarning(state.peekWarning || null);
 }
 
 function roleCard(compact=false){
@@ -424,6 +484,7 @@ function roleCard(compact=false){
 function renderAction(){
   const a=state.action;
   const box=$("actionBox");
+  if(a?.kind!=="little_girl_peek") destroyActivePeek();
   if(state.winner){
     const isWolfLoss = state.winner.team === "village" && state.me.wolfLike;
     const winnerTitle = isWolfLoss ? "Het dorp wint..." : state.winner.title;
@@ -477,6 +538,19 @@ function renderAction(){
     } else {
       commitActionHtml(box, `<div class="playerCenter"><h1>${titleHtml(a.finalTitle || "de burgemeester is bekend")}</h1>${roleCard(true)}</div>`);
     }
+    return;
+  }
+
+  if(a.kind === "little_girl_peek"){
+    const markup=`<div class="playerCenter active action-little-girl-peek" data-action-key="${esc(a.id)}:${esc(a.kind)}"><div class="peekProductionMount" data-peek-mount></div></div>`;
+    commitActionHtml(box,markup);
+    mountPeek(a);
+    return;
+  }
+
+  if(a.kind === "little_girl_peek_result"){
+    const mark=a.peek?.caught?"◉":"☾";
+    commitActionHtml(box,`<div class="playerCenter peekClosure"><span class="peekClosureMark">${mark}</span><h1>${esc(a.title)}</h1><p>${esc(a.text||"")}</p></div>`);
     return;
   }
 
@@ -921,7 +995,19 @@ function renderWitch(a){
 if(screenTestMode){
   document.body.classList.add("screenTestEmbedded");
   window.addEventListener("message",event=>{
+    if(event.data?.type==="wakkerdam-screen-test-cleanup"){
+      if(event.data.sessionId && event.data.sessionId!==screenTestSession) return;
+      destroyActivePeek();
+      window.WakkerdamPeekUI?.cleanupAll();
+      const diagnostics=window.WakkerdamPeekUI?.diagnostics() || {};
+      window.parent?.postMessage({type:"wakkerdam-screen-test-cleanup-result",surface:"player",sessionId:screenTestSession,requestId:event.data.requestId,diagnostics},"*");
+      return;
+    }
     if(event.data?.type!=="wakkerdam-screen-test" || event.data.surface!=="player") return;
+    if(event.data.sessionId && event.data.sessionId!==screenTestSession) return;
+    destroyActivePeek();
+    window.WakkerdamPeekUI?.clearWolfWarning();
+    document.body.classList.toggle("forceReducedMotion",!!event.data.reducedMotion);
     state=event.data.state;
     playerKey=state?.me?.key || "screen_test_player";
     lastActionKey="";
@@ -933,5 +1019,5 @@ if(screenTestMode){
     selectionLimitHint="";
     render();
   });
-  window.parent?.postMessage({type:"wakkerdam-screen-test-ready",surface:"player"},"*");
+  window.parent?.postMessage({type:"wakkerdam-screen-test-ready",surface:"player",sessionId:screenTestSession},"*");
 }

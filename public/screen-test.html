@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Wakkerdam — Paginatester</title>
-  <link rel="stylesheet" href="/style.css?v=0.3.54" />
+  <link rel="stylesheet" href="/style.css?v=0.3.55" />
 </head>
 <body class="screenTestStudio">
   <div class="bg"></div>
@@ -37,7 +37,8 @@
       </div>
       <div class="screenTestViewportButtons" aria-label="Testformaat">
         <button class="btn ghost active" data-test-viewport="auto">Eigen scherm</button>
-        <button class="btn ghost" data-test-viewport="phone">Telefoon</button>
+        <button class="btn ghost" data-test-viewport="phone">Smalle telefoon</button>
+        <button class="btn ghost" data-test-viewport="phoneWide">Grote telefoon</button>
         <button class="btn ghost" data-test-viewport="tablet">Tablet</button>
         <button class="btn ghost" data-test-viewport="monitor">Monitor</button>
       </div>
@@ -51,10 +52,58 @@
       <p id="screenTestDescription"></p>
     </section>
 
-    <section id="screenTestViewport" class="screenTestViewport auto">
-      <iframe id="screenTestFrame" title="Live testpagina" allow="fullscreen"></iframe>
+    <section id="peekTestPanel" class="peekTestPanel hidden" aria-label="Spiekende Meisje testbediening">
+      <div class="peekTestToolbar">
+        <label><span>Mechanic</span><select id="peekTestMode"><option value="auto">Automatische rotatie</option><option value="eyelids">Optie 1 · Oogleden</option><option value="mirror">Optie 2 · Spiegelscherf</option><option value="fog">Optie 3 · Mist</option></select></label>
+        <label><span>Spelers</span><input id="peekTestPlayers" type="number" min="3" max="24" value="12"></label>
+        <label><span>Weerwolven</span><input id="peekTestWolves" type="number" min="1" max="8" value="2"></label>
+        <label><span>Risico</span><input id="peekTestRisk" type="range" min="0" max="100" value="0"></label>
+        <label><span>Spiektijd</span><input id="peekTestTime" type="range" min="0" max="4000" step="100" value="4000"></label>
+        <label><span>Veegacties</span><input id="peekTestWipes" type="number" min="0" max="4" value="4"></label>
+        <label class="peekTestCheck"><input id="peekTestReducedMotion" type="checkbox"><span>Verminderde beweging</span></label>
+      </div>
+      <div class="peekTestActions">
+        <button class="btn gold" id="peekTestRestart" type="button">Mechanic opnieuw starten</button>
+        <button class="btn ghost" id="peekTestInstruction" type="button">Uitleg opnieuw tonen</button>
+        <button class="btn ghost" id="peekTestWolfLook" type="button">Wolf kijkt om</button>
+        <button class="btn ghost" id="peekTestMinor" type="button">Kleine waarschuwing</button>
+        <button class="btn danger" id="peekTestMajor" type="button">Zware betrapping</button>
+        <button class="btn ghost" id="peekTestReconnect" type="button">Simuleer reconnect</button>
+        <button class="btn ghost" id="peekTestRefresh" type="button">Simuleer refresh</button>
+        <button class="btn blue" id="peekTestForce" type="button">Force-next</button>
+        <button class="btn danger" id="peekTestGirlDeath" type="button">Meisje overlijdt</button>
+        <button class="btn ghost" id="peekTestWolfDeath" type="button">Wolf overlijdt</button>
+        <button class="btn ghost" id="peekTestCleanup" type="button">Test onverwachte afsluiting</button>
+      </div>
+      <div class="peekTestDetails">
+        <article>
+          <h3>Live state-inspector</h3>
+          <pre id="peekStateInspector"></pre>
+        </article>
+        <article>
+          <h3>Rotatietest</h3>
+          <div class="peekFeatureToggles">
+            <label><input type="checkbox" data-peek-feature="eyelids" checked> Optie 1</label>
+            <label><input type="checkbox" data-peek-feature="mirror" checked> Optie 2</label>
+            <label><input type="checkbox" data-peek-feature="fog" checked> Optie 3</label>
+          </div>
+          <div class="btnrow">
+            <button class="btn ghost" id="peekSimulateNight" type="button">Simuleer volgende nacht</button>
+            <button class="btn gold" id="peekSimulateHundred" type="button">Simuleer 100 cycli</button>
+          </div>
+          <p id="peekRotationSequence" class="peekRotationSequence">Nog geen nachten gesimuleerd.</p>
+          <p id="peekRotationResult" class="muted"></p>
+        </article>
+      </div>
+    </section>
+
+    <section class="screenTestStage">
+      <section id="screenTestViewport" class="screenTestViewport auto">
+        <iframe id="screenTestFrame" title="Live testpagina" allow="fullscreen"></iframe>
+      </section>
     </section>
   </main>
-  <script src="/screen-test.js?v=0.3.54"></script>
+  <script src="/peek-system.js?v=0.3.55"></script>
+  <script src="/screen-test.js?v=0.3.55"></script>
 </body>
 </html>

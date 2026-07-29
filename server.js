@@ -2,8 +2,24 @@ const path = require("path");
 const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
+const {
+  PEEK_MODE_META,
+  peekFeaturesFromEnv,
+  createPeekState,
+  normalizePeekState,
+  startPeekSession,
+  acknowledgeInstruction,
+  applyPeekInteraction,
+  syncPeekSession,
+  finishPeekSession,
+  triggerDetection,
+  girlView,
+  wolfWarningView,
+  acknowledgeWolfWarning,
+  hostPeekView,
+} = require("./peek-system");
 
-const VERSION = "0.3.54";
+const VERSION = "0.3.55";
 const PORT = process.env.PORT || 3000;
 const VOTE_REVEAL_MS = 3000;
 const RESULT_REVEAL_FALLBACK_MS = 5000;
@@ -11,6 +27,7 @@ const WINNER_REVEAL_FALLBACK_MS = 8000;
 const DEATH_REVEAL_FALLBACK_MS = 6000;
 const HUNTER_INTRO_FALLBACK_MS = 10000;
 const HUNTER_SHOT_FALLBACK_MS = 6200;
+const PEEK_FEATURES = peekFeaturesFromEnv();
 
 const app = express();
 const server = http.createServer(app);
@@ -22,6 +39,7 @@ app.get("/player", (_req, res) => res.sendFile(path.join(__dirname, "public", "i
 app.get("/host", (_req, res) => res.sendFile(path.join(__dirname, "public", "host.html")));
 app.get("/viewer", (_req, res) => res.redirect("/info"));
 app.get("/info", (_req, res) => res.sendFile(path.join(__dirname, "public", "viewer.html")));
+app.get("/peek-system.js", (_req, res) => res.sendFile(path.join(__dirname, "peek-system.js")));
 
 const ROLES = {
   villager: {
@@ -118,14 +136,14 @@ const ROLES = {
   },
   little_girl: {
     id: "little_girl",
-    name: "Onschuldig Meisje",
-    short: "Meisje",
+    name: "Het Spiekende Meisje",
+    short: "Spiekende Meisje",
     group: "Burgers",
     team: "village",
     max: 1,
     emoji: "👁️",
     order: 33,
-    desc: "Passieve rol. In het fysieke spel mag zij tijdens de wolvenfase voorzichtig gluren. Online is dit vooral een roleplay-/hostrol."
+    desc: "Krijgt tijdens de gezamenlijke wolvenfase één van drie interactieve manieren om voorzichtig te spieken. Roekeloos kijken kan de wolven een vage aanwijzing geven."
   },
   fox: {
     id: "fox",
@@ -281,6 +299,7 @@ function newGame() {
     specialPowersDisabled: false,
     wolfishEverDied: false,
     piperSpellBreakPending: false,
+    peek: createPeekState(PEEK_FEATURES),
     hostNote: "",
     createdAt: Date.now()
   };
@@ -786,6 +805,7 @@ function hostState() {
     pendingWinner: game.pendingWinner,
     specialPowersDisabled: game.specialPowersDisabled,
     wolfishEverDied: game.wolfishEverDied,
+    peek: hostPeekView(game.peek),
     hostNote: "",
   };
 }
@@ -999,6 +1019,7 @@ function playerState(p) {
     privateLog: p.privateLog || [],
     recentPublicLog: game.recentPublicLog.slice(0, 8),
     winner: publicWinnerVisible ? game.winner : null,
+    peekWarning: currentPeekWarningForPlayer(p),
     hostNote: "",
   };
 }
@@ -1617,6 +1638,131 @@ function buildNightSteps() {
   return steps.filter(step => step.actorKeys.length > 0 || ["wolves", "lovers_info", "enchanted_info", "enchantment_broken"].includes(step.kind));
 }
 
+function peekPlayers() {
+  return orderedPlayers(true).map(player => ({
+    key: player.key,
+    name: player.name,
+    seat: player.seat,
+    alive: player.alive,
+    cardVariant: player.cardVariant || 1,
+  }));
+}
+
+function activeLittleGirl() {
+  return alivePlayers().find(player => player.roleId === "little_girl" && !isSpecialPowerBlocked(player)) || null;
+}
+
+function currentPeekWarningForPlayer(player) {
+  if (!player?.alive || !isWolfPackMember(player)) return null;
+  const girl = game.peek?.session?.girlKey ? game.players[game.peek.session.girlKey] : null;
+  return wolfWarningView(game.peek, player.key, {
+    girl,
+    players: peekPlayers(),
+  });
+}
+
+function currentGirlPeekView(now = Date.now()) {
+  const girl = game.peek?.session?.girlKey ? game.players[game.peek.session.girlKey] : null;
+  if (!girl) return null;
+  return girlView(game.peek, {
+    players: peekPlayers(),
+    isWolfKey: key => isWolfPackMember(game.players[key]),
+    now,
+  });
+}
+
+function peekActionForPlayer(player) {
+  const session = game.peek?.session;
+  if (!session || session.girlKey !== player?.key) return null;
+  const peek = currentGirlPeekView();
+  if (!peek) return null;
+  const duringWolfStep = game.phase === "night" && game.currentStep?.kind === "wolves";
+  if (duringWolfStep && ["instruction", "active"].includes(peek.status)) {
+    return {
+      id: session.id,
+      kind: "little_girl_peek",
+      title: PEEK_MODE_META[session.mode]?.label || "Voorzichtig spieken",
+      text: "",
+      submitted: false,
+      actorRoleName: roleDef(player.roleId).name,
+      peek,
+    };
+  }
+  const recentlyFinished = ["finished", "cancelled"].includes(peek.status)
+    && Date.now() - Number(session.finishedAt || 0) < 4200;
+  if (!recentlyFinished) return null;
+  return {
+    id: `${session.id}_result`,
+    kind: "little_girl_peek_result",
+    title: peek.caught ? "Je sluit snel je ogen" : "Je sluit voorzichtig je ogen",
+    text: peek.caught
+      ? "Een wolf keek jouw kant op… Hebben ze je gezien?"
+      : "De wolven gaan weer slapen.",
+    submitted: false,
+    infoOnly: true,
+    actorRoleName: roleDef(player.roleId).name,
+    peek,
+  };
+}
+
+function simulateBotPeek(girl) {
+  const session = game.peek?.session;
+  if (!girl?.isBot || !session) return;
+  const wolves = alivePlayers().filter(isWolfPackMember);
+  const shuffledWolves = shuffle(wolves);
+  const roll = Math.random();
+  const count = roll < 0.28 ? 0 : roll < 0.78 ? 1 : Math.min(2, shuffledWolves.length);
+  session.botSeenWolfKeys = shuffledWolves.slice(0, count).map(player => player.key);
+  if (Math.random() < 0.08) {
+    session.risk = 100;
+    triggerDetection(session, Math.random() < 0.72 ? "minor" : "major");
+  } else {
+    session.risk = 18 + Math.floor(Math.random() * 48);
+  }
+}
+
+function startPeekForWolfStep() {
+  game.peek = normalizePeekState(game.peek, PEEK_FEATURES);
+  const girl = activeLittleGirl();
+  if (!girl || game.phase !== "night" || game.currentStep?.kind !== "wolves") {
+    game.peek.session = null;
+    game.peek.rotation.currentMode = null;
+    return null;
+  }
+  const existing = game.peek.session;
+  if (existing && existing.nightNumber === game.nightNumber && existing.girlKey === girl.key) return existing;
+  const session = startPeekSession(game.peek, {
+    girlKey: girl.key,
+    wolfKeys: alivePlayers().filter(isWolfPackMember).map(player => player.key),
+    nightNumber: game.nightNumber,
+    bot: !!girl.isBot,
+  });
+  if (session && girl.isBot) simulateBotPeek(girl);
+  return session;
+}
+
+function finishCurrentPeek(reason = "wolves_finished") {
+  const session = game.peek?.session;
+  if (!session) return null;
+  return finishPeekSession(game.peek, reason);
+}
+
+function emitPeekState(now = Date.now()) {
+  const session = game.peek?.session;
+  if (!session) {
+    io.to("host").emit("peek_host_state", hostPeekView(game.peek, now));
+    return;
+  }
+  const girl = game.players[session.girlKey];
+  if (girl?.socketId) io.to(girl.socketId).emit("peek_state", currentGirlPeekView(now));
+  for (const wolfKey of session.wolfKeys || []) {
+    const wolf = game.players[wolfKey];
+    if (!wolf?.socketId) continue;
+    io.to(wolf.socketId).emit("peek_warning_state", currentPeekWarningForPlayer(wolf));
+  }
+  io.to("host").emit("peek_host_state", hostPeekView(game.peek, now));
+}
+
 function actionForPlayer(p) {
   if (!p || !p.alive) {
     if (game.phase === "hunter" && game.pendingHunter === p?.key) {
@@ -1695,6 +1841,9 @@ function actionForPlayer(p) {
       } : null,
     };
   }
+
+  const peekAction = peekActionForPlayer(p);
+  if (peekAction) return peekAction;
 
   const step = game.currentStep;
   if (!step || !step.actorKeys.includes(p.key)) return null;
@@ -1917,6 +2066,7 @@ function startGame() {
   game.recentPublicLog = [];
   game.specialPowersDisabled = false;
   game.wolfishEverDied = false;
+  game.peek = createPeekState(PEEK_FEATURES);
   game.hostNote = "";
   game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
   game.dayVote = { open: false, votes: {}, selections: {}, result: null, runoffCandidates: null };
@@ -1962,6 +2112,7 @@ function startNextNight() {
   if (game.phase === "hunter" || game.hunterSequence) return;
   if (game.pendingWinner) { const w = game.pendingWinner; game.pendingWinner = null; endGame(w); return; }
   if (game.phase === "ended") return;
+  finishCurrentPeek("next_night");
   game.phase = "night";
   game.nightNumber += 1;
   game.round += 1;
@@ -2243,6 +2394,7 @@ function hostNextStep({ force = false } = {}) {
     return;
   }
   game.currentStep = next;
+  if (next.kind === "wolves") startPeekForWolfStep();
   autoSubmitBotActions(game.currentStep);
   logPublic(`De nacht gaat verder.`, "phase");
 }
@@ -2271,6 +2423,7 @@ function forceCompleteNightStep(step) {
       step.skipped = true;
       step.done = true;
       game.currentStep = null;
+      finishCurrentPeek("cancelled");
     } else {
       finishStep(step);
     }
@@ -2291,6 +2444,7 @@ function finishStep(step) {
   if (step.kind === "wolves") {
     if (!wolfConsensusReady(step)) return;
     finalizeWolfVotes();
+    finishCurrentPeek("wolves_finished");
   }
   if (step.kind === "cupid") ensureLoversInfoStepAfter(step);
   if (step.kind === "piper") ensureEnchantedInfoStepAfter(step);
@@ -2347,6 +2501,7 @@ function ensureEnchantedInfoStepAfter(step) {
 
 function skipCurrentStep() {
   if (game.phase !== "night" || !game.currentStep) return;
+  if (game.currentStep.kind === "wolves") finishCurrentPeek("cancelled");
   game.currentStep.skipped = true;
   game.currentStep.done = true;
   game.currentStep = null;
@@ -2683,6 +2838,7 @@ function foxTrio(centerKey) {
 
 function resolveNight() {
   if (game.currentStep) finishStep(game.currentStep);
+  finishCurrentPeek("night_resolved");
   game.currentStep = null;
 
   if (game.night?.infectedKey && isAlive(game.night.infectedKey)) {
@@ -2742,6 +2898,10 @@ function handleDeaths(deaths, continueTo = { phase: "day" }) {
       publicReason: d.publicReason || "uitgeschakeld",
       linkedToKey: d.linkedToKey || null
     });
+
+    if (p.roleId === "little_girl" && game.peek?.session?.girlKey === p.key) {
+      finishCurrentPeek("girl_dead");
+    }
 
     if (isWolfLike(p)) game.wolfishEverDied = true;
     if (p.roleId === "piper" && orderedPlayers(true).some(player => player.enchanted)) {
@@ -3153,6 +3313,7 @@ function releaseWinnerToPlayers(token) {
 }
 
 function endGame(winner) {
+  finishCurrentPeek("game_ended");
   const phaseBeforeWinner = game.phase;
   game.phase = "ended";
   game.winner = winner;
@@ -3435,6 +3596,10 @@ function resetGameKeepPlayers() {
 
 
 function cleanupPlayerReferences(removedKey) {
+  if (game.peek?.session?.girlKey === removedKey) finishCurrentPeek("girl_dead");
+  if (Array.isArray(game.peek?.session?.wolfKeys)) {
+    game.peek.session.wolfKeys = game.peek.session.wolfKeys.filter(key => key !== removedKey);
+  }
   // Haal alle directe verwijzingen naar deze speler weg, zodat een gekickte speler
   // geen stemming, nachtstap, geliefde-link of wolvenkeuze meer blokkeert.
   for (const q of Object.values(game.players)) {
@@ -3598,6 +3763,7 @@ io.on("connection", (socket) => {
   socket.on("register_host", () => {
     socket.join("host");
     socket.emit("host_state", hostState());
+    socket.emit("peek_host_state", hostPeekView(game.peek));
   });
 
   socket.on("register_viewer", () => {
@@ -3699,6 +3865,8 @@ io.on("connection", (socket) => {
     socket.emit("joined", { playerKey: p.key, name: p.name, lobbyId: game.lobbyId });
     socket.emit("state", publicState());
     socket.emit("player_state", playerState(p));
+    if (game.peek?.session?.girlKey === p.key) socket.emit("peek_state", currentGirlPeekView());
+    if (isWolfPackMember(p)) socket.emit("peek_warning_state", currentPeekWarningForPlayer(p));
     io.to("host").emit("host_state", hostState());
   });
 
@@ -3711,6 +3879,43 @@ io.on("connection", (socket) => {
   });
 
   socket.on("player_action", (payload) => handleAction(socket, payload));
+
+  socket.on("peek_instruction_ack", ({ sessionId } = {}) => {
+    const key = game.socketToKey[socket.id];
+    const player = getPlayer(key);
+    const session = game.peek?.session;
+    if (!player || !session || session.id !== sessionId || session.girlKey !== player.key) return;
+    if (game.phase !== "night" || game.currentStep?.kind !== "wolves" || !player.alive) return;
+    if (!acknowledgeInstruction(game.peek)) return;
+    socket.emit("player_state", playerState(player));
+    emitPeekState();
+  });
+
+  socket.on("peek_interaction", (payload = {}) => {
+    const key = game.socketToKey[socket.id];
+    const player = getPlayer(key);
+    const session = game.peek?.session;
+    if (!player || !session || session.girlKey !== player.key || payload.sessionId !== session.id) return;
+    if (!player.alive || game.phase !== "night" || game.currentStep?.kind !== "wolves") {
+      finishCurrentPeek(player.alive ? "cancelled" : "girl_dead");
+      emitPeekState();
+      return;
+    }
+    applyPeekInteraction(game.peek, payload, {
+      players: peekPlayers(),
+      isWolfKey: targetKey => isWolfPackMember(game.players[targetKey]),
+    });
+    emitPeekState();
+  });
+
+  socket.on("peek_warning_ack", ({ token } = {}) => {
+    const key = game.socketToKey[socket.id];
+    const player = getPlayer(key);
+    if (!player || !isWolfPackMember(player)) return;
+    if (!acknowledgeWolfWarning(game.peek, player.key, token)) return;
+    socket.emit("peek_warning_state", null);
+    io.to("host").emit("peek_host_state", hostPeekView(game.peek));
+  });
 
   socket.on("player_preview", (payload = {}) => {
     const key = game.socketToKey[socket.id];
@@ -4010,6 +4215,12 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     const key = game.socketToKey[socket.id];
     const p = key ? game.players[key] : null;
+    if (p && game.peek?.session?.girlKey === p.key && game.peek.session.interaction?.active) {
+      applyPeekInteraction(game.peek, { kind: "hold_stop" }, {
+        players: peekPlayers(),
+        isWolfKey: targetKey => isWolfPackMember(game.players[targetKey]),
+      });
+    }
     // Een oude mobiele transportverbinding kan pas sluiten nadat dezelfde
     // speler alweer met een nieuwe socket is gesynchroniseerd. Alleen de
     // werkelijk actuele socket mag de speler dan offline zetten/verwijderen.
@@ -4029,6 +4240,30 @@ io.on("connection", (socket) => {
     emitAll();
   });
 });
+
+const peekTicker = setInterval(() => {
+  const session = game.peek?.session;
+  if (!session) return;
+  if (["finished", "cancelled"].includes(session.status)) {
+    if (!session.closureExpiredEmitted && Date.now() - Number(session.finishedAt || 0) >= 4250) {
+      session.closureExpiredEmitted = true;
+      const girl = game.players[session.girlKey];
+      if (girl?.socketId) io.to(girl.socketId).emit("player_state", playerState(girl));
+      io.to("host").emit("peek_host_state", hostPeekView(game.peek));
+    }
+    return;
+  }
+  if (!["instruction", "active"].includes(session.status)) return;
+  const girl = game.players[session.girlKey];
+  if (!girl?.alive || game.phase !== "night" || game.currentStep?.kind !== "wolves") {
+    finishCurrentPeek(!girl?.alive ? "girl_dead" : "cancelled");
+    emitPeekState();
+    return;
+  }
+  syncPeekSession(game.peek);
+  emitPeekState();
+}, 250);
+peekTicker.unref?.();
 
 server.listen(PORT, () => {
   console.log(`Wakkerdam Online Helper v${VERSION} listening on http://localhost:${PORT}`);

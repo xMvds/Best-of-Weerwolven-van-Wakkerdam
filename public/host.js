@@ -49,6 +49,11 @@ function setCurrentStep(markup){
 socket.emit("register_host");
 socket.on("connect",()=>socket.emit("register_host"));
 socket.on("host_state", s=>{state=s;scheduleRender();});
+socket.on("peek_host_state", peek=>{
+  if(!state) return;
+  state.peek=peek;
+  if(state.currentStep?.kind==="wolves") renderStep();
+});
 socket.on("host_error", toast);
 
 const bind=(id,event)=>$(id).addEventListener("click",()=>socket.emit(event));
@@ -346,11 +351,31 @@ function renderStep(){
 
   if(s.kind === "wolves"){
     const sub = formatHostWolfConsensus(s);
-    setCurrentStep(`${timeline}<h3 class="wolfStepTitle"><span>${esc(s.label)}</span></h3>${sub}`);
+    setCurrentStep(`${timeline}<h3 class="wolfStepTitle"><span>${esc(s.label)}</span></h3>${renderHostPeekStatus()}${sub}`);
     return;
   }
 
   setCurrentStep(`${timeline}<div class="roleStepHeading"><h3>${esc(s.label)}</h3></div>${s.help?`<p class="roleStepHelp">${esc(s.help)}</p>`:""}${renderHostRoleChoices(s)}`);
+}
+
+function renderHostPeekStatus(){
+  const peek=state?.peek;
+  const session=peek?.session;
+  if(!peek?.enabled || !session) return "";
+  const girl=state.players?.find(player=>player.key===session.girlKey);
+  let label="Spiekfase actief";
+  if(session.status==="instruction") label="Uitleg wordt bekeken";
+  else if(session.status==="finished" || session.status==="cancelled") label="Spiekfase afgelopen";
+  else if(session.detectionLevel!=="none") label="Betrapt";
+  else if(session.risk>=82) label="Bijna betrapt";
+  else if(session.risk>=55) label="Risico loopt op";
+  else label="Voorzichtig aan het spieken";
+  const risk=Math.max(0,Math.min(100,Number(session.risk||0)));
+  return `<section class="hostPeekStatus risk-${session.detectionLevel!=="none"?"caught":risk>=82?"high":risk>=55?"mid":"safe"}">
+    <header><div><span>Spiekende Meisje · optie ${esc(session.modeNumber)}</span><strong>${esc(girl?.name||"Onbekend")} — ${esc(session.modeLabel)}</strong></div><b>${esc(label)}</b></header>
+    <div class="hostPeekMeter"><i style="width:${risk}%"></i></div>
+    <small>${session.mode==="eyelids"?`${Math.max(0,Number(session.remainingPeekMs||0)/1000).toFixed(1)} s spiektijd over`:session.mode==="fog"?`${session.fogActionsRemaining} veegbewegingen over`:`Weerkaatsingsrisico ${Math.round(risk)}%`}</small>
+  </section>`;
 }
 
 function renderHostHunterStep(){

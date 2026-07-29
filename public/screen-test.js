@@ -14,6 +14,7 @@ const roleDefs={
   witch:{id:"witch",name:"Heks",emoji:"🧪",desc:"Gebruik je levensdrank en gifdrank."},
   piper:{id:"piper",name:"Fluitspeler",emoji:"🎵",desc:"Betover alle andere spelers."},
   hunter:{id:"hunter",name:"Jager",emoji:"◎",desc:"Neem bij je dood één speler mee."},
+  little_girl:{id:"little_girl",name:"Het Spiekende Meisje",emoji:"👁️",desc:"Spiek voorzichtig tijdens de gezamenlijke wolvenfase."},
 };
 const names=["Maurizio","Luna","Noah","Sophie","Milan","Yara","Finn","Zoë","Daan","Nova","Sam","Isa"];
 const roleCycle=["villager","werewolf","cupid","seer","witch","piper","hunter","villager","werewolf","villager","villager","villager"];
@@ -23,6 +24,7 @@ function person(index,overrides={}){
   const role=roleDefs[roleId]||roleDefs.villager;
   return {
     key:`test_${index+1}`,
+    seat:index,
     name:names[index]||`Speler ${index+1}`,
     alive:true,
     connected:true,
@@ -48,7 +50,7 @@ function playerBase(roleId="villager"){
   const role=roleDefs[roleId]||roleDefs.villager;
   const me={...players[0],roleId,role,roleName:role.name,roleEmoji:role.emoji,cardVariant:1,team:roleId==="werewolf"?"wolf":roleId==="piper"?"solo_piper":"village",wolfLike:roleId==="werewolf",infected:false,wildChildTurned:false,enchanted:false,alive:true};
   return {
-    version:"0.3.54",lobbyId:"screen_test",selfKey:me.key,phase:"night",round:1,nightNumber:1,dayNumber:0,started:true,
+    version:"0.3.55",lobbyId:"screen_test",selfKey:me.key,phase:"night",round:1,nightNumber:1,dayNumber:0,started:true,
     me,players,action:null,roleInfo:{roleId,roleName:role.name,objective:role.desc,facts:[]},
     mayorElection:{open:false,stage:"idle",candidates:[],voters:[],result:null},
     dayVote:{open:false,voters:[],counts:[],result:null},dayAftermath:{active:false,fromNight:false},
@@ -72,7 +74,7 @@ function death(name="Luna",roleName="Burger",cause="wolves",key="test_2"){
 }
 function infoBase(){
   return {
-    version:"0.3.54",lobbyId:"screen_test",phase:"night",round:1,nightNumber:1,dayNumber:0,started:true,
+    version:"0.3.55",lobbyId:"screen_test",phase:"night",round:1,nightNumber:1,dayNumber:0,started:true,
     players:people(),aliveCount:12,
     mayorElection:{open:false,stage:"idle",candidates:[],voters:[],result:null},
     dayVote:{open:false,voters:[],counts:[],result:null},dayAftermath:{active:false,fromNight:false},
@@ -102,10 +104,129 @@ function infoWinner(team){
   return state;
 }
 
+const peekModeMeta={
+  eyelids:{number:1,label:"Door je oogleden gluren",instruction:"Houd ingedrukt om je ogen voorzichtig te openen. Laat snel los wanneer een wolf omkijkt. Lang kijken maakt je beter zichtbaar."},
+  mirror:{number:2,label:"De Spiegelscherf",instruction:"Beweeg de spiegelscherf langs de spelers. Alleen in de weerspiegeling kun je de wolven herkennen. Te snel of te lang kijken veroorzaakt een lichtflits."},
+  fog:{number:3,label:"De mist wegvegen",instruction:"Veeg kleine stukjes mist weg om spelers te bekijken. Grote en wilde bewegingen kunnen door de wolven worden gezien."},
+};
+function peekView(mode="eyelids",overrides={}){
+  const players=people(Number(overrides.playerCount||12));
+  const wolfKeys=players.slice(1,Math.min(players.length,1+Number(overrides.wolfCount||2))).map(player=>player.key);
+  const meta=peekModeMeta[mode];
+  const view={
+    id:`screen_peek_${mode}_${Date.now()}`,
+    mode,
+    modeNumber:meta.number,
+    modeLabel:meta.label,
+    status:"active",
+    instruction:meta.instruction,
+    firstInstruction:true,
+    remainingPeekMs:4000,
+    fogActionsRemaining:4,
+    risk:0,
+    detectionLevel:"none",
+    caught:false,
+    wolfLookActive:false,
+    holding:false,
+    holdStartedAt:null,
+    mirrorReveal:null,
+    fogReveals:[],
+    players:players.map(player=>({...player,awakeWolf:mode==="eyelids"?wolfKeys.includes(player.key):undefined})),
+    debugWolfKeys:wolfKeys,
+    ...overrides,
+  };
+  delete view.playerCount;
+  delete view.wolfCount;
+  return view;
+}
+function peekPlayerState(mode="eyelids",overrides={}){
+  const peek=peekView(mode,overrides);
+  const state=action("little_girl_peek","little_girl",{title:peek.modeLabel,peek});
+  state.me.roleId="little_girl";
+  state.me.role=roleDefs.little_girl;
+  state.me.roleName=roleDefs.little_girl.name;
+  state.action.actorRoleName=roleDefs.little_girl.name;
+  return state;
+}
+function peekResultState(caught=false){
+  const state=playerBase("little_girl");
+  state.action={
+    id:`screen_peek_result_${Date.now()}`,
+    kind:"little_girl_peek_result",
+    title:caught?"Je sluit snel je ogen":"Je sluit voorzichtig je ogen",
+    text:caught?"Een wolf keek jouw kant op… Hebben ze je gezien?":"De wolven gaan weer slapen.",
+    peek:{caught},
+  };
+  return state;
+}
+function wolfWarning(mode,level="minor"){
+  const state=playerBase("werewolf");
+  const copy={
+    eyelids:"Jullie zagen iemand tussen de bomen gluren…",
+    mirror:"Er weerkaatste iets tussen de slapende dorpelingen…",
+    fog:"Iemand bewoog zich door de mist…",
+  };
+  state.peekWarning={
+    token:`screen_warning_${mode}_${level}_${Date.now()}`,
+    mode,
+    level,
+    text:copy[mode],
+    hint:{direction:"linksonder",silhouette:level==="major"?"mantel":"slank",colorHint:"donkerrood"},
+  };
+  return state;
+}
+
+const peekScenarios=[
+  {surface:"player",group:"Spiekende Meisje · Algemeen",label:"Uitleg optie 1",description:"Eerste, korte uitleg voor Door je oogleden gluren.",make:()=>peekPlayerState("eyelids",{status:"instruction"})},
+  {surface:"player",group:"Spiekende Meisje · Algemeen",label:"Uitleg optie 2",description:"Eerste, korte uitleg voor de Spiegelscherf.",make:()=>peekPlayerState("mirror",{status:"instruction"})},
+  {surface:"player",group:"Spiekende Meisje · Algemeen",label:"Uitleg optie 3",description:"Eerste, korte uitleg voor de mist.",make:()=>peekPlayerState("fog",{status:"instruction"})},
+  {surface:"player",group:"Spiekende Meisje · Algemeen",label:"Neutrale afsluiting",description:"De wolven gaan slapen zonder duidelijke betrapping.",make:()=>peekResultState(false)},
+  {surface:"player",group:"Spiekende Meisje · Algemeen",label:"Mogelijk betrapt",description:"Onzekere afsluiting nadat een wolf haar kant op keek.",make:()=>peekResultState(true)},
+
+  {surface:"player",group:"Spiekende Meisje · Oogleden",label:"Interactief testen",description:"Houd de knop vast, kijk door de kier en laat los wanneer de wolf omkijkt.",make:()=>peekPlayerState("eyelids")},
+  {surface:"player",group:"Spiekende Meisje · Oogleden",label:"Volledig gesloten",description:"Beginstaat zonder ingedrukte knop.",make:()=>peekPlayerState("eyelids",{holding:false})},
+  {surface:"player",group:"Spiekende Meisje · Oogleden",label:"Ogen beginnen te openen",description:"De eerste veilige kier.",make:()=>peekPlayerState("eyelids",{holding:true,holdStartedAt:Date.now()-260})},
+  {surface:"player",group:"Spiekende Meisje · Oogleden",label:"Smalle veilige kier",description:"Kort gluren met laag risico.",make:()=>peekPlayerState("eyelids",{holding:true,holdStartedAt:Date.now()-720,risk:18})},
+  {surface:"player",group:"Spiekende Meisje · Oogleden",label:"Half open · risico",description:"Langer kijken met oplopende rode randen.",make:()=>peekPlayerState("eyelids",{holding:true,holdStartedAt:Date.now()-1550,risk:63})},
+  {surface:"player",group:"Spiekende Meisje · Oogleden",label:"Roekeloos bijna open",description:"Bijna volledig open en dicht bij betrapping.",make:()=>peekPlayerState("eyelids",{holding:true,holdStartedAt:Date.now()-2550,risk:91})},
+  {surface:"player",group:"Spiekende Meisje · Oogleden",label:"Wolf kijkt om",description:"Visuele waarschuwing zonder geluid.",make:()=>peekPlayerState("eyelids",{holding:true,holdStartedAt:Date.now()-1200,risk:72,wolfLookActive:true})},
+  {surface:"player",group:"Spiekende Meisje · Oogleden",label:"Te laat losgelaten",description:"Betrappingsstaat na roekeloos kijken.",make:()=>peekPlayerState("eyelids",{risk:100,detectionLevel:"major",caught:true})},
+  {surface:"player",group:"Spiekende Meisje · Oogleden",label:"Spiektijd bijna op",description:"Thematische meter met weinig resterende tijd.",make:()=>peekPlayerState("eyelids",{remainingPeekMs:450,risk:70})},
+  {surface:"player",group:"Spiekende Meisje · Oogleden",label:"Spiektijd op",description:"Vasthoudknop wordt veilig uitgeschakeld.",make:()=>peekPlayerState("eyelids",{remainingPeekMs:0,risk:78})},
+
+  {surface:"player",group:"Spiekende Meisje · Spiegel",label:"Interactief testen",description:"Sleep de echte productiescherf rustig langs spelers.",make:()=>peekPlayerState("mirror")},
+  {surface:"player",group:"Spiekende Meisje · Spiegel",label:"Scherf boven slaper",description:"Een gewone slapende speler in de weerspiegeling.",make:()=>peekPlayerState("mirror",{mirrorReveal:{key:"test_4",awakeWolf:false,expiresAt:Date.now()+5000}})},
+  {surface:"player",group:"Spiekende Meisje · Spiegel",label:"Scherf boven wolf",description:"Een actieve wolf in de weerspiegeling.",make:()=>peekPlayerState("mirror",{mirrorReveal:{key:"test_2",awakeWolf:true,expiresAt:Date.now()+5000}})},
+  {surface:"player",group:"Spiekende Meisje · Spiegel",label:"Veilige beweging",description:"Lage weerkaatsingsmeter.",make:()=>peekPlayerState("mirror",{risk:22})},
+  {surface:"player",group:"Spiekende Meisje · Spiegel",label:"Snelle beweging",description:"De zilveren rand wordt gevaarlijk helder.",make:()=>peekPlayerState("mirror",{risk:68})},
+  {surface:"player",group:"Spiekende Meisje · Spiegel",label:"Weerkaatsing halfvol",description:"Duidelijke maar nog beheersbare risicostaat.",make:()=>peekPlayerState("mirror",{risk:52})},
+  {surface:"player",group:"Spiekende Meisje · Spiegel",label:"Bijna lichtflits",description:"Scherf is bijna zichtbaar voor de wolven.",make:()=>peekPlayerState("mirror",{risk:92})},
+  {surface:"player",group:"Spiekende Meisje · Spiegel",label:"Kleine lichtflits",description:"Kleine risicofout met globale richting.",make:()=>peekPlayerState("mirror",{risk:80,detectionLevel:"minor",caught:true})},
+  {surface:"player",group:"Spiekende Meisje · Spiegel",label:"Zware lichtflits",description:"Roekeloze fout met vaag silhouet.",make:()=>peekPlayerState("mirror",{risk:100,detectionLevel:"major",caught:true})},
+
+  {surface:"player",group:"Spiekende Meisje · Mist",label:"Interactief testen",description:"Veeg de echte productiemist lokaal weg.",make:()=>peekPlayerState("fog")},
+  {surface:"player",group:"Spiekende Meisje · Mist",label:"Volledige mistlaag",description:"Alle spelers zijn verborgen.",make:()=>peekPlayerState("fog")},
+  {surface:"player",group:"Spiekende Meisje · Mist",label:"Gewone speler zichtbaar",description:"Een slaper onder een weggeveegd gebied.",make:()=>peekPlayerState("fog",{fogReveals:[{key:"test_4",awakeWolf:false,expiresAt:Date.now()+5000}]})},
+  {surface:"player",group:"Spiekende Meisje · Mist",label:"Weerwolf zichtbaar",description:"Gloeiende ogen en wolfvorm onder de mist.",make:()=>peekPlayerState("fog",{fogReveals:[{key:"test_2",awakeWolf:true,expiresAt:Date.now()+5000}]})},
+  {surface:"player",group:"Spiekende Meisje · Mist",label:"Laatste veegactie",description:"Eén mistveer is nog beschikbaar.",make:()=>peekPlayerState("fog",{fogActionsRemaining:1,risk:48})},
+  {surface:"player",group:"Spiekende Meisje · Mist",label:"Rustige beweging",description:"Veilige kleine veeg met weinig risico.",make:()=>peekPlayerState("fog",{fogActionsRemaining:3,risk:18})},
+  {surface:"player",group:"Spiekende Meisje · Mist",label:"Roekeloze beweging",description:"Onrustige mist bij een grote wilde veeg.",make:()=>peekPlayerState("fog",{fogActionsRemaining:2,risk:91})},
+  {surface:"player",group:"Spiekende Meisje · Mist",label:"Mistverstoring",description:"Kleine fout die een richting verraadt.",make:()=>peekPlayerState("fog",{risk:84,detectionLevel:"minor",caught:true})},
+  {surface:"player",group:"Spiekende Meisje · Mist",label:"Zware mistfout",description:"Zware verstoring met vaag silhouet.",make:()=>peekPlayerState("fog",{risk:100,detectionLevel:"major",caught:true})},
+
+  {surface:"player",group:"Spiekende Meisje · Wolven",label:"Geen betrapping",description:"Normale wolvennacht zonder geheime waarschuwing.",make:()=>playerBase("werewolf")},
+  {surface:"player",group:"Spiekende Meisje · Wolven",label:"Oogleden · silhouet",description:"Vaag silhouet tussen de bomen.",make:()=>wolfWarning("eyelids","major")},
+  {surface:"player",group:"Spiekende Meisje · Wolven",label:"Spiegel · kleine flits",description:"Korte lichtflits en globale richting.",make:()=>wolfWarning("mirror","minor")},
+  {surface:"player",group:"Spiekende Meisje · Wolven",label:"Spiegel · zware flits",description:"Flits plus een zeer vaag silhouet.",make:()=>wolfWarning("mirror","major")},
+  {surface:"player",group:"Spiekende Meisje · Wolven",label:"Mist · lichte verstoring",description:"Beweging in de mist vanuit een globale richting.",make:()=>wolfWarning("fog","minor")},
+  {surface:"player",group:"Spiekende Meisje · Wolven",label:"Mist · zware verstoring",description:"Mistbeweging plus avatarachtige aanwijzing.",make:()=>wolfWarning("fog","major")},
+];
+
 const scenarios=[
   {surface:"player",group:"Basis",label:"Wachten in de nacht",description:"Standaard rustscherm met de eigen rolkaart.",make:()=>playerBase("villager")},
   {surface:"player",group:"Basis",label:"Uitgeschakeld",description:"Volledig rood doodscherm.",make:()=>{const s=playerBase("villager");s.me.alive=false;s.players[0].alive=false;s.phase="day";return s;}},
   {surface:"player",group:"Basis",label:"Winnaar bekend",description:"Eindmelding op het Player-scherm.",make:()=>{const s=playerBase("villager");s.phase="ended";s.winner={title:"Het Dorp wint!",text:"De wolven zijn verslagen.",team:"village"};return s;}},
+  ...peekScenarios,
 
   {surface:"player",group:"Nachtrollen",label:"Wolfshond kiest kant",description:"Twee grote factiekeuzes.",make:()=>action("wolf_hound","villager",{title:"Wolfshond kiest kant",choices:[{value:"village",label:"Ik kies Burgerkant"},{value:"wolf",label:"Ik kies Wolvenkant"}]})},
   {surface:"player",group:"Nachtrollen",label:"Wolvenkind kiest rolmodel",description:"Enkelvoudige spelerselectie.",make:()=>action("wild_child","villager",{title:"Wolvenkind kiest rolmodel",options:targetOptions()})},
@@ -157,6 +278,13 @@ const scenarios=[
   {surface:"info",group:"Einde",label:"Geliefden winnen",description:"Neutrale speciale eindgroep.",make:()=>infoWinner("lovers")},
 ];
 
+let previewSessionId="";
+let currentScenarioState=null;
+let cleanupRequestId="";
+let rotationState=window.WakkerdamPeekRules.createPeekState();
+let rotationSequence=[];
+
+function uid(prefix="preview"){return `${prefix}_${Math.random().toString(36).slice(2,9)}_${Date.now().toString(36).slice(-5)}`;}
 function filteredScenarios(){
   const all=scenarios.filter(item=>item.surface===activeSurface);
   const group=groupSelect.value;
@@ -172,20 +300,32 @@ function fillScenarios(preferredLabel){
   scenarioSelect.innerHTML=list.map((item,index)=>`<option value="${index}">${item.label}</option>`).join("");
   const preferredIndex=list.findIndex(item=>item.label===preferredLabel);
   scenarioSelect.value=String(preferredIndex>=0?preferredIndex:0);
-  showScenario();
 }
 function activeScenario(){
   return filteredScenarios()[Number(scenarioSelect.value)||0] || filteredScenarios()[0];
 }
+function isPeekGroup(){
+  return activeSurface==="player" && String(activeScenario()?.group||"").startsWith("Spiekende Meisje");
+}
 function frameUrl(){
-  return activeSurface==="player"?"/player?screenTest=1":"/info?screenTest=1";
+  const path=activeSurface==="player"?"/player":"/info";
+  return `${path}?screenTest=1&screenTestSession=${encodeURIComponent(previewSessionId)}`;
+}
+function postCleanup(){
+  if(!frameReady) return;
+  frame.contentWindow?.postMessage({type:"wakkerdam-screen-test-cleanup",surface:activeSurface,sessionId:previewSessionId,requestId:uid("passive_cleanup")},"*");
 }
 function postScenario(){
-  const scenario=activeScenario();
-  if(!scenario || !frameReady) return;
-  frame.contentWindow?.postMessage({type:"wakkerdam-screen-test",surface:activeSurface,state:scenario.make()},"*");
+  if(!currentScenarioState || !frameReady) return;
+  frame.contentWindow?.postMessage({
+    type:"wakkerdam-screen-test",
+    surface:activeSurface,
+    sessionId:previewSessionId,
+    state:currentScenarioState,
+    reducedMotion:document.getElementById("peekTestReducedMotion")?.checked||false,
+  },"*");
 }
-function showScenario(){
+function refreshScenarioMeta(){
   const list=filteredScenarios();
   const index=Math.max(0,Number(scenarioSelect.value)||0);
   const scenario=list[index]||list[0];
@@ -193,10 +333,29 @@ function showScenario(){
   document.getElementById("screenTestCounter").textContent=`${index+1} / ${list.length} · ${scenario.group}`;
   document.getElementById("screenTestTitle").textContent=scenario.label;
   document.getElementById("screenTestDescription").textContent=scenario.description;
+  document.getElementById("peekTestPanel").classList.toggle("hidden",!isPeekGroup());
+}
+function showScenario(){
+  const scenario=activeScenario();
+  if(!scenario) return;
+  postCleanup();
+  currentScenarioState=scenario.make();
+  refreshScenarioMeta();
+  syncPeekControlsFromState();
   postScenario();
+}
+function loadFrame({preserveState=false}={}){
+  postCleanup();
+  frameReady=false;
+  previewSessionId=uid("screen_test");
+  if(!preserveState) currentScenarioState=activeScenario()?.make()||null;
+  frame.src=frameUrl();
+  refreshScenarioMeta();
+  syncPeekControlsFromState();
 }
 function setSurface(surface){
   if(surface===activeSurface) return;
+  postCleanup();
   const oldGroup=groupSelect.value;
   activeSurface=surface;
   document.querySelectorAll("[data-test-surface]").forEach(button=>{
@@ -207,8 +366,8 @@ function setSurface(surface){
   });
   fillGroups(oldGroup);
   fillScenarios();
-  frameReady=false;
-  frame.src=frameUrl();
+  currentScenarioState=activeScenario()?.make()||null;
+  loadFrame({preserveState:true});
 }
 function moveScenario(delta){
   const list=filteredScenarios();
@@ -217,30 +376,199 @@ function moveScenario(delta){
   showScenario();
 }
 
+function currentPeek(){
+  return currentScenarioState?.action?.kind==="little_girl_peek" ? currentScenarioState.action.peek : null;
+}
+function selectedPeekFeatures(){
+  const modes={eyelids:false,mirror:false,fog:false};
+  document.querySelectorAll("[data-peek-feature]").forEach(input=>{modes[input.dataset.peekFeature]=input.checked;});
+  return {enabled:Object.values(modes).some(Boolean),modes};
+}
+function replaceWithInteractivePeek(mode=null,overrides={}){
+  const select=document.getElementById("peekTestMode");
+  const requested=mode||select.value;
+  let resolved=requested;
+  if(requested==="auto"){
+    rotationState.features=selectedPeekFeatures();
+    resolved=window.WakkerdamPeekRules.chooseNextMode(rotationState)||"eyelids";
+  }
+  currentScenarioState=peekPlayerState(resolved,{
+    playerCount:Number(document.getElementById("peekTestPlayers").value||12),
+    wolfCount:Number(document.getElementById("peekTestWolves").value||2),
+    risk:Number(document.getElementById("peekTestRisk").value||0),
+    remainingPeekMs:Number(document.getElementById("peekTestTime").value||4000),
+    fogActionsRemaining:Number(document.getElementById("peekTestWipes").value||4),
+    ...overrides,
+  });
+  syncPeekControlsFromState();
+  postScenario();
+}
+function syncPeekControlsFromState(){
+  const peek=currentPeek();
+  if(peek){
+    document.getElementById("peekTestMode").value=peek.mode;
+    document.getElementById("peekTestPlayers").value=peek.players?.length||12;
+    document.getElementById("peekTestWolves").value=peek.debugWolfKeys?.length||2;
+    document.getElementById("peekTestRisk").value=peek.risk||0;
+    document.getElementById("peekTestTime").value=peek.remainingPeekMs??4000;
+    document.getElementById("peekTestWipes").value=peek.fogActionsRemaining??4;
+  }
+  updatePeekInspector();
+}
+function updatePeekInspector(){
+  const peek=currentPeek();
+  const inspector=document.getElementById("peekStateInspector");
+  if(!inspector) return;
+  if(!peek){
+    inspector.textContent=JSON.stringify({preview:"wolvenperspectief of afsluiting",warning:currentScenarioState?.peekWarning||null},null,2);
+    return;
+  }
+  inspector.textContent=JSON.stringify({
+    activeMechanic:peek.mode,
+    status:peek.status,
+    remainingPeekMs:peek.remainingPeekMs,
+    remainingWipes:peek.fogActionsRemaining,
+    risk:peek.risk,
+    detection:peek.detectionLevel,
+    wolfLooking:peek.wolfLookActive,
+    caught:peek.caught,
+    warningShown:peek.detectionLevel!=="none",
+    shuffleBag:rotationState.rotation.bag,
+    lastMechanic:rotationState.rotation.lastMode,
+  },null,2);
+}
+function mutatePeek(mutator){
+  let peek=currentPeek();
+  if(!peek){
+    replaceWithInteractivePeek();
+    peek=currentPeek();
+  }
+  mutator(peek,currentScenarioState);
+  delete peek.__debugServerState;
+  syncPeekControlsFromState();
+  postScenario();
+}
+function simulateRotationNight(){
+  rotationState.features=selectedPeekFeatures();
+  const mode=window.WakkerdamPeekRules.chooseNextMode(rotationState);
+  rotationSequence.push(mode);
+  rotationSequence=rotationSequence.slice(-12);
+  document.getElementById("peekRotationSequence").textContent=rotationSequence.map(item=>peekModeMeta[item]?.number||"–").join(" → ");
+  const result=window.WakkerdamPeekRules.validateRotation(rotationSequence,rotationState.features);
+  document.getElementById("peekRotationResult").textContent=result.ok?"Geslaagd · geen dubbele of ongeldige keuze.":`Fout · ${result.errors[0]}`;
+  updatePeekInspector();
+}
+function simulateHundredCycles(){
+  const modes=["eyelids","mirror","fog"];
+  const subsets=[];
+  for(let mask=1;mask<8;mask+=1) subsets.push(modes.filter((_,index)=>mask&(1<<index)));
+  let errors=0;
+  let firstError="";
+  for(const enabled of subsets){
+    const features={enabled:true,modes:Object.fromEntries(modes.map(mode=>[mode,enabled.includes(mode)]))};
+    const count=100*enabled.length;
+    const simulation=window.WakkerdamPeekRules.simulateRotation({count,features});
+    const result=window.WakkerdamPeekRules.validateRotation(simulation.sequence,features);
+    if(!result.ok){
+      errors+=result.errors.length;
+      firstError=firstError||`${enabled.join("+")}: ${result.errors[0]}`;
+    }
+  }
+  document.getElementById("peekRotationResult").textContent=errors
+    ? `Mislukt · ${errors} fouten · ${firstError}`
+    : "Geslaagd · 700 cycli gecontroleerd met één, twee en drie actieve opties.";
+}
+function requestCleanupTest(){
+  cleanupRequestId=uid("cleanup_test");
+  frame.contentWindow?.postMessage({
+    type:"wakkerdam-screen-test-cleanup",
+    surface:activeSurface,
+    sessionId:previewSessionId,
+    requestId:cleanupRequestId,
+  },"*");
+}
+
 document.querySelectorAll("[data-test-surface]").forEach(button=>button.addEventListener("click",()=>setSurface(button.dataset.testSurface)));
 document.querySelectorAll("[data-test-viewport]").forEach(button=>button.addEventListener("click",()=>{
   activeViewport=button.dataset.testViewport;
   viewport.className=`screenTestViewport ${activeViewport}`;
   document.querySelectorAll("[data-test-viewport]").forEach(candidate=>candidate.classList.toggle("active",candidate===button));
 }));
-groupSelect.addEventListener("change",()=>fillScenarios());
+groupSelect.addEventListener("change",()=>{fillScenarios();showScenario();});
 scenarioSelect.addEventListener("change",showScenario);
 document.getElementById("screenTestPrev").addEventListener("click",()=>moveScenario(-1));
 document.getElementById("screenTestNext").addEventListener("click",()=>moveScenario(1));
+document.getElementById("peekTestRestart").addEventListener("click",()=>replaceWithInteractivePeek());
+document.getElementById("peekTestInstruction").addEventListener("click",()=>replaceWithInteractivePeek(null,{status:"instruction"}));
+document.getElementById("peekTestWolfLook").addEventListener("click",()=>mutatePeek(peek=>{peek.wolfLookActive=!peek.wolfLookActive;}));
+document.getElementById("peekTestMinor").addEventListener("click",()=>mutatePeek(peek=>{peek.risk=Math.max(80,peek.risk);peek.detectionLevel="minor";peek.caught=true;}));
+document.getElementById("peekTestMajor").addEventListener("click",()=>mutatePeek(peek=>{peek.risk=100;peek.detectionLevel="major";peek.caught=true;}));
+document.getElementById("peekTestReconnect").addEventListener("click",()=>loadFrame({preserveState:true}));
+document.getElementById("peekTestRefresh").addEventListener("click",()=>loadFrame({preserveState:true}));
+document.getElementById("peekTestForce").addEventListener("click",()=>{currentScenarioState=peekResultState(false);postScenario();updatePeekInspector();});
+document.getElementById("peekTestGirlDeath").addEventListener("click",()=>{
+  currentScenarioState=playerBase("little_girl");
+  currentScenarioState.me.alive=false;
+  currentScenarioState.players[0].alive=false;
+  currentScenarioState.action=null;
+  postScenario();
+  updatePeekInspector();
+});
+document.getElementById("peekTestWolfDeath").addEventListener("click",()=>mutatePeek(peek=>{
+  const removed=peek.debugWolfKeys.shift();
+  const target=peek.players.find(player=>player.key===removed);
+  if(target) target.alive=false;
+}));
+document.getElementById("peekTestCleanup").addEventListener("click",requestCleanupTest);
+document.getElementById("peekSimulateNight").addEventListener("click",simulateRotationNight);
+document.getElementById("peekSimulateHundred").addEventListener("click",simulateHundredCycles);
+document.getElementById("peekTestMode").addEventListener("change",()=>replaceWithInteractivePeek());
+for(const id of ["peekTestPlayers","peekTestWolves","peekTestRisk","peekTestTime","peekTestWipes"]){
+  document.getElementById(id).addEventListener("input",()=>replaceWithInteractivePeek(document.getElementById("peekTestMode").value==="auto"?null:document.getElementById("peekTestMode").value));
+}
+document.getElementById("peekTestReducedMotion").addEventListener("change",postScenario);
+document.querySelectorAll("[data-peek-feature]").forEach(input=>input.addEventListener("change",()=>{
+  rotationState=window.WakkerdamPeekRules.createPeekState(selectedPeekFeatures());
+  rotationSequence=[];
+  document.getElementById("peekRotationSequence").textContent="Nog geen nachten gesimuleerd.";
+  document.getElementById("peekRotationResult").textContent="";
+}));
 window.addEventListener("keydown",event=>{
+  if(["INPUT","SELECT","TEXTAREA"].includes(document.activeElement?.tagName)) return;
   if(event.key==="ArrowLeft") moveScenario(-1);
   if(event.key==="ArrowRight") moveScenario(1);
 });
 window.addEventListener("message",event=>{
-  if(event.data?.type!=="wakkerdam-screen-test-ready" || event.data.surface!==activeSurface) return;
-  frameReady=true;
-  postScenario();
+  if(event.source!==frame.contentWindow) return;
+  if(event.data?.type==="wakkerdam-screen-test-ready"){
+    if(event.data.surface!==activeSurface || event.data.sessionId!==previewSessionId) return;
+    frameReady=true;
+    postScenario();
+    return;
+  }
+  if(event.data?.type==="wakkerdam-peek-debug-state" && event.data.sessionId===previewSessionId && currentScenarioState?.action?.kind==="little_girl_peek"){
+    currentScenarioState.action.peek=event.data.peek;
+    syncPeekControlsFromState();
+    return;
+  }
+  if(event.data?.type==="wakkerdam-screen-test-cleanup-result" && event.data.requestId===cleanupRequestId){
+    const diagnostics=event.data.diagnostics||{};
+    const clean=!diagnostics.controllers&&!diagnostics.timers&&!diagnostics.animationFrames&&!diagnostics.activePointers&&!diagnostics.warningOverlay&&!diagnostics.scrollLocked;
+    document.getElementById("peekRotationResult").textContent=clean
+      ?"Cleanup geslaagd · geen timers, overlays, listeners, pointers of scrolllocks achtergebleven."
+      :`Cleanup mislukt · ${JSON.stringify(diagnostics)}`;
+    cleanupRequestId="";
+  }
 });
 frame.addEventListener("load",()=>{
-  frameReady=false;
-  setTimeout(()=>{frameReady=true;postScenario();},120);
+  // Het child-ready-bericht kan nét vóór het iframe-load-event aankomen.
+  // Houd de zojuist bevestigde previewsessie daarom actief en stuur dezelfde
+  // geïsoleerde state nogmaals; dit reset de scenarioselectie niet.
+  frameReady=true;
+  postScenario();
 });
 
 fillGroups();
 fillScenarios();
-frame.src=frameUrl();
+currentScenarioState=activeScenario()?.make()||null;
+loadFrame({preserveState:true});

@@ -1,4 +1,24 @@
-# Wakkerdam Online Helper — v0.3.54
+# Wakkerdam Online Helper — v0.3.55
+
+## Nieuw in v0.3.55
+
+- Het Spiekende Meisje heeft tijdens de gezamenlijke wolvenfase drie interactieve, servergestuurde spiekvarianten: oogleden, spiegelscherf en mist.
+- Een shuffle-bag gebruikt iedere actieve variant precies eenmaal per cyclus en voorkomt directe herhaling tussen cycli.
+- Resterende tijd, veegacties, risico, betrapping en wolvenwaarschuwingen blijven bewaard bij refresh, reconnect of een tweede apparaat.
+- Iedere variant en het volledige systeem kunnen met omgevingsvariabelen los worden uitgeschakeld.
+- Debug → Test alle pagina’s bevat echte interactieve previews, wolvenperspectieven, een state-inspector, rotatiesimulatie en cleanup-test.
+- Paginatesterframes blijven gecentreerd en gebruiken een strikt geïsoleerde previewsessie zonder lobby-reconnects.
+
+### Spiekmechanic of één variant uitschakelen
+
+De toggles staan centraal in `peek-system.js` en kunnen zonder codewijziging vóór het starten van de server worden gezet:
+
+- `WAKKERDAM_PEEK_ENABLED=0` schakelt het volledige systeem veilig uit.
+- `WAKKERDAM_PEEK_EYELIDS_ENABLED=0` schakelt optie 1 uit.
+- `WAKKERDAM_PEEK_MIRROR_ENABLED=0` schakelt optie 2 uit.
+- `WAKKERDAM_PEEK_FOG_ENABLED=0` schakelt optie 3 uit.
+
+De shuffle-bag gebruikt automatisch alleen de overgebleven opties. Met één actieve optie mag die iedere nacht terugkomen; met nul opties loopt de gewone wolvenfase zonder extra stap verder.
 
 ## Nieuw in v0.3.54
 

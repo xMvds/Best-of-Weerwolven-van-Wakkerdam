@@ -1,4 +1,5 @@
 const screenTestMode=new URLSearchParams(location.search).has("screenTest");
+const screenTestSession=new URLSearchParams(location.search).get("screenTestSession")||"";
 const socket=io({autoConnect:!screenTestMode});
 const $=(id)=>document.getElementById(id);
 let lastDeathIds="";
@@ -560,7 +561,22 @@ function renderVoteBars(id, rows){
 if(screenTestMode){
   document.body.classList.add("screenTestEmbedded");
   window.addEventListener("message",event=>{
+    if(event.data?.type==="wakkerdam-screen-test-cleanup"){
+      if(event.data.sessionId&&event.data.sessionId!==screenTestSession) return;
+      clearTimeout(winnerTransitionTimer);
+      clearTimeout(hunterTransitionTimer);
+      clearTimeout(hunterTransitionEndTimer);
+      clearTimeout(resizeTimer);
+      if(viewerRenderFrame!==null) cancelAnimationFrame(viewerRenderFrame);
+      viewerRenderFrame=null;
+      queuedRenderState=null;
+      document.body.classList.remove("winnerTransitionBlack","forceReducedMotion");
+      window.parent?.postMessage({type:"wakkerdam-screen-test-cleanup-result",surface:"info",sessionId:screenTestSession,requestId:event.data.requestId,diagnostics:{controllers:0,listeners:0,timers:0,animationFrames:0,activePointers:0,warningOverlay:false,scrollLocked:false}},"*");
+      return;
+    }
     if(event.data?.type!=="wakkerdam-screen-test" || event.data.surface!=="info") return;
+    if(event.data.sessionId&&event.data.sessionId!==screenTestSession) return;
+    document.body.classList.toggle("forceReducedMotion",!!event.data.reducedMotion);
     displayedState=event.data.state;
     centralSceneKey="";
     viewerPlayersKey="";
@@ -568,5 +584,5 @@ if(screenTestMode){
     lastDayResultKey="";
     render(displayedState);
   });
-  window.parent?.postMessage({type:"wakkerdam-screen-test-ready",surface:"info"},"*");
+  window.parent?.postMessage({type:"wakkerdam-screen-test-ready",surface:"info",sessionId:screenTestSession},"*");
 }

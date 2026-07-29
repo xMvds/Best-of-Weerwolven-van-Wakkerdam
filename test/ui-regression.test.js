@@ -10,19 +10,83 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 test("release version is coherent in server, package and browser cache keys", () => {
   const pkg = JSON.parse(read("package.json"));
-  assert.equal(pkg.version, "0.3.54");
-  assert.match(read("server.js"), /const VERSION = "0\.3\.54";/);
-  for (const file of ["public/host.html", "public/index.html", "public/viewer.html"]) {
-    assert.match(read(file), /\?v=0\.3\.54/);
-    assert.doesNotMatch(read(file), /\?v=0\.3\.53/);
+  assert.equal(pkg.version, "0.3.55");
+  assert.match(read("server.js"), /const VERSION = "0\.3\.55";/);
+  for (const file of ["public/host.html", "public/index.html", "public/viewer.html", "public/screen-test.html"]) {
+    assert.match(read(file), /\?v=0\.3\.55/);
+    assert.doesNotMatch(read(file), /\?v=0\.3\.54/);
   }
 });
 
 test("browser scripts remain syntactically valid", () => {
-  for (const file of ["server.js", "public/host.js", "public/player.js", "public/viewer.js", "public/screen-test.js"]) {
+  for (const file of ["server.js", "peek-system.js", "public/host.js", "public/player.js", "public/viewer.js", "public/screen-test.js", "public/peek-mechanics.js"]) {
     const result = spawnSync(process.execPath, ["--check", path.join(root, file)], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
   }
+});
+
+test("v0.3.55 integrates all three Spiekende Meisje mechanics and an isolated centered View studio", () => {
+  const server = read("server.js");
+  const rules = read("peek-system.js");
+  const player = read("public/player.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const host = read("public/host.js");
+  const studio = read("public/screen-test.js");
+  const studioHtml = read("public/screen-test.html");
+  const css = read("public/style.css");
+
+  assert.match(server, /startPeekForWolfStep/);
+  assert.match(server, /currentPeekWarningForPlayer/);
+  assert.match(server, /peek_instruction_ack/);
+  assert.match(server, /peek_interaction/);
+  assert.match(server, /peek_warning_ack/);
+  assert.doesNotMatch(server.match(/function publicState[\s\S]*?function publicMayorElectionView/)?.[0] || "", /peek:/);
+  assert.match(rules, /const PEEK_MODES = Object\.freeze\(\["eyelids", "mirror", "fog"\]\)/);
+  assert.match(rules, /function refillBag/);
+  assert.match(rules, /function finishPeekSession/);
+  assert.match(rules, /WAKKERDAM_PEEK_ENABLED/);
+  assert.match(player, /screenTestMode \? ""/);
+  assert.match(player, /if\(screenTestMode\) return;/);
+  assert.match(player, /const socket = io\(\{autoConnect:!screenTestMode\}\)/);
+  assert.match(player, /event\.data\.sessionId && event\.data\.sessionId!==screenTestSession/);
+  assert.match(player, /little_girl_peek/);
+  assert.match(peekUi, /bindEyelids/);
+  assert.match(peekUi, /bindMirror/);
+  assert.match(peekUi, /bindFog/);
+  assert.match(peekUi, /function cleanupAll/);
+  assert.match(host, /function renderHostPeekStatus/);
+  assert.match(studioHtml, /Live state-inspector/);
+  assert.match(studioHtml, /Simuleer 100 cycli/);
+  assert.match(studioHtml, /<section class="screenTestStage">[\s\S]*?<section id="screenTestViewport"/);
+  assert.match(studio, /screenTestSession/);
+  assert.match(studio, /loadFrame\(\{preserveState=false\}=\{\}\)/);
+  assert.match(studio, /frame\.addEventListener\("load",\(\)=>\{[\s\S]*?postScenario\(\)/);
+  assert.match(studio, /simulateHundredCycles/);
+  assert.match(studio, /wakkerdam-screen-test-cleanup/);
+  assert.match(css, /\.screenTestStage\{[\s\S]*?align-items:center;[\s\S]*?justify-content:center;/);
+  for (const viewport of [
+    /\.screenTestViewport\.phone\{width:390px;height:844px\}/,
+    /\.screenTestViewport\.phoneWide\{width:430px;height:932px\}/,
+    /\.screenTestViewport\.tablet\{width:820px;height:1080px\}/,
+    /\.screenTestViewport\.monitor\{width:1280px;height:720px\}/,
+  ]) assert.match(css, viewport);
+  assert.match(css, /\.screenTestViewport\.phoneWide\{width:430px;height:932px\}/);
+});
+
+test("Player and Info previews stay socket-free and accept only their current isolated session", () => {
+  const player = read("public/player.js");
+  const viewer = read("public/viewer.js");
+  const studio = read("public/screen-test.js");
+
+  assert.match(player, /const socket = io\(\{autoConnect:!screenTestMode\}\)/);
+  assert.match(viewer, /const socket=io\(\{autoConnect:!screenTestMode\}\)/);
+  assert.match(player, /let playerKey = screenTestMode \? ""/);
+  assert.match(player, /if\(screenTestMode\) return;[\s\S]*?socket\.emit\("player_sync"/);
+  assert.match(player, /event\.data\.sessionId && event\.data\.sessionId!==screenTestSession/);
+  assert.match(viewer, /event\.data\.sessionId&&event\.data\.sessionId!==screenTestSession/);
+  assert.match(studio, /screenTestSession=\$\{encodeURIComponent\(previewSessionId\)\}/);
+  assert.match(studio, /loadFrame\(\{preserveState:true\}\)/);
+  assert.doesNotMatch(studio, /frame\.addEventListener\("load"[\s\S]{0,240}showScenario\(\)/);
 });
 
 test("v0.3.54 adds stable selection updates, universal force controls and the screen tester", () => {
