@@ -59,9 +59,9 @@
          <button class="peekHoldButton" type="button" data-peek-hold>Houd ingedrukt om te spieken</button>`
       : peek.mode === "mirror"
         ? `<div class="peekMirrorShade"></div><div class="peekShard" data-peek-shard aria-hidden="true"><i></i></div>
-           <p class="peekGestureHint">Sleep de spiegelscherf rustig langs de spelers</p>`
+           <p class="peekGestureHint">Sleep rustig · houd even stil boven één speler</p>`
         : `<canvas class="peekFogCanvas" data-peek-fog></canvas>
-           <div class="peekFogGrain"></div><p class="peekGestureHint">Veeg een klein stuk mist weg</p>`;
+           <div class="peekFogGrain"></div><p class="peekGestureHint">Maak één korte, precieze veeg bij een speler</p>`;
     return `<section class="peekExperience mode-${esc(peek.mode)}" data-peek-experience>
       <header class="peekTopline">
         <div><p class="peekEyebrow">Spiekende Meisje · optie ${esc(peek.modeNumber)}</p><h1>${esc(peek.modeLabel)}</h1></div>
@@ -242,13 +242,13 @@
       context.setTransform(ratio, 0, 0, ratio, 0, 0);
       context.globalCompositeOperation = "source-over";
       const gradient = context.createRadialGradient(rect.width * 0.48, rect.height * 0.48, 20, rect.width * 0.5, rect.height * 0.5, rect.width * 0.72);
-      gradient.addColorStop(0, "rgba(68,72,76,.91)");
-      gradient.addColorStop(0.55, "rgba(30,34,38,.96)");
-      gradient.addColorStop(1, "rgba(10,12,15,.99)");
+      gradient.addColorStop(0, "rgba(69,98,118,.9)");
+      gradient.addColorStop(0.55, "rgba(25,43,57,.96)");
+      gradient.addColorStop(1, "rgba(3,11,20,.99)");
       context.fillStyle = gradient;
       context.fillRect(0, 0, rect.width, rect.height);
       for (let index = 0; index < 28; index += 1) {
-        context.fillStyle = `rgba(180,188,188,${0.018 + (index % 5) * 0.008})`;
+        context.fillStyle = `rgba(164,199,219,${0.018 + (index % 5) * 0.008})`;
         context.beginPath();
         context.ellipse(
           (index * 97) % Math.max(1, rect.width),
@@ -390,7 +390,7 @@
           .find(candidate => candidate.dataset.peekPlayer === String(player.key));
         if (!node) continue;
         const reveal = revealByKey.get(player.key);
-        const visible = peek.mode === "eyelids" ? open > 0.035 : !!reveal;
+        const visible = peek.mode === "eyelids" ? open > 0.14 : !!reveal;
         const awakeWolf = peek.mode === "eyelids" ? !!player.awakeWolf : !!reveal?.awakeWolf;
         node.classList.toggle("revealed", visible);
         node.classList.toggle("awakeWolf", visible && awakeWolf);

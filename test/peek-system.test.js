@@ -90,6 +90,11 @@ test("mirror and fog reveal only server-resolved targets and spend bounded resou
   assert.equal(mirrorResult.ok, true);
   assert.equal(mirror.session.mirrorReveal?.key, "p1");
   assert.equal(mirror.session.mirrorReveal?.awakeWolf, false);
+  applyPeekInteraction(mirror, { kind: "mirror_move", x: 0.755, y: 0.245 }, { now: 200, players, isWolfKey });
+  assert.equal(mirror.session.mirrorReveal?.key, "p2");
+  assert.equal(mirror.session.mirrorReveal?.awakeWolf, false, "a wolf is not identified by merely crossing it");
+  applyPeekInteraction(mirror, { kind: "mirror_move", x: 0.755, y: 0.245 }, { now: 760, players, isWolfKey });
+  assert.equal(mirror.session.mirrorReveal?.awakeWolf, true, "the shard must remain over a wolf before it is identified");
 
   const fog = createPeekState({ enabled: true, modes: { eyelids: false, mirror: false, fog: true } });
   startPeekSession(fog, { girlKey: "p1", wolfKeys, nightNumber: 1, now: 0 });
@@ -104,7 +109,7 @@ test("mirror and fog reveal only server-resolved targets and spend bounded resou
   }, { now: 600, players, isWolfKey });
   assert.equal(fogResult.ok, true);
   assert.equal(fog.session.fogActionsRemaining, 3);
-  assert.ok(fog.session.fogReveals.length <= 3);
+  assert.ok(fog.session.fogReveals.length <= 2);
 });
 
 test("wolf warnings stay vague, acknowledge once and cleanup cancels every interaction", () => {

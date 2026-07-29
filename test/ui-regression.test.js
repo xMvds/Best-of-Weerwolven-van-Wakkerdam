@@ -10,11 +10,11 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 test("release version is coherent in server, package and browser cache keys", () => {
   const pkg = JSON.parse(read("package.json"));
-  assert.equal(pkg.version, "0.3.55");
-  assert.match(read("server.js"), /const VERSION = "0\.3\.55";/);
+  assert.equal(pkg.version, "0.3.57");
+  assert.match(read("server.js"), /const VERSION = "0\.3\.57";/);
   for (const file of ["public/host.html", "public/index.html", "public/viewer.html", "public/screen-test.html"]) {
-    assert.match(read(file), /\?v=0\.3\.55/);
-    assert.doesNotMatch(read(file), /\?v=0\.3\.54/);
+    assert.match(read(file), /\?v=0\.3\.57/);
+    assert.doesNotMatch(read(file), /\?v=0\.3\.56/);
   }
 });
 
@@ -87,6 +87,57 @@ test("Player and Info previews stay socket-free and accept only their current is
   assert.match(studio, /screenTestSession=\$\{encodeURIComponent\(previewSessionId\)\}/);
   assert.match(studio, /loadFrame\(\{preserveState:true\}\)/);
   assert.doesNotMatch(studio, /frame\.addEventListener\("load"[\s\S]{0,240}showScenario\(\)/);
+});
+
+test("every page-tester select stays readable without a white native fallback", () => {
+  const studioHtml = read("public/screen-test.html");
+  const css = read("public/style.css");
+  const layer = css.slice(css.indexOf("v0.3.56 · leesbare keuzelijsten"));
+
+  for (const id of ["screenTestGroup", "screenTestScenario", "peekTestMode"]) {
+    assert.match(studioHtml, new RegExp(`<select id="${id}"`));
+  }
+  assert.match(layer, /\.screenTestStudio select\{[\s\S]*appearance:none;[\s\S]*color-scheme:dark;/);
+  assert.match(layer, /color:#fff0cb!important;/);
+  assert.match(layer, /background-color:#080c14!important;/);
+  assert.match(layer, /\.screenTestStudio select option,[\s\S]*background:#080c14!important;/);
+  assert.match(layer, /\.screenTestStudio select option:checked\{[\s\S]*color:#211706!important;[\s\S]*background:#e2ba5b!important;/);
+  assert.match(layer, /\.screenTestStudio select:focus,[\s\S]*border-color:#f0c95a!important;/);
+});
+
+test("v0.3.57 fits every device preview and lets isolated Player actions drive test flows", () => {
+  const studioHtml = read("public/screen-test.html");
+  const studio = read("public/screen-test.js");
+  const player = read("public/player.js");
+  const rules = read("peek-system.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const css = read("public/style.css");
+  const layer = css.slice(css.indexOf("v0.3.57 · volledig passende interactieve paginatester"));
+
+  assert.match(studioHtml, /id="screenTestScaleLabel"/);
+  assert.match(studioHtml, /id="screenTestReplay"/);
+  assert.match(studioHtml, /id="screenTestPlayNext"/);
+  assert.match(studio, /const viewportSpecs=\{[\s\S]*phone:\{width:390,height:844[\s\S]*phoneWide:\{width:430,height:932[\s\S]*tablet:\{width:820,height:1080[\s\S]*monitor:\{width:1280,height:720/);
+  assert.match(studio, /const scale=Math\.min\(1,availableWidth\/spec\.width,availableHeight\/spec\.height\)/);
+  assert.match(studio, /frame\.style\.transform=`scale\(\$\{scale\}\)`/);
+  assert.match(studio, /new ResizeObserver\(fitViewport\)\.observe\(stage\)/);
+  assert.match(player, /wakkerdam-screen-test-player-event/);
+  assert.match(studio, /function simulatePlayerEvent\(eventName,payload=\{\}\)/);
+  assert.match(studio, /function runHunterFlow\(target\)/);
+  assert.match(studio, /openScenario\("info","Jager","Jager kiest"/);
+  assert.match(studio, /hunterInfoState\("shot_suspense",target\)/);
+  assert.match(studio, /hunterInfoState\("summary",target\)/);
+  assert.match(player, /wakkerdam-screen-test-role-info/);
+  assert.match(layer, /\.screenTestViewport\.fitted iframe\{[\s\S]*transform-origin:top left/);
+  assert.match(layer, /\.screenTestEmbedded \.roleInfoFab\{[\s\S]*pointer-events:auto!important/);
+
+  assert.ok(fs.existsSync(path.join(root, "public/assets/peek/cold-night-clearing.png")));
+  assert.match(layer, /url\("\/assets\/peek\/cold-night-clearing\.png"\)/);
+  assert.match(layer, /@keyframes peekStarsBreathe/);
+  assert.match(peekUi, /open > 0\.14/);
+  assert.match(rules, /awakeWolf: !!isWolfKey\(target\.key\) && hoverMs >= 480/);
+  assert.match(rules, /distanceToSegment\(position, start, end\) <= 0\.1/);
+  assert.match(rules, /\.slice\(0, 2\)/);
 });
 
 test("v0.3.54 adds stable selection updates, universal force controls and the screen tester", () => {

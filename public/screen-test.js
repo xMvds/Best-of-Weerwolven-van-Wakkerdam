@@ -2,9 +2,20 @@ const frame=document.getElementById("screenTestFrame");
 const groupSelect=document.getElementById("screenTestGroup");
 const scenarioSelect=document.getElementById("screenTestScenario");
 const viewport=document.getElementById("screenTestViewport");
+const stage=document.querySelector(".screenTestStage");
+const scaleLabel=document.getElementById("screenTestScaleLabel");
 let activeSurface="player";
 let activeViewport="auto";
 let frameReady=false;
+let fitFrame=null;
+let flowTimer=null;
+
+const viewportSpecs={
+  phone:{width:390,height:844,label:"Smalle telefoon"},
+  phoneWide:{width:430,height:932,label:"Grote telefoon"},
+  tablet:{width:820,height:1080,label:"Tablet"},
+  monitor:{width:1280,height:720,label:"Monitor"},
+};
 
 const roleDefs={
   villager:{id:"villager",name:"Burger",emoji:"🟡",desc:"Vind de wolven en bescherm het dorp."},
@@ -50,7 +61,7 @@ function playerBase(roleId="villager"){
   const role=roleDefs[roleId]||roleDefs.villager;
   const me={...players[0],roleId,role,roleName:role.name,roleEmoji:role.emoji,cardVariant:1,team:roleId==="werewolf"?"wolf":roleId==="piper"?"solo_piper":"village",wolfLike:roleId==="werewolf",infected:false,wildChildTurned:false,enchanted:false,alive:true};
   return {
-    version:"0.3.55",lobbyId:"screen_test",selfKey:me.key,phase:"night",round:1,nightNumber:1,dayNumber:0,started:true,
+    version:"0.3.57",lobbyId:"screen_test",selfKey:me.key,phase:"night",round:1,nightNumber:1,dayNumber:0,started:true,
     me,players,action:null,roleInfo:{roleId,roleName:role.name,objective:role.desc,facts:[]},
     mayorElection:{open:false,stage:"idle",candidates:[],voters:[],result:null},
     dayVote:{open:false,voters:[],counts:[],result:null},dayAftermath:{active:false,fromNight:false},
@@ -74,7 +85,7 @@ function death(name="Luna",roleName="Burger",cause="wolves",key="test_2"){
 }
 function infoBase(){
   return {
-    version:"0.3.55",lobbyId:"screen_test",phase:"night",round:1,nightNumber:1,dayNumber:0,started:true,
+    version:"0.3.57",lobbyId:"screen_test",phase:"night",round:1,nightNumber:1,dayNumber:0,started:true,
     players:people(),aliveCount:12,
     mayorElection:{open:false,stage:"idle",candidates:[],voters:[],result:null},
     dayVote:{open:false,voters:[],counts:[],result:null},dayAftermath:{active:false,fromNight:false},
@@ -106,8 +117,8 @@ function infoWinner(team){
 
 const peekModeMeta={
   eyelids:{number:1,label:"Door je oogleden gluren",instruction:"Houd ingedrukt om je ogen voorzichtig te openen. Laat snel los wanneer een wolf omkijkt. Lang kijken maakt je beter zichtbaar."},
-  mirror:{number:2,label:"De Spiegelscherf",instruction:"Beweeg de spiegelscherf langs de spelers. Alleen in de weerspiegeling kun je de wolven herkennen. Te snel of te lang kijken veroorzaakt een lichtflits."},
-  fog:{number:3,label:"De mist wegvegen",instruction:"Veeg kleine stukjes mist weg om spelers te bekijken. Grote en wilde bewegingen kunnen door de wolven worden gezien."},
+  mirror:{number:2,label:"De Spiegelscherf",instruction:"Sleep de scherf rustig naar één speler en houd hem daar even stil om goed te kunnen zien. Te snel bewegen of te lang kijken kan een lichtflits veroorzaken."},
+  fog:{number:3,label:"De mist wegvegen",instruction:"Veeg met een korte, precieze beweging een klein stuk mist bij één speler weg. Grote of wilde bewegingen kunnen door de wolven worden gezien."},
 };
 function peekView(mode="eyelids",overrides={}){
   const players=people(Number(overrides.playerCount||12));
@@ -285,6 +296,10 @@ let rotationState=window.WakkerdamPeekRules.createPeekState();
 let rotationSequence=[];
 
 function uid(prefix="preview"){return `${prefix}_${Math.random().toString(36).slice(2,9)}_${Date.now().toString(36).slice(-5)}`;}
+function clearFlowTimer(){
+  clearTimeout(flowTimer);
+  flowTimer=null;
+}
 function filteredScenarios(){
   const all=scenarios.filter(item=>item.surface===activeSurface);
   const group=groupSelect.value;
@@ -311,6 +326,50 @@ function frameUrl(){
   const path=activeSurface==="player"?"/player":"/info";
   return `${path}?screenTest=1&screenTestSession=${encodeURIComponent(previewSessionId)}`;
 }
+function fitViewport(){
+  cancelAnimationFrame(fitFrame);
+  fitFrame=requestAnimationFrame(()=>{
+    fitFrame=null;
+    const spec=viewportSpecs[activeViewport];
+    if(!spec){
+      viewport.classList.remove("fitted");
+      viewport.style.removeProperty("--screen-test-width");
+      viewport.style.removeProperty("--screen-test-height");
+      viewport.style.removeProperty("--screen-test-scale");
+      viewport.style.removeProperty("width");
+      viewport.style.removeProperty("height");
+      frame.style.removeProperty("width");
+      frame.style.removeProperty("height");
+      frame.style.removeProperty("transform");
+      if(scaleLabel) scaleLabel.textContent="Eigen scherm · vult het beschikbare vlak";
+      return;
+    }
+    const stageStyle=getComputedStyle(stage);
+    const availableWidth=Math.max(240,stage.clientWidth-parseFloat(stageStyle.paddingLeft)-parseFloat(stageStyle.paddingRight)-4);
+    const availableHeight=Math.max(300,stage.clientHeight-parseFloat(stageStyle.paddingTop)-parseFloat(stageStyle.paddingBottom)-4);
+    const scale=Math.min(1,availableWidth/spec.width,availableHeight/spec.height);
+    viewport.classList.add("fitted");
+    viewport.style.setProperty("--screen-test-width",String(spec.width));
+    viewport.style.setProperty("--screen-test-height",String(spec.height));
+    viewport.style.setProperty("--screen-test-scale",String(scale));
+    viewport.style.width=`${Math.round(spec.width*scale)}px`;
+    viewport.style.height=`${Math.round(spec.height*scale)}px`;
+    frame.style.width=`${spec.width}px`;
+    frame.style.height=`${spec.height}px`;
+    frame.style.transform=`scale(${scale})`;
+    if(scaleLabel) scaleLabel.textContent=`${spec.label} · volledig in beeld · ${Math.round(scale*100)}%`;
+  });
+}
+function setViewport(mode){
+  activeViewport=mode;
+  viewport.className=`screenTestViewport ${activeViewport}`;
+  document.querySelectorAll("[data-test-viewport]").forEach(candidate=>{
+    const active=candidate.dataset.testViewport===mode;
+    candidate.classList.toggle("active",active);
+    candidate.setAttribute("aria-pressed",active?"true":"false");
+  });
+  fitViewport();
+}
 function postCleanup(){
   if(!frameReady) return;
   frame.contentWindow?.postMessage({type:"wakkerdam-screen-test-cleanup",surface:activeSurface,sessionId:previewSessionId,requestId:uid("passive_cleanup")},"*");
@@ -334,10 +393,20 @@ function refreshScenarioMeta(){
   document.getElementById("screenTestTitle").textContent=scenario.label;
   document.getElementById("screenTestDescription").textContent=scenario.description;
   document.getElementById("peekTestPanel").classList.toggle("hidden",!isPeekGroup());
+  const playButton=document.getElementById("screenTestPlayNext");
+  if(playButton){
+    const actionKind=currentScenarioState?.action?.kind||"";
+    playButton.textContent=actionKind==="hunter_shot"
+      ?"Speel het schot ▶"
+      : currentScenarioState?.action && !currentScenarioState.action.submitted
+        ?"Voer testactie uit ▶"
+        :"Volgende pagina ▶";
+  }
 }
 function showScenario(){
   const scenario=activeScenario();
   if(!scenario) return;
+  clearFlowTimer();
   postCleanup();
   currentScenarioState=scenario.make();
   refreshScenarioMeta();
@@ -352,28 +421,178 @@ function loadFrame({preserveState=false}={}){
   frame.src=frameUrl();
   refreshScenarioMeta();
   syncPeekControlsFromState();
+  fitViewport();
 }
-function setSurface(surface){
-  if(surface===activeSurface) return;
-  postCleanup();
-  const oldGroup=groupSelect.value;
-  activeSurface=surface;
+function syncSurfaceButtons(){
   document.querySelectorAll("[data-test-surface]").forEach(button=>{
-    const active=button.dataset.testSurface===surface;
+    const active=button.dataset.testSurface===activeSurface;
     button.classList.toggle("active",active);
     button.classList.toggle("gold",active);
     button.classList.toggle("ghost",!active);
+    button.setAttribute("aria-pressed",active?"true":"false");
   });
-  fillGroups(oldGroup);
-  fillScenarios();
-  currentScenarioState=activeScenario()?.make()||null;
+}
+function openScenario(surface,group,label,stateOverride=null){
+  clearFlowTimer();
+  postCleanup();
+  activeSurface=surface;
+  syncSurfaceButtons();
+  fillGroups(group);
+  if(group && [...groupSelect.options].some(option=>option.value===group)) groupSelect.value=group;
+  fillScenarios(label);
+  if(label){
+    const list=filteredScenarios();
+    const index=list.findIndex(item=>item.label===label);
+    if(index>=0) scenarioSelect.value=String(index);
+  }
+  currentScenarioState=stateOverride||activeScenario()?.make()||null;
   loadFrame({preserveState:true});
 }
+function setSurface(surface){
+  if(surface===activeSurface) return;
+  openScenario(surface,null,null);
+}
 function moveScenario(delta){
+  clearFlowTimer();
   const list=filteredScenarios();
   const next=(Number(scenarioSelect.value)+delta+list.length)%list.length;
   scenarioSelect.value=String(next);
   showScenario();
+}
+
+function previewPerson(key,{revealRole=false}={}){
+  const option=currentScenarioState?.action?.options?.find(player=>player.key===key);
+  const existing=currentScenarioState?.players?.find(player=>player.key===key);
+  const fallbackIndex=Math.max(0,Number(String(key||"").replace(/\D/g,""))-1);
+  const base=existing||option||person(fallbackIndex);
+  if(!revealRole) return {...base};
+  const roleId=base.roleId||roleCycle[fallbackIndex%roleCycle.length]||"villager";
+  const role=roleDefs[roleId]||roleDefs.villager;
+  return {...base,roleId,roleName:role.name,roleEmoji:role.emoji,cardRoleId:roleId,cardRoleName:role.name,cardRoleEmoji:role.emoji,cardRevealed:true};
+}
+function hunterInfoState(stageName,target){
+  const state=infoBase();
+  state.phase="hunter";
+  const shot={...death(target?.name||"Luna",target?.roleName||"Burger","hunter",target?.key||"test_2"),cardVariant:target?.cardVariant||2};
+  state.hunterSequence={
+    stage:stageName,
+    hunterKey:"test_1",
+    hunterName:"Maurizio",
+    shotToken:`screen_shot_${Date.now()}`,
+    shotDeaths:stageName==="shot_suspense"||stageName==="summary"?[shot]:[],
+    allDeaths:stageName==="shot_suspense"||stageName==="summary"?[shot]:[],
+  };
+  return state;
+}
+function runHunterFlow(target){
+  const actionState=currentScenarioState?.action;
+  if(actionState){
+    actionState.submitted=true;
+    actionState.submission={targetKey:target.key,targetName:target.name,targetCard:target};
+    postScenario();
+  }
+  clearFlowTimer();
+  flowTimer=setTimeout(()=>{
+    openScenario("info","Jager","Jager kiest",hunterInfoState("choosing",target));
+    flowTimer=setTimeout(()=>{
+      currentScenarioState=hunterInfoState("shot_suspense",target);
+      const list=filteredScenarios();
+      const revealIndex=list.findIndex(item=>item.label==="Schot onthulling");
+      if(revealIndex>=0) scenarioSelect.value=String(revealIndex);
+      refreshScenarioMeta();
+      postScenario();
+      flowTimer=setTimeout(()=>{
+        currentScenarioState=hunterInfoState("summary",target);
+        const summaryIndex=list.findIndex(item=>item.label==="Jager-overzicht");
+        if(summaryIndex>=0) scenarioSelect.value=String(summaryIndex);
+        refreshScenarioMeta();
+        postScenario();
+        flowTimer=null;
+      },2300);
+    },850);
+  },480);
+}
+function completePlayerAction(payload={}){
+  const actionState=currentScenarioState?.action;
+  if(!actionState) return;
+  const kind=payload.kind||actionState.kind;
+  if(kind==="hunter_shot" && payload.targetKey){
+    runHunterFlow(previewPerson(payload.targetKey));
+    return;
+  }
+  const submission={};
+  if(payload.targetKey){
+    const target=previewPerson(payload.targetKey,{revealRole:kind==="seer"});
+    Object.assign(submission,{targetKey:target.key,targetName:target.name,targetCard:target});
+    if(kind==="seer"){
+      submission.targetRoleId=target.roleId||"villager";
+      submission.targetRoleName=target.roleName||"Burger";
+      submission.targetRoleEmoji=target.roleEmoji||"🟡";
+      submission.result=submission.targetRoleName;
+    }
+  }
+  if(Array.isArray(payload.targetKeys)){
+    const selected=payload.targetKeys.map(key=>previewPerson(key));
+    submission.people=selected;
+    submission.targets=selected.map(player=>player.name);
+    if(kind==="cupid") submission.lovers=submission.targets;
+  }
+  if(kind==="witch"){
+    if(payload.saveKey) submission.saveTarget=previewPerson(payload.saveKey);
+    if(payload.poisonKey) submission.poisonTarget=previewPerson(payload.poisonKey);
+  }
+  if(payload.choice) submission.choice=payload.choice;
+  if(kind==="mayor_candidate") submission.choice=payload.isCandidate?"Kandidaat":"Geen kandidaat";
+  if(payload.ready) submission.ready=true;
+  actionState.submitted=true;
+  actionState.submission=submission;
+  if(kind==="wolves") actionState.sleepMessage="De Weerwolven gaan weer slapen.";
+  postScenario();
+  refreshScenarioMeta();
+}
+function simulatePlayerEvent(eventName,payload={}){
+  if(activeSurface!=="player" || !currentScenarioState?.action) return;
+  if(eventName==="player_preview"){
+    if(payload.targetKey!==undefined) currentScenarioState.action.previewTargetKey=payload.targetKey;
+    if(Array.isArray(payload.targetKeys)) currentScenarioState.action.previewTargetKeys=[...payload.targetKeys];
+    return;
+  }
+  if(eventName==="player_action") completePlayerAction(payload);
+}
+function playCurrentFlow(){
+  const actionState=currentScenarioState?.action;
+  if(activeSurface!=="player" || !actionState || actionState.submitted){
+    moveScenario(1);
+    return;
+  }
+  if(actionState.kind==="little_girl_peek"){
+    if(actionState.peek?.status==="instruction"){
+      replaceWithInteractivePeek(actionState.peek.mode,{status:"active"});
+    }else{
+      currentScenarioState=peekResultState(!!actionState.peek?.caught);
+      postScenario();
+      refreshScenarioMeta();
+    }
+    return;
+  }
+  const options=actionState.options||[];
+  if(["cupid","piper"].includes(actionState.kind)){
+    completePlayerAction({kind:actionState.kind,targetKeys:options.slice(0,2).map(player=>player.key)});
+  }else if(actionState.kind==="witch"){
+    completePlayerAction({
+      kind:"witch",
+      saveKey:actionState.pendingVictims?.[0]?.key||null,
+      poisonKey:actionState.allTargets?.find(player=>player.key!==actionState.pendingVictims?.[0]?.key)?.key||null,
+    });
+  }else if(actionState.kind==="mayor_candidate"){
+    completePlayerAction({kind:"mayor_candidate",isCandidate:true});
+  }else if(actionState.choices?.length){
+    completePlayerAction({kind:actionState.kind,choice:actionState.choices[0].value});
+  }else if(options.length){
+    completePlayerAction({kind:actionState.kind,targetKey:options[0].key});
+  }else{
+    completePlayerAction({kind:actionState.kind,ready:true});
+  }
 }
 
 function currentPeek(){
@@ -490,14 +709,14 @@ function requestCleanupTest(){
 
 document.querySelectorAll("[data-test-surface]").forEach(button=>button.addEventListener("click",()=>setSurface(button.dataset.testSurface)));
 document.querySelectorAll("[data-test-viewport]").forEach(button=>button.addEventListener("click",()=>{
-  activeViewport=button.dataset.testViewport;
-  viewport.className=`screenTestViewport ${activeViewport}`;
-  document.querySelectorAll("[data-test-viewport]").forEach(candidate=>candidate.classList.toggle("active",candidate===button));
+  setViewport(button.dataset.testViewport);
 }));
 groupSelect.addEventListener("change",()=>{fillScenarios();showScenario();});
 scenarioSelect.addEventListener("change",showScenario);
 document.getElementById("screenTestPrev").addEventListener("click",()=>moveScenario(-1));
 document.getElementById("screenTestNext").addEventListener("click",()=>moveScenario(1));
+document.getElementById("screenTestReplay").addEventListener("click",showScenario);
+document.getElementById("screenTestPlayNext").addEventListener("click",playCurrentFlow);
 document.getElementById("peekTestRestart").addEventListener("click",()=>replaceWithInteractivePeek());
 document.getElementById("peekTestInstruction").addEventListener("click",()=>replaceWithInteractivePeek(null,{status:"instruction"}));
 document.getElementById("peekTestWolfLook").addEventListener("click",()=>mutatePeek(peek=>{peek.wolfLookActive=!peek.wolfLookActive;}));
@@ -546,6 +765,10 @@ window.addEventListener("message",event=>{
     postScenario();
     return;
   }
+  if(event.data?.type==="wakkerdam-screen-test-player-event" && event.data.sessionId===previewSessionId){
+    simulatePlayerEvent(event.data.eventName,event.data.payload||{});
+    return;
+  }
   if(event.data?.type==="wakkerdam-peek-debug-state" && event.data.sessionId===previewSessionId && currentScenarioState?.action?.kind==="little_girl_peek"){
     currentScenarioState.action.peek=event.data.peek;
     syncPeekControlsFromState();
@@ -566,9 +789,14 @@ frame.addEventListener("load",()=>{
   // geïsoleerde state nogmaals; dit reset de scenarioselectie niet.
   frameReady=true;
   postScenario();
+  fitViewport();
 });
 
 fillGroups();
 fillScenarios();
 currentScenarioState=activeScenario()?.make()||null;
 loadFrame({preserveState:true});
+setViewport("auto");
+new ResizeObserver(fitViewport).observe(stage);
+window.addEventListener("resize",fitViewport,{passive:true});
+window.addEventListener("orientationchange",fitViewport,{passive:true});

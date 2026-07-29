@@ -12,14 +12,14 @@ const PEEK_MODE_META = Object.freeze({
   mirror: {
     number: 2,
     label: "De Spiegelscherf",
-    shortInstruction: "Beweeg de scherf rustig langs spelers. Snelle bewegingen kunnen een lichtflits veroorzaken.",
-    firstInstruction: "Beweeg de spiegelscherf langs de spelers. Alleen in de weerspiegeling kun je de wolven herkennen. Te snel of te lang kijken veroorzaakt een lichtflits.",
+    shortInstruction: "Beweeg rustig en houd de scherf even stil boven één speler. Een snelle beweging veroorzaakt een lichtflits.",
+    firstInstruction: "Sleep de scherf rustig naar één speler en houd hem daar even stil om goed te kunnen zien. Te snel bewegen of te lang kijken kan een lichtflits veroorzaken.",
   },
   fog: {
     number: 3,
     label: "De mist wegvegen",
-    shortInstruction: "Veeg kleine stukken mist weg. Grote, wilde bewegingen verraden je positie.",
-    firstInstruction: "Veeg kleine stukjes mist weg om spelers te bekijken. Grote en wilde bewegingen kunnen door de wolven worden gezien.",
+    shortInstruction: "Maak korte, precieze vegen bij één speler. Een grote veeg verstoort de mist.",
+    firstInstruction: "Veeg met een korte, precieze beweging een klein stuk mist bij één speler weg. Grote of wilde bewegingen kunnen door de wolven worden gezien.",
   },
 });
 
@@ -386,7 +386,7 @@ function applyPeekInteraction(stateValue, payload = {}, {
     if (target) {
       session.mirrorReveal = {
         key: target.key,
-        awakeWolf: !!isWolfKey(target.key),
+        awakeWolf: !!isWolfKey(target.key) && hoverMs >= 480,
         expiresAt: now + 720,
       };
     }
@@ -406,8 +406,8 @@ function applyPeekInteraction(stateValue, payload = {}, {
     if (distance < 0.055 || session.fogActionsRemaining <= 0) return { ok: false, reason: "too_small" };
     const speed = distance / (durationMs / 1000);
     const revealed = positions
-      .filter(position => distanceToSegment(position, start, end) <= 0.13)
-      .slice(0, 3);
+      .filter(position => distanceToSegment(position, start, end) <= 0.1)
+      .slice(0, 2);
     session.fogActionsRemaining = Math.max(0, session.fogActionsRemaining - 1);
     session.fogReveals = revealed.map(position => ({
       key: position.key,

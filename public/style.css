@@ -6257,3 +6257,422 @@ body.playerScreen.inGame #submitWitch{
   .peekWolfWarning *,
   .peekFogGrain{animation:none!important;transition-duration:.01ms!important}
 }
+
+/* v0.3.56 · leesbare keuzelijsten in de volledige paginatester. */
+.screenTestStudio select{
+  -webkit-appearance:none;
+  appearance:none;
+  color-scheme:dark;
+  min-width:0;
+  min-height:42px;
+  padding:10px 38px 10px 12px!important;
+  border:1px solid rgba(211,167,90,.64)!important;
+  color:#fff0cb!important;
+  -webkit-text-fill-color:#fff0cb;
+  background-color:#080c14!important;
+  background-image:
+    linear-gradient(45deg,transparent 50%,#d3a75a 50%),
+    linear-gradient(135deg,#d3a75a 50%,transparent 50%),
+    linear-gradient(180deg,#111a29,#070b12)!important;
+  background-position:
+    calc(100% - 17px) 50%,
+    calc(100% - 12px) 50%,
+    0 0!important;
+  background-size:5px 5px,5px 5px,100% 100%!important;
+  background-repeat:no-repeat!important;
+  box-shadow:
+    inset 0 0 0 1px rgba(255,240,200,.04),
+    0 8px 24px rgba(0,0,0,.28)!important;
+  cursor:pointer;
+}
+.screenTestStudio select:hover{
+  border-color:rgba(240,201,90,.9)!important;
+  background-color:#0c1320!important;
+}
+.screenTestStudio select:focus,
+.screenTestStudio select:focus-visible{
+  outline:2px solid rgba(240,201,90,.38);
+  outline-offset:2px;
+  border-color:#f0c95a!important;
+}
+.screenTestStudio select option,
+.screenTestStudio select optgroup{
+  color:#fff0cb!important;
+  -webkit-text-fill-color:#fff0cb;
+  background:#080c14!important;
+}
+.screenTestStudio select option:checked{
+  color:#211706!important;
+  -webkit-text-fill-color:#211706;
+  background:#e2ba5b!important;
+}
+.screenTestStudio select:disabled{
+  color:#8f8779!important;
+  -webkit-text-fill-color:#8f8779;
+  background-color:#11141a!important;
+  cursor:not-allowed;
+}
+.screenTestStudio select::-ms-expand{display:none}
+
+/* v0.3.57 · volledig passende interactieve paginatester en koude Spiekende-Meisje-nacht. */
+.screenTestMeta{
+  align-items:center;
+  flex-wrap:wrap;
+}
+.screenTestMeta>div:first-child{
+  display:grid;
+  gap:3px;
+}
+.screenTestFlowControls{
+  display:flex;
+  align-items:center;
+  justify-content:flex-end;
+  gap:7px;
+  margin-left:auto;
+}
+.screenTestScaleLabel{
+  padding:7px 10px;
+  border:1px solid rgba(132,171,211,.24);
+  color:#b9cfe5;
+  background:rgba(9,19,31,.72);
+  font-size:11px;
+  white-space:nowrap;
+}
+.screenTestFlowControls .btn{
+  min-height:36px;
+  padding:8px 12px;
+  font-size:11px;
+}
+.screenTestStage{
+  position:relative;
+  width:100%;
+  height:clamp(430px,calc(100dvh - 310px),920px);
+  min-height:430px;
+  overflow:hidden!important;
+  contain:layout paint;
+}
+.screenTestViewport{
+  position:relative;
+  max-width:100%;
+  max-height:100%;
+  overflow:hidden!important;
+}
+.screenTestViewport.fitted{
+  flex:none;
+  min-width:0!important;
+  min-height:0!important;
+  border-radius:clamp(8px,calc(18px * var(--screen-test-scale)),18px);
+  box-shadow:0 18px 70px rgba(0,0,0,.78),0 0 0 1px rgba(136,183,224,.12);
+}
+.screenTestViewport.fitted iframe{
+  position:absolute;
+  top:0;
+  left:0;
+  display:block;
+  max-width:none!important;
+  max-height:none!important;
+  transform-origin:top left;
+}
+.screenTestViewport.auto iframe{
+  position:static;
+  width:100%!important;
+  height:100%!important;
+  transform:none!important;
+}
+.screenTestEmbedded .roleInfoFab{
+  z-index:182!important;
+  pointer-events:auto!important;
+}
+.screenTestEmbedded .roleInfoPanel{
+  z-index:181!important;
+  pointer-events:auto!important;
+}
+
+.peekExperience{
+  color:#edf5ff;
+  background:
+    linear-gradient(180deg,rgba(1,8,17,.58),rgba(0,5,12,.88)),
+    url("/assets/peek/cold-night-clearing.png") center/cover no-repeat,
+    #030914!important;
+}
+.peekExperience::before{
+  inset:0!important;
+  z-index:-1!important;
+  background:
+    radial-gradient(circle at 50% 22%,rgba(150,201,242,.15),transparent 31%),
+    linear-gradient(90deg,rgba(0,4,10,.72),transparent 21% 79%,rgba(0,4,10,.72)),
+    linear-gradient(180deg,transparent 52%,rgba(0,3,8,.62))!important;
+}
+.peekExperience::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:-1;
+  pointer-events:none;
+  opacity:.42;
+  background-image:
+    radial-gradient(circle at 14% 18%,#e8f4ff 0 1px,transparent 1.4px),
+    radial-gradient(circle at 31% 10%,#cbe7ff 0 1px,transparent 1.4px),
+    radial-gradient(circle at 67% 16%,#e8f4ff 0 1px,transparent 1.4px),
+    radial-gradient(circle at 84% 9%,#cbe7ff 0 1px,transparent 1.4px);
+  background-size:210px 160px,270px 190px,240px 170px,310px 210px;
+  animation:peekStarsBreathe 7s ease-in-out infinite alternate;
+}
+.peekTopline{
+  padding:8px 12px 0;
+  text-shadow:0 3px 18px rgba(0,0,0,.95);
+}
+.peekEyebrow{color:#8ebce0!important}
+.peekTopline h1{
+  color:#f2f7ff;
+  font-family:Georgia,"Times New Roman",serif;
+  font-weight:700;
+  letter-spacing:.015em;
+}
+.peekRisk{
+  width:min(660px,calc(100% - 24px));
+  padding:7px 11px;
+  border:1px solid rgba(135,180,218,.18);
+  color:#afc4d7;
+  background:linear-gradient(90deg,rgba(2,10,20,.78),rgba(8,18,29,.62),rgba(2,10,20,.78));
+  box-shadow:0 9px 30px rgba(0,0,0,.34);
+}
+.peekRisk>i,.peekReflectionMeter i{
+  height:7px;
+  border-color:rgba(156,198,228,.28);
+  background:#020711;
+}
+.peekRisk>i>b,.peekReflectionMeter i::after{
+  background:linear-gradient(90deg,#4f8fb6,#7aa8c7 52%,#d39455 78%,#b13b3f)!important;
+  box-shadow:0 0 14px rgba(97,162,204,.42);
+}
+.peekScene{
+  width:min(94vw,1040px);
+  height:min(73dvh,735px);
+  border:1px solid rgba(139,187,224,.3);
+  border-radius:14px;
+  background:
+    radial-gradient(ellipse at 50% 54%,rgba(28,58,80,.1),rgba(0,5,12,.55) 72%),
+    url("/assets/peek/cold-night-clearing.png") center/cover no-repeat,
+    #030914!important;
+  box-shadow:
+    inset 0 0 130px rgba(0,3,9,.94),
+    inset 0 -70px 100px rgba(0,2,7,.62),
+    0 22px 70px rgba(0,0,0,.62);
+}
+.peekScene::after{
+  content:"";
+  position:absolute;
+  inset:0;
+  z-index:1;
+  pointer-events:none;
+  background:
+    radial-gradient(ellipse at 50% 58%,transparent 34%,rgba(0,4,10,.36) 76%),
+    linear-gradient(180deg,rgba(3,12,24,.06),rgba(1,7,14,.32));
+}
+.peekPlayerCircle{z-index:3}
+.peekCirclePlayer{
+  width:clamp(48px,7.2vw,82px);
+  opacity:.23;
+  filter:brightness(.46) saturate(.55) blur(.15px);
+}
+.peekCirclePlayer::before{
+  content:"";
+  position:absolute;
+  left:50%;
+  top:38%;
+  width:120%;
+  height:105%;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  background:radial-gradient(ellipse,rgba(111,164,201,.13),transparent 67%);
+  opacity:0;
+  transition:opacity .22s ease;
+}
+.peekCirclePlayer strong{
+  margin-top:6px;
+  color:#a8bdd0;
+  opacity:.38;
+  font-weight:700;
+  letter-spacing:.035em;
+  transition:opacity .18s ease,color .18s ease;
+}
+.peekSleeper,.peekWolfShape{
+  width:clamp(35px,5.5vw,58px);
+  height:clamp(46px,7.5vw,76px);
+  filter:drop-shadow(0 6px 10px rgba(0,0,0,.75));
+}
+.peekSleeper::before{
+  border:1px solid rgba(154,181,201,.13);
+  background:
+    radial-gradient(circle at 47% 25%,#465463 0 13%,#26323e 14% 28%,transparent 29%),
+    linear-gradient(145deg,#263440,#101a25 70%);
+  box-shadow:0 15px 0 10px #111c27,0 24px 20px 13px rgba(0,0,0,.36);
+}
+.peekSleeper i::before,.peekSleeper i::after{
+  top:16%;
+  height:2px;
+  border-radius:999px;
+  background:#8ca7bb;
+  opacity:.45;
+}
+.peekWolfShape{
+  filter:drop-shadow(0 0 8px rgba(74,133,168,.38));
+}
+.peekWolfShape::before{
+  inset:8% 19% 3%;
+  border:1px solid rgba(132,172,195,.18);
+  background:linear-gradient(180deg,#253947,#09141f 78%)!important;
+}
+.peekWolfShape b::before,.peekWolfShape b::after{
+  top:47%;
+  width:8%;
+  background:#d9a74f;
+  box-shadow:0 0 6px rgba(211,160,68,.7);
+  opacity:.72;
+}
+.peekCirclePlayer.revealed{
+  opacity:.72;
+  filter:brightness(.84) saturate(.72);
+  transform:translate(-50%,-50%) scale(1.015);
+}
+.peekCirclePlayer.revealed::before{opacity:1}
+.peekCirclePlayer.revealed strong{opacity:.78}
+.peekCirclePlayer.awakeWolf{
+  opacity:.86;
+  filter:brightness(.92) saturate(.86);
+}
+.peekCirclePlayer.awakeWolf strong{color:#d4e4ef}
+.peekCirclePlayer.awakeWolf .peekWolfShape{
+  animation:peekWolfBreath 2.8s ease-in-out infinite alternate;
+}
+.peekHoldButton{
+  bottom:max(14px,env(safe-area-inset-bottom));
+  min-height:60px;
+  border:1px solid rgba(137,188,226,.62);
+  border-radius:4px;
+  color:#eaf5ff;
+  background:linear-gradient(180deg,rgba(28,70,100,.96),rgba(7,25,41,.98))!important;
+  box-shadow:0 12px 36px rgba(0,0,0,.7),inset 0 1px 0 rgba(209,235,255,.12),0 0 24px rgba(76,142,190,.12);
+}
+.peekHoldButton.holding{
+  border-color:#c78972;
+  background:linear-gradient(180deg,#704234,#28161a)!important;
+}
+.peekEyelid{
+  background:
+    radial-gradient(ellipse at 50% 100%,#151a22 0 13%,#080b11 48%,#010205 79%),
+    #010205!important;
+  box-shadow:0 0 50px 29px #000;
+}
+.mode-eyelids.risk-mid .peekScene{
+  box-shadow:inset 0 0 110px rgba(72,18,27,.58),0 22px 70px rgba(0,0,0,.62);
+}
+.peekWolfTurn{
+  top:12%;
+  color:#e7b19f;
+  text-shadow:0 3px 12px #000;
+}
+.peekWolfTurn span{
+  width:52px;
+  height:22px;
+  background:radial-gradient(ellipse at center,#d9ad64 0 9%,#5c342a 13% 25%,#03060a 31% 100%);
+  box-shadow:0 0 18px rgba(181,103,69,.52);
+}
+.peekMoonMeter{color:#c7d9e7}
+.peekMoonMeter span{
+  background:radial-gradient(circle at 64% 34%,#e5f1fb,#8faec4 58%,#20384b);
+  box-shadow:0 0 18px rgba(159,205,239,.34);
+}
+.peekWipePips i{
+  background:radial-gradient(circle,#b7d2e4,#5d849f 58%,#172a38);
+  box-shadow:0 0 8px rgba(126,182,219,.26);
+}
+.peekMirrorShade{
+  background:
+    radial-gradient(circle at 50% 50%,rgba(5,16,29,.45),rgba(0,3,8,.77)),
+    repeating-linear-gradient(108deg,transparent 0 22px,rgba(135,185,219,.025) 23px,transparent 25px);
+}
+.peekShard{
+  width:clamp(76px,13vw,132px);
+  border:1px solid rgba(205,232,249,.82);
+  background:
+    radial-gradient(circle at 42% 34%,rgba(231,246,255,.36),transparent 26%),
+    linear-gradient(135deg,rgba(148,198,226,.35),rgba(5,19,31,.18));
+  box-shadow:inset 0 0 22px rgba(225,244,255,.2),0 0 25px rgba(135,196,233,.25);
+  backdrop-filter:brightness(1.45) contrast(1.12) saturate(.78);
+}
+.peekGestureHint{
+  padding:7px 12px;
+  border:1px solid rgba(126,172,204,.2);
+  color:#bfd2e1!important;
+  background:rgba(2,10,18,.68);
+}
+.peekFogCanvas{z-index:6}
+.peekFogGrain{
+  opacity:.38;
+  background:
+    repeating-radial-gradient(ellipse at 20% 30%,transparent 0 22px,rgba(174,205,222,.035) 24px,transparent 28px),
+    linear-gradient(115deg,rgba(72,105,126,.08),transparent 50%);
+}
+.peekCaughtHint{color:#e3a18e!important;text-shadow:0 2px 12px #000}
+.peekInstruction{
+  background:
+    linear-gradient(180deg,rgba(1,8,17,.48),rgba(0,5,12,.83)),
+    url("/assets/peek/cold-night-clearing.png") center/cover no-repeat!important;
+}
+.peekInstruction::after{
+  inset:7%;
+  border-color:rgba(129,183,222,.28);
+  background:radial-gradient(circle,rgba(47,94,126,.24),rgba(1,8,16,.24) 54%,transparent 72%);
+}
+.peekInstructionSigil{
+  border-color:rgba(150,204,239,.5);
+  color:#b9dcf2;
+  background:rgba(3,15,27,.7);
+  box-shadow:0 0 42px rgba(101,171,217,.2);
+}
+.peekInstruction>p:not(.peekEyebrow){color:#c8d8e5}
+.peekUnderstandBtn{
+  border-color:rgba(148,198,230,.55)!important;
+  color:#edf7ff!important;
+  background:linear-gradient(180deg,#2c6387,#102d43)!important;
+}
+.peekClosureMark{
+  border-color:rgba(137,190,225,.52);
+  color:#b8dcef;
+  box-shadow:0 0 32px rgba(81,152,197,.18);
+}
+
+@keyframes peekStarsBreathe{
+  from{opacity:.28;filter:brightness(.82)}
+  to{opacity:.52;filter:brightness(1.12)}
+}
+@keyframes peekWolfBreath{
+  from{transform:scale(.985);filter:drop-shadow(0 0 5px rgba(83,141,173,.25))}
+  to{transform:scale(1.018);filter:drop-shadow(0 0 11px rgba(107,163,194,.42))}
+}
+
+@media(max-width:760px){
+  .screenTestStage{
+    height:min(72dvh,700px);
+    min-height:390px;
+  }
+  .screenTestFlowControls{
+    width:100%;
+    justify-content:stretch;
+  }
+  .screenTestScaleLabel{flex:1;white-space:normal}
+  .screenTestFlowControls .btn{flex:1}
+  .peekScene{min-height:350px}
+}
+@media(max-width:430px){
+  .peekTopline{padding:4px 6px 0}
+  .peekRisk{width:calc(100% - 8px);padding:5px 7px}
+  .peekScene{height:min(70dvh,620px);min-height:330px}
+  .peekGestureHint{bottom:9px}
+}
+@media(prefers-reduced-motion:reduce){
+  .peekExperience::after,
+  .peekCirclePlayer.awakeWolf .peekWolfShape{animation:none!important}
+}

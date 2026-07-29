@@ -1,6 +1,22 @@
 const screenTestMode = new URLSearchParams(location.search).has("screenTest");
 const screenTestSession = new URLSearchParams(location.search).get("screenTestSession") || "";
 const socket = io({autoConnect:!screenTestMode});
+if(screenTestMode){
+  const socketEmit=socket.emit.bind(socket);
+  socket.emit=(eventName,...args)=>{
+    if(["player_action","player_preview"].includes(eventName)){
+      window.parent?.postMessage({
+        type:"wakkerdam-screen-test-player-event",
+        surface:"player",
+        sessionId:screenTestSession,
+        eventName,
+        payload:args[0]||{},
+      },"*");
+      return socket;
+    }
+    return socketEmit(eventName,...args);
+  };
+}
 const $ = (id) => document.getElementById(id);
 let state = null;
 let playerKey = screenTestMode ? "" : (sessionStorage.getItem("wakkerdam_player_key") || "");
@@ -1001,6 +1017,13 @@ if(screenTestMode){
       window.WakkerdamPeekUI?.cleanupAll();
       const diagnostics=window.WakkerdamPeekUI?.diagnostics() || {};
       window.parent?.postMessage({type:"wakkerdam-screen-test-cleanup-result",surface:"player",sessionId:screenTestSession,requestId:event.data.requestId,diagnostics},"*");
+      return;
+    }
+    if(event.data?.type==="wakkerdam-screen-test-role-info"){
+      if(event.data.sessionId && event.data.sessionId!==screenTestSession) return;
+      roleInfoOpen=event.data.open===undefined?!roleInfoOpen:!!event.data.open;
+      clearTimeout(roleInfoAutoCloseTimer);
+      renderRoleInfo();
       return;
     }
     if(event.data?.type!=="wakkerdam-screen-test" || event.data.surface!=="player") return;

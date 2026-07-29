@@ -1,4 +1,18 @@
-# Wakkerdam Online Helper — v0.3.55
+# Wakkerdam Online Helper — v0.3.57
+
+## Nieuw in v0.3.57
+
+- Alle vaste telefoon-, tablet- en monitorvoorbeelden worden proportioneel volledig binnen de beschikbare teststage geschaald.
+- Playeracties in **Test alle pagina’s** werken interactief en leveren echte testresultaten en vervolgschermen op.
+- Een Jagerschot speelt in de tester automatisch de keuze-, impact- en overzichtsflow op het Infoscherm af.
+- De ronde rolinformatieknop blijft binnen ieder geschaald previewframe klikbaar.
+- De drie Spiekende-Meisje-mechanics hebben een professionele koude, blauwe sterrennachtstijl gekregen.
+- Spiegelscherf en mist vragen preciezere interactie voordat een wolf duidelijk herkenbaar wordt.
+
+## Eerder in v0.3.56
+
+- Alle keuzelijsten in **Debug → Test alle pagina’s** gebruiken nu een expliciete donkere achtergrond met lichte tekst, inclusief de geopende opties.
+- De groeps-, pagina- en Spiekende-Meisje-selectors behouden dezelfde leesbare stijl bij hover, focus en selectie, ook wanneer de browser anders een wit standaardveld toont.
 
 ## Nieuw in v0.3.55
 

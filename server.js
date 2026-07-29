@@ -19,7 +19,7 @@ const {
   hostPeekView,
 } = require("./peek-system");
 
-const VERSION = "0.3.55";
+const VERSION = "0.3.57";
 const PORT = process.env.PORT || 3000;
 const VOTE_REVEAL_MS = 3000;
 const RESULT_REVEAL_FALLBACK_MS = 5000;
