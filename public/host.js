@@ -8,6 +8,7 @@ let forceAdvanceTimer = null;
 let forceAdvanceSeconds = 0;
 let forceAdvanceReady = false;
 let forceAdvanceContext = "";
+let forceAdvanceButtonId = "";
 let pendingKickKey = null;
 let pendingKickTimer = null;
 let renderFrame = null;
@@ -56,28 +57,33 @@ $("nextStepBtn").addEventListener("click",()=>{
   const hunterStage = state?.hunterSequence?.stage || "";
   const forceNeeded = (state?.phase === "night" && !!state.currentStep && !state.currentStep.ready)
     || (state?.phase === "hunter" && ["choosing","shot_suspense"].includes(hunterStage));
-  if(!forceNeeded){
-    clearForceAdvance();
-    socket.emit("host_next_step");
-    return;
-  }
   const context = state.phase === "hunter" ? `hunter:${hunterStage}` : `night:${state.currentStep?.id || ""}`;
-  if(forceAdvanceReady && forceAdvanceContext === context){
-    clearForceAdvance();
-    socket.emit("host_next_step", { force:true });
-    return;
-  }
-  armForceAdvance(context);
+  requestHostAction({buttonId:"nextStepBtn",context,forceNeeded,event:"host_next_step"});
 });
-bind("resolveNightBtn","host_resolve_night"); bind("mayorBtn","host_open_mayor"); bind("closeMayorBtn","host_close_mayor"); bind("voteBtn","host_open_day_vote"); bind("closeVoteBtn","host_close_day_vote"); bind("nextNightBtn","host_start_next_night"); bind("resetBtn","host_reset");
+bind("resolveNightBtn","host_resolve_night"); bind("mayorBtn","host_open_mayor"); bind("voteBtn","host_open_day_vote"); bind("nextNightBtn","host_start_next_night"); bind("resetBtn","host_reset");
 $("startMayorVoteBtn").addEventListener("click",()=>{
-  const candidateCount = state?.mayorElection?.candidates?.length || 0;
-  if(candidateCount > 0){
-    socket.emit("host_start_mayor_vote");
-    return;
-  }
-  const ok = confirm("Er is nog geen kandidaat. Wil je de burgemeesterfase zonder kandidaat afronden?");
-  if(ok) socket.emit("host_start_mayor_vote", { force:true });
+  requestHostAction({
+    buttonId:"startMayorVoteBtn",
+    context:"mayor:candidates",
+    forceNeeded:missingCandidateResponses() > 0,
+    event:"host_start_mayor_vote"
+  });
+});
+$("closeMayorBtn").addEventListener("click",()=>{
+  requestHostAction({
+    buttonId:"closeMayorBtn",
+    context:"mayor:voting",
+    forceNeeded:missingMayorVotes() > 0,
+    event:"host_close_mayor"
+  });
+});
+$("closeVoteBtn").addEventListener("click",()=>{
+  requestHostAction({
+    buttonId:"closeVoteBtn",
+    context:"day:voting",
+    forceNeeded:missingDayVotes() > 0,
+    event:"host_close_day_vote"
+  });
 });
 document.addEventListener("click", (e)=>{
   const btn = e.target.closest?.("[data-host-event]");
@@ -89,6 +95,7 @@ document.querySelectorAll("[data-preset]").forEach(b=>b.addEventListener("click"
 $("rolesCard")?.addEventListener("toggle", () => { if(!rolesDetailsProgrammatic) rolesDetailsTouched = true; });
 $("debugToggle").addEventListener("click",()=>$("debugPanel").classList.toggle("hidden"));
 $("addTestPlayerBtn").addEventListener("click",()=>socket.emit("host_add_test_player"));
+$("openScreenTestBtn").addEventListener("click",()=>window.open("/screen-test.html","_blank"));
 $("copyConsoleBtn").addEventListener("click",()=>copyText(JSON.stringify(window.__hostConsole||[], null, 2), "Console gekopieerd."));
 $("copyDebugBtn").addEventListener("click",()=>socket.emit("host_debug_snapshot"));
 socket.on("host_debug_snapshot", snap=>{
@@ -114,35 +121,92 @@ async function copyText(text, ok="Gekopieerd."){
 }
 function showButton(id, show){ $(id).classList.toggle("hidden", !show); }
 function hasRemainingNightStep(){ return (state.nightSteps||[]).some(x=>!x.done&&!x.skipped); }
+function missingCandidateResponses(){
+  const responses = new Map((state?.mayorElection?.candidateResponses || []).map(row=>[row.key,row.response]));
+  return (state?.players || []).filter(player=>player.alive && !responses.get(player.key)).length;
+}
+function missingMayorVotes(){
+  return (state?.mayorElection?.voters || []).filter(voter=>!voter.voted).length;
+}
+function missingDayVotes(){
+  return (state?.dayVote?.voters || []).filter(voter=>!voter.voted).length;
+}
+function activeForceContext(){
+  const hunterStage = state?.hunterSequence?.stage || "";
+  if(state?.phase === "hunter" && ["choosing","shot_suspense"].includes(hunterStage)) return `hunter:${hunterStage}`;
+  if(state?.phase === "night" && state.currentStep && !state.currentStep.ready) return `night:${state.currentStep.id || ""}`;
+  if(state?.phase === "mayor" && state.mayorElection?.stage === "candidates" && missingCandidateResponses()) return "mayor:candidates";
+  if(state?.phase === "mayor" && state.mayorElection?.stage === "voting" && missingMayorVotes()) return "mayor:voting";
+  if(state?.phase === "voting" && missingDayVotes()) return "day:voting";
+  return "";
+}
 function clearForceAdvance(){
   clearInterval(forceAdvanceTimer);
+  if(forceAdvanceButtonId){
+    const previousButton = $(forceAdvanceButtonId);
+    previousButton?.classList.remove("forceArming","forceReady");
+    if(previousButton) previousButton.disabled = false;
+  }
   forceAdvanceTimer = null;
   forceAdvanceSeconds = 0;
   forceAdvanceReady = false;
   forceAdvanceContext = "";
-  const nextButton = $("nextStepBtn");
-  if(nextButton) nextButton.disabled = false;
+  forceAdvanceButtonId = "";
 }
-function armForceAdvance(context){
+function requestHostAction({buttonId,context,forceNeeded,event}){
+  if(!forceNeeded){
+    clearForceAdvance();
+    socket.emit(event);
+    return;
+  }
+  if(forceAdvanceReady && forceAdvanceContext === context && forceAdvanceButtonId === buttonId){
+    clearForceAdvance();
+    socket.emit(event, {force:true});
+    return;
+  }
+  armForceAdvance(context,buttonId);
+}
+function armForceAdvance(context,buttonId){
   if(forceAdvanceContext && forceAdvanceContext !== context) clearForceAdvance();
   if(forceAdvanceTimer || forceAdvanceReady) return;
   forceAdvanceContext = context;
-  forceAdvanceSeconds = 3;
-  const btn = $("nextStepBtn");
+  forceAdvanceButtonId = buttonId;
+  forceAdvanceSeconds = 1;
+  const btn = $(buttonId);
+  if(!btn) return;
+  btn.classList.remove("forceReady");
+  btn.classList.add("forceArming");
   btn.disabled = true;
-  btn.textContent = `Forceren beschikbaar over ${forceAdvanceSeconds}…`;
+  const startedAt = performance.now();
+  btn.textContent = "Forceren over 1,0 s";
   forceAdvanceTimer = setInterval(()=>{
-    forceAdvanceSeconds -= 1;
-    if(forceAdvanceSeconds > 0){
-      btn.textContent = `Forceren beschikbaar over ${forceAdvanceSeconds}…`;
+    const remaining = Math.max(0,1000-(performance.now()-startedAt));
+    forceAdvanceSeconds = remaining / 1000;
+    if(remaining > 0){
+      btn.textContent = `Forceren over ${(remaining/1000).toFixed(1).replace(".",",")} s`;
       return;
     }
     clearInterval(forceAdvanceTimer);
     forceAdvanceTimer = null;
     forceAdvanceReady = true;
     btn.disabled = false;
+    btn.classList.remove("forceArming");
+    btn.classList.add("forceReady");
     btn.textContent = "Nu forceren";
-  },1000);
+  },50);
+}
+function restoreForceButton(){
+  if(!forceAdvanceButtonId) return;
+  const btn=$(forceAdvanceButtonId);
+  if(!btn) return;
+  btn.classList.toggle("forceArming",!!forceAdvanceTimer);
+  btn.classList.toggle("forceReady",!!forceAdvanceReady);
+  btn.disabled=!!forceAdvanceTimer;
+  if(forceAdvanceTimer){
+    btn.textContent=`Forceren over ${Math.max(0,forceAdvanceSeconds).toFixed(1).replace(".",",")} s`;
+  }else if(forceAdvanceReady){
+    btn.textContent="Nu forceren";
+  }
 }
 
 function render(){
@@ -164,6 +228,7 @@ function render(){
   lastActiveGame = activeGame;
   $("version").textContent=`v${state.version}`;
   renderPhase(); renderStep(); renderPlayers(); renderRoles(); renderVotes();
+  restoreForceButton();
 }
 function renderPhase(){
   const total=state.selectedRoleTotal, players=state.players.length;
@@ -203,11 +268,11 @@ function renderPhase(){
   const unfinishedSteps = (state.nightSteps||[]).filter(x=>!x.done&&!x.skipped);
   const currentIsFinalNightStep = !!state.currentStep && state.currentStep.ready && unfinishedSteps.length === 1 && unfinishedSteps[0].id === state.currentStep.id;
   const hunterStage = state.hunterSequence?.stage || "";
-  const forceContext = inHunter ? `hunter:${hunterStage}` : `night:${state.currentStep?.id || ""}`;
+  const forceContext = activeForceContext();
   if(forceAdvanceContext && forceAdvanceContext !== forceContext) clearForceAdvance();
   // Zet dit pas ná het wisselen van de force-context. Anders kan de knop na
   // shot_suspense → summary één render lang (en daarna blijvend) disabled blijven.
-  $("nextStepBtn").disabled=!!forceAdvanceTimer;
+  $("nextStepBtn").disabled=forceAdvanceButtonId === "nextStepBtn" && !!forceAdvanceTimer;
   if(!forceAdvanceTimer && !forceAdvanceReady){
     $("nextStepBtn").textContent = inHunter
       ? (hunterStage === "summary" ? "Naar volledig dagoverzicht" : hunterStage === "announcement" ? "Laat de Jager kiezen" : hunterStage === "choosing" ? "Forceer Jagerkeuze" : hunterStage === "shot_suspense" ? "Forceer onthulling" : "Volgende Jagerstap")
@@ -230,16 +295,22 @@ function renderPhase(){
   showButton("mayorBtn", !hunterFlowActive && !pendingWinner && state.started && inDay && !state.mayorElection?.open && !hasLivingMayor);
   showButton("startMayorVoteBtn", !hunterFlowActive && ((inMayor && mayorStage === "candidates") || mayorRunoffReady));
   $("startMayorVoteBtn").disabled = hunterFlowActive || !(((inMayor && mayorStage === "candidates") || mayorRunoffReady));
-  $("startMayorVoteBtn").textContent = mayorRunoffReady ? "Start herstemming" : candidateCount > 0 ? "Laat spelers stemmen" : "Ga door zonder kandidaat";
+  $("startMayorVoteBtn").textContent = mayorRunoffReady
+    ? "Start herstemming"
+    : missingCandidateResponses()
+      ? "Forceer kandidaatstelling"
+      : candidateCount > 0
+        ? "Laat spelers stemmen"
+        : "Ga door zonder kandidaat";
   showButton("closeMayorBtn", !hunterFlowActive && inMayor && mayorStage === "voting");
-  if(inMayor && mayorStage === "voting") $("closeMayorBtn").textContent = "Burgemeester afronden";
+  if(inMayor && mayorStage === "voting") $("closeMayorBtn").textContent = missingMayorVotes() ? "Forceer burgemeesterstemming" : "Burgemeester afronden";
   // Hotfix v0.3.28: na de burgemeesteruitslag moet deze knop altijd zichtbaar zijn in het controlepaneel.
   showButton("voteBtn", !hunterFlowActive && (mayorResultReady || normalDayVoteReady || dayRunoffReady));
   $("voteBtn").disabled = hunterFlowActive || !(mayorResultReady || normalDayVoteReady || dayRunoffReady);
   $("voteBtn").textContent = dayRunoffReady ? "Start herstemming" : "Open dagstemming";
   $("voteBtn").classList.toggle("majorDayVoteBtn", mayorResultReady || dayRunoffReady);
   showButton("closeVoteBtn", !hunterFlowActive && inVoting);
-  if(inVoting) $("closeVoteBtn").textContent = "Stemming afronden";
+  if(inVoting) $("closeVoteBtn").textContent = missingDayVotes() ? "Forceer stemming" : "Stemming afronden";
   showButton("nextNightBtn", !hunterFlowActive && (pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open && !dayRunoffReady)));
   $("nextNightBtn").disabled=hunterFlowActive || !(pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open && !dayRunoffReady));
   $("nextNightBtn").textContent = pendingWinner ? "Toon winnaar" : "Start volgende nacht";
@@ -500,7 +571,7 @@ function renderTimeline(){
   return `<div class="stepTimeline">${steps.map((st,i)=>`${i?'<span class="stepTimelineArrow">→</span>':''}<span class="stepTimelineItem ${st.done?'done':''} ${st.active?'active':''}"><span>${esc(st.emoji||stepEmoji(st.kind))}</span><span>${esc(shortStepLabel(st.label))}</span></span>`).join("")}</div>`;
 }
 function stepEmoji(kind){
-  return ({wolf_hound:"🐕",wild_child:"🧒",cupid:"💘",lovers_info:"💞",seer:"🔮",sisters_info:"👭",wolves:"🐺",infectious_wolf:"🩸",big_bad_wolf:"🌕",white_wolf:"🤍",witch:"🧪",fox:"🦊",piper:"🎵",enchanted_info:"✨"})[kind]||"🃏";
+  return ({wolf_hound:"🐕",wild_child:"🧒",cupid:"💘",lovers_info:"💞",seer:"🔮",sisters_info:"👭",wolves:"🐺",infectious_wolf:"🩸",big_bad_wolf:"🌕",white_wolf:"🤍",witch:"🧪",fox:"🦊",piper:"🎵",enchanted_info:"✨",enchantment_broken:"◇"})[kind]||"🃏";
 }
 function shortStepLabel(label){ return String(label||"").replace("Weerwolven kiezen slachtoffer","Wolven").replace("Ziener onderzoekt","Ziener").replace("Heks gebruikt drankjes","Heks").replace("Besmettelijke Oerwolf beslist over besmetting","Oerwolf").replace("Grote Boze Wolf kiest extra slachtoffer","Grote Wolf").replace("Witte Weerwolf slaat toe","Witte Wolf").replace("Fluitspeler betovert","Fluitspeler"); }
 function formatHostWolfConsensus(s){

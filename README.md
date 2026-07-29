@@ -1,4 +1,17 @@
-# Wakkerdam Online Helper — v0.3.53
+# Wakkerdam Online Helper — v0.3.54
+
+## Nieuw in v0.3.54
+
+- Snelle selecties vervangen niet langer het volledige Playerkaart-raster. Alleen de gewijzigde selectiestatus wordt bijgewerkt en voorlopige doelen worden uitsluitend naar de betreffende speler en Host gestuurd.
+- De nachttijdlijn respecteert de actuele levensstatus en eerdere dodelijke acties: een later doel of een latere rolactie valt weg zodra die speler eerder in de nacht sterft. Een Host-revive maakt de speler weer beschikbaar; de levensdrank van de Heks blijft de bewuste reddingsexceptie.
+- **Betoverden zien elkaar** staat vooraf in iedere relevante nachttijdlijn. Sterft de Fluitspeler, dan volgt de volgende nacht éénmalig **De betovering is verbroken**, waarna alle betoveringen en toekomstige stappen verdwijnen.
+- Ontbrekende nachtacties, kandidaatantwoorden, burgemeesterstemmen en dagstemmen kunnen altijd door de Host worden geforceerd. Iedere forceerknop gebruikt dezelfde aftellende balk van één seconde.
+- Selectiemomenten met een maximum tonen een korte melding wanneer eerst iemand gedeselecteerd moet worden.
+- De Heks gebruikt geen selectievakje rechtsboven meer; de tegels **Niemand redden** en **Niemand vergiftigen** zijn herkenbaar geel, met een sterkere rand wanneer ze werkelijk gekozen zijn.
+- Na bevestiging zien geliefden **Je hebt je geliefden gezien**.
+- De stemgrafiek start alle balken tegelijk en gebruikt voor iedere balk dezelfde fysieke stijgsnelheid; de hoogste balk bereikt na exact drie seconden zijn eindhoogte.
+- De eindovergang is rustiger en langer. Dorpswinst houdt een zonnige, hoopvolle dageraad vast; wolvenwinst een donkerrode nachtelijke sfeer. Fluitspeler- en geliefdenwinst hebben een eigen blijvend thema.
+- De Debugtab bevat een mobiele **Test alle pagina’s**-studio met alle echte Player- en Infoschermen, gegroepeerd per rol/fase en schakelbare telefoon-, tablet- en monitorformaten.
 
 ## Nieuw in v0.3.53
 

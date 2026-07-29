@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+  <title>Wakkerdam — Paginatester</title>
+  <link rel="stylesheet" href="/style.css?v=0.3.54" />
+</head>
+<body class="screenTestStudio">
+  <div class="bg"></div>
+  <main class="screenTestShell">
+    <header class="screenTestHeader">
+      <div>
+        <p class="screenTestEyebrow">Debug / test</p>
+        <h1>Alle pagina’s</h1>
+        <p>Bekijk echte Player- en Infoschermen zonder eerst een spelsituatie na te bouwen.</p>
+      </div>
+      <a class="btn ghost" href="/host">Terug naar Host</a>
+    </header>
+
+    <section class="screenTestControls" aria-label="Paginatesterbediening">
+      <div class="screenTestSurfaceTabs">
+        <button class="btn gold active" data-test-surface="player">Player</button>
+        <button class="btn ghost" data-test-surface="info">Info</button>
+      </div>
+      <label>
+        <span>Groep</span>
+        <select id="screenTestGroup"></select>
+      </label>
+      <label>
+        <span>Pagina</span>
+        <select id="screenTestScenario"></select>
+      </label>
+      <div class="screenTestNav">
+        <button id="screenTestPrev" class="btn ghost" type="button">← Vorige</button>
+        <button id="screenTestNext" class="btn blue" type="button">Volgende →</button>
+      </div>
+      <div class="screenTestViewportButtons" aria-label="Testformaat">
+        <button class="btn ghost active" data-test-viewport="auto">Eigen scherm</button>
+        <button class="btn ghost" data-test-viewport="phone">Telefoon</button>
+        <button class="btn ghost" data-test-viewport="tablet">Tablet</button>
+        <button class="btn ghost" data-test-viewport="monitor">Monitor</button>
+      </div>
+    </section>
+
+    <section class="screenTestMeta">
+      <div>
+        <span id="screenTestCounter"></span>
+        <strong id="screenTestTitle"></strong>
+      </div>
+      <p id="screenTestDescription"></p>
+    </section>
+
+    <section id="screenTestViewport" class="screenTestViewport auto">
+      <iframe id="screenTestFrame" title="Live testpagina" allow="fullscreen"></iframe>
+    </section>
+  </main>
+  <script src="/screen-test.js?v=0.3.54"></script>
+</body>
+</html>

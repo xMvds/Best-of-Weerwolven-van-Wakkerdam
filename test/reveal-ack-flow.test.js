@@ -146,7 +146,7 @@ test("Host sees the day-vote result live and Players receive it only after the I
 
   host.emit("host_open_day_vote");
   await waitUntil(() => hostState?.phase === "voting" && hostState?.dayVote?.open, "open day vote");
-  host.emit("host_close_day_vote");
+  host.emit("host_close_day_vote", { force: true });
   await waitUntil(() => hostState?.dayVote?.result?.revealToken, "Host live result");
   await waitUntil(() => viewerState?.dayVote?.result?.revealToken, "Infoscherm result");
   await waitUntil(() => players.every(player => player.latest?.dayVote?.result), "Player waiting states");

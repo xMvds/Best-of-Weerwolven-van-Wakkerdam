@@ -10,19 +10,78 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 test("release version is coherent in server, package and browser cache keys", () => {
   const pkg = JSON.parse(read("package.json"));
-  assert.equal(pkg.version, "0.3.53");
-  assert.match(read("server.js"), /const VERSION = "0\.3\.53";/);
+  assert.equal(pkg.version, "0.3.54");
+  assert.match(read("server.js"), /const VERSION = "0\.3\.54";/);
   for (const file of ["public/host.html", "public/index.html", "public/viewer.html"]) {
-    assert.match(read(file), /\?v=0\.3\.53/);
-    assert.doesNotMatch(read(file), /\?v=0\.3\.52/);
+    assert.match(read(file), /\?v=0\.3\.54/);
+    assert.doesNotMatch(read(file), /\?v=0\.3\.53/);
   }
 });
 
 test("browser scripts remain syntactically valid", () => {
-  for (const file of ["server.js", "public/host.js", "public/player.js", "public/viewer.js"]) {
+  for (const file of ["server.js", "public/host.js", "public/player.js", "public/viewer.js", "public/screen-test.js"]) {
     const result = spawnSync(process.execPath, ["--check", path.join(root, file)], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
   }
+});
+
+test("v0.3.54 adds stable selection updates, universal force controls and the screen tester", () => {
+  const server = read("server.js");
+  const player = read("public/player.js");
+  const host = read("public/host.js");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  const hostHtml = read("public/host.html");
+  const studioHtml = read("public/screen-test.html");
+  const studio = read("public/screen-test.js");
+  const finalLayer = css.slice(css.indexOf("v0.3.54 —"));
+
+  assert.match(player, /function patchStableSelectionState\(box,fragment\)/);
+  assert.match(player, /data-action-key/);
+  assert.match(player, /Maximaal \$\{max\} gekozen — deselecteer eerst iemand\./);
+  assert.match(player, /Je hebt je geliefden gezien/);
+  assert.match(player, /function renderEnchantmentBroken/);
+  assert.match(player, /const screenTestMode = new URLSearchParams/);
+  assert.match(server, /function emitPreviewUpdate\(p\)/);
+  assert.match(server, /function emitWolfStepUpdate\(step = game\.currentStep\)/);
+  assert.match(server, /io\.to\("host"\)\.emit\("host_state", hostState\(\)\)/);
+  assert.match(server, /p\?\.socketId\) io\.to\(p\.socketId\)\.emit\("player_state", playerState\(p\)\)/);
+  assert.match(player, /socket\.emit\("player_preview", \{ kind:"wolves", targetKey:key \}\)/);
+  const previewStart = server.indexOf('socket.on("player_preview"');
+  const previewHandler = server.slice(previewStart, server.indexOf('socket.on("host_set_role_count"', previewStart));
+  assert.doesNotMatch(previewHandler, /emitAll\(\)/);
+  assert.match(server, /function projectedNightDeathSources\(\)/);
+  assert.match(server, /function isAvailableForNightStep\(targetKey, stepKind\)/);
+  assert.match(server, /piperSpellBreakPending/);
+  assert.match(server, /"enchantment_broken"/);
+
+  assert.match(host, /forceAdvanceSeconds = 1;/);
+  assert.match(host, /Math\.max\(0,1000-\(performance\.now\(\)-startedAt\)\)/);
+  assert.match(host, /missingCandidateResponses/);
+  assert.match(host, /missingMayorVotes/);
+  assert.match(host, /missingDayVotes/);
+  assert.match(host, /context:"mayor:candidates"[\s\S]*event:"host_start_mayor_vote"/);
+  assert.match(host, /context:"mayor:voting"[\s\S]*event:"host_close_mayor"/);
+  assert.match(host, /context:"day:voting"[\s\S]*event:"host_close_day_vote"/);
+  assert.match(host, /socket\.emit\(event, \{force:true\}\)/);
+  assert.match(finalLayer, /\.btn\.forceArming::after\{[\s\S]*animation:forceButtonDrain 1s linear/);
+  assert.match(finalLayer, /\.witchChoiceTile\.selected::after\{[\s\S]*content:none!important/);
+  assert.match(finalLayer, /\.witchChoiceTile\.none\{[\s\S]*rgba\(240,201,90,.58\)/);
+  assert.match(finalLayer, /\.selectionLimitHint\{/);
+
+  assert.match(viewer, /const duration = 3000/);
+  assert.match(viewer, /const localProgress = Math\.min\(1, progress \/ \(travelRatios\[i\] \|\| 1\)\)/);
+  assert.match(finalLayer, /winnerChapterCurtain 2\.7s/);
+  assert.match(finalLayer, /\.viewerHero\.ended\.winner-village/);
+  assert.match(finalLayer, /\.viewerHero\.ended\.winner-wolves/);
+
+  assert.match(hostHtml, /id="openScreenTestBtn"/);
+  assert.match(studioHtml, /id="screenTestFrame"/);
+  assert.match(studio, /const scenarios=\[/);
+  assert.match(studio, /surface:"player"/);
+  assert.match(studio, /surface:"info"/);
+  assert.match(studio, /Betovering verbroken/);
+  assert.match(studio, /Fluitspeler wint/);
 });
 
 test("stable reveal animation remains while the approved centered Info composition is preserved", () => {
@@ -49,13 +108,13 @@ test("info voting moves every bar at one physical speed while the highest takes 
   const server = read("server.js");
   assert.match(viewer, /--voter-font-size:\$\{Math\.max\(11,22-Math\.max\(0,String\(v\.name\|\|""\)\.length-10\)\*\.55\)\.toFixed\(1\)\}px/);
   assert.match(server, /const VOTE_REVEAL_MS = 3000;/);
-  assert.match(viewer, /Number\(timing\.revealDurationMs \|\| 3000\)/);
-  assert.match(viewer, /const elapsedBeforeStart = timing\.revealStartedAt/);
+  assert.match(viewer, /const duration = 3000;/);
+  assert.doesNotMatch(viewer, /const elapsedBeforeStart = timing\.revealStartedAt/);
   assert.match(viewer, /const progress = Math\.min\(1, elapsed \/ duration\)/);
   assert.match(viewer, /const travelRatios = bars\.map\(bar => Math\.max\(\.1, Math\.min\(1, Number\(bar\.dataset\.height \|\| 10\) \/ 100\)\)\)/);
   assert.match(viewer, /const localProgress = Math\.min\(1, progress \/ \(travelRatios\[i\] \|\| 1\)\)/);
   assert.match(viewer, /Math\.floor\(final \* localProgress\)/);
-  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress",String\(localProgress\)\)/);
+  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress",String\(localProgress\),"important"\)/);
   assert.match(viewer, /Math\.max\(10,Math\.round\(\(\(r\.votes\|\|0\)\/max\)\*100\)\)/);
   assert.doesNotMatch(viewer, /1 - Math\.pow\(1 - progress, 3\)|finalVoteHold|countDuration/);
   assert.doesNotMatch(viewer, /ownDuration = final <= 0/);
@@ -119,10 +178,11 @@ test("winner page swaps behind a team-specific diagonal cinematic transition", (
   const css = read("public/style.css");
   assert.match(viewer, /const winnerTone = s\.winner\?\.team === "village"[\s\S]*"winnerTransitionVillage"[\s\S]*"winnerTransitionWolves"/);
   assert.match(viewer, /document\.body\.classList\.add\("winnerTransitionBlack", winnerTone\)/);
-  assert.match(viewer, /setTimeout\(\(\)=>\{[\s\S]*displayedState=s;[\s\S]*scheduleViewerRender\(s\);[\s\S]*acknowledgeReveal\("winner", s\.winnerRevealToken\);[\s\S]*\},860\)/);
+  assert.match(viewer, /setTimeout\(\(\)=>\{[\s\S]*displayedState=s;[\s\S]*scheduleViewerRender\(s\);[\s\S]*acknowledgeReveal\("winner", s\.winnerRevealToken\);[\s\S]*\},1120\)/);
   assert.match(css, /\.infoScreen\.winnerTransitionVillage::after[\s\S]*radial-gradient/);
   assert.match(css, /\.infoScreen\.winnerTransitionWolves::after[\s\S]*radial-gradient/);
   assert.match(css, /@keyframes winnerDiagonalCurtain\{[\s\S]*clip-path:polygon/);
+  assert.match(css, /@keyframes winnerChapterCurtain\{[\s\S]*clip-path:polygon/);
 });
 
 test("choice screens fit their full grid and confirmation control inside touch viewports", () => {
@@ -208,7 +268,7 @@ test("action tiles are square and vote bars use count-aware linear travel", () =
   assert.match(css, /v0\.3\.45 final cascade[\s\S]*\.playerScreen \.playerTargetChoice[\s\S]*border-radius:0!important/);
   assert.match(css, /\.playerScreen \.witchPanel>h3\{text-align:center!important;\}/);
   assert.match(viewer, /travelRatios/);
-  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress",String\(localProgress\)\)/);
+  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress",String\(localProgress\),"important"\)/);
   assert.match(viewer, /bar\.style\.setProperty\("--graph-progress","1"\)/);
   assert.match(css, /\.mayorBarFill\{[\s\S]*transform:scaleY\(var\(--graph-progress,0\)\)!important/);
 });
@@ -226,7 +286,7 @@ test("completed vote reveals never replay their popup animation after refresh", 
 
 test("submitted night actions use the sleep message and never show Ingestuurd", () => {
   const player = read("public/player.js");
-  assert.match(player, /const submittedTitle = voteAction \? a\.title : "Je koos"/);
+  assert.match(player, /const submittedTitle = voteAction[\s\S]*a\.kind === "lovers_info"[\s\S]*"Je hebt je geliefden gezien"[\s\S]*"Je koos"/);
   assert.match(player, /"Te redden"/);
   assert.match(player, /"Te vergiftigen"/);
   assert.match(player, /"Te betoveren"/);
@@ -286,9 +346,9 @@ test("Host can force unfinished choices while the Hunter announcement and summar
   assert.match(host, /\["choosing","shot_suspense"\]\.includes\(hunterStage\)/);
   assert.match(host, /hunterStage === "announcement" \? "Laat de Jager kiezen"/);
   assert.match(host, /hunterStage === "summary" \? "Naar volledig dagoverzicht"/);
-  assert.match(host, /Forceren beschikbaar over \$\{forceAdvanceSeconds\}/);
+  assert.match(host, /Forceren over \$\{Math\.max\(0,forceAdvanceSeconds\)/);
   assert.match(host, /btn\.textContent = "Nu forceren"/);
-  assert.match(host, /socket\.emit\("host_next_step", \{ force:true \}\)/);
+  assert.match(host, /socket\.emit\(event, \{force:true\}\)/);
 });
 
 test("lobby preassignment, balanced Burger identities and persistent Host links are wired", () => {
@@ -325,7 +385,7 @@ test("v0.3.49 keeps scenes stable and presents Host, lover and enchanted details
   const player = read("public/player.js");
   const viewer = read("public/viewer.js");
   const css = read("public/style.css");
-  assert.match(server, /if \(step\.kind === "enchanted_info"\) return true/);
+  assert.match(server, /if \(\["enchanted_info", "enchantment_broken"\]\.includes\(step\.kind\)\) return true/);
   assert.match(server, /function ensureEnchantedInfoStepAfter\(step\)/);
   assert.match(server, /const enchanted = alivePlayers\(\)\.filter\(p => p\.enchanted\)\.map\(p => p\.key\)/);
   assert.match(player, /function renderEnchantedInfo\(a\)/);
@@ -485,7 +545,7 @@ test("v0.3.52 confirms wolf consensus, remembers Host roles and keeps touch choi
 
   assert.match(server, /p\.assignedRoleId = preassigned\.get\(p\.key\) \|\| null/);
   assert.match(server, /steps\.push\(makeStep\("lovers_info", "Geliefden zien elkaar", \[\]/);
-  assert.match(server, /\["wolves", "lovers_info"\]\.includes\(step\.kind\)/);
+  assert.match(server, /\["wolves", "lovers_info", "enchanted_info", "enchantment_broken"\]\.includes\(step\.kind\)/);
   assert.match(server, /existing\.actorKeys = lovers/);
 
   assert.match(server, /const BOT_PERSONAS = \["voorzichtig", "avontuurlijk", "onvoorspelbaar"\]/);
@@ -494,10 +554,10 @@ test("v0.3.52 confirms wolf consensus, remembers Host roles and keeps touch choi
   assert.match(server, /case "seer":[\s\S]*const unseen = targetOptions/);
   assert.match(server, /case "fox":[\s\S]*const checkedKeys = new Set/);
 
-  assert.match(host, /function clearForceAdvance\(\)[\s\S]*nextButton\.disabled = false/);
+  assert.match(host, /function clearForceAdvance\(\)[\s\S]*previousButton\.disabled = false/);
   assert.ok(
     host.indexOf('if(forceAdvanceContext && forceAdvanceContext !== forceContext) clearForceAdvance();')
-      < host.indexOf('$("nextStepBtn").disabled=!!forceAdvanceTimer;'),
+      < host.indexOf('$("nextStepBtn").disabled=forceAdvanceButtonId === "nextStepBtn" && !!forceAdvanceTimer;'),
     "Jager force context must clear before the button disabled state is applied",
   );
 
@@ -697,7 +757,7 @@ async function waitForServer(url, timeoutMs = 8000) {
   throw lastError || new Error(`Server did not start at ${url}`);
 }
 
-test("clean server exposes Host, Speler and Infoscherm routes", async (t) => {
+test("clean server exposes Host, Speler, Infoscherm and paginatester routes", async (t) => {
   const port = await freePort();
   const child = spawn(process.execPath, ["server.js"], {
     cwd: root,
@@ -710,7 +770,7 @@ test("clean server exposes Host, Speler and Infoscherm routes", async (t) => {
 
   const base = `http://127.0.0.1:${port}`;
   await waitForServer(`${base}/host`);
-  for (const route of ["/host", "/player", "/info", "/style.css", "/host.js", "/player.js", "/viewer.js", "/assets/cards/Heks.png", "/assets/cards/Ziener.png"]) {
+  for (const route of ["/host", "/player", "/info", "/screen-test.html", "/style.css", "/host.js", "/player.js", "/viewer.js", "/screen-test.js", "/assets/cards/Heks.png", "/assets/cards/Ziener.png"]) {
     const response = await fetch(`${base}${route}`);
     assert.equal(response.status, 200, route);
   }

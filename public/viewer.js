@@ -1,4 +1,5 @@
-const socket=io();
+const screenTestMode=new URLSearchParams(location.search).has("screenTest");
+const socket=io({autoConnect:!screenTestMode});
 const $=(id)=>document.getElementById(id);
 let lastDeathIds="";
 let lastMayorResultKey="";
@@ -76,6 +77,14 @@ const ROLE_ART = {
   "Heks": ["/assets/cards/Heks.png"],
   "Jager": ["/assets/cards/jager.png"]
 };
+const preloadedViewerArt=[];
+for(const src of [...new Set(Object.values(ROLE_ART).flat())]){
+  const image=new Image();
+  image.decoding="async";
+  image.src=src;
+  image.decode?.().catch(()=>{});
+  preloadedViewerArt.push(image);
+}
 function stableHash(str){ let h=0; str=String(str||""); for(let i=0;i<str.length;i++) h=((h<<5)-h+str.charCodeAt(i))|0; return Math.abs(h); }
 function deathVisual(d){
   const artList = ROLE_ART[d.roleName] || [];
@@ -141,8 +150,8 @@ function centralKeyForState(s, mayorActive, voteActive, mayorStage){
   }
   return `deaths:${s.phase}:${(s.lastDeaths||[]).map(d=>`${d.key}:${d.cause}:${d.linkedToKey||""}`).join("|")}`;
 }
-socket.emit("register_viewer");
-socket.on("connect",()=>socket.emit("register_viewer"));
+if(!screenTestMode) socket.emit("register_viewer");
+socket.on("connect",()=>{if(!screenTestMode) socket.emit("register_viewer");});
 window.addEventListener("resize",()=>{
   clearTimeout(resizeTimer);
   resizeTimer=setTimeout(()=>{
@@ -190,8 +199,8 @@ socket.on("state",s=>{
     displayedState=s;
     scheduleViewerRender(s);
     acknowledgeReveal("winner", s.winnerRevealToken);
-  },860);
-  setTimeout(()=>document.body.classList.remove("winnerTransitionBlack",winnerTone),1900);
+  },1120);
+  setTimeout(()=>document.body.classList.remove("winnerTransitionBlack",winnerTone),2700);
 });
 function render(s){
   if($("version")) $("version").textContent=`v${s.version}`;
@@ -328,7 +337,10 @@ function renderHunterCentral(id, s){
   $(id).innerHTML = `<div class="hunterRoundSummary hunterCenteredScene"><div class="hunterShotCards">${shotDeaths.filter(d=>!linkedKeys.has(d.key)).map(d=>linkedDeathHtml(d,shotDeaths)).join("")}</div></div>`;
 }
 function getInfoPhaseClass(s){
-  if(s?.winner || s?.phase === "ended") return "ended";
+  if(s?.winner || s?.phase === "ended"){
+    const team=String(s?.winner?.team||"other").replace(/[^a-z0-9_-]/gi,"");
+    return `ended winner-${team}`;
+  }
   if(s?.phase === "night") return "night";
   if(s?.phase === "mayor") return "day mayor";
   if(s?.phase === "voting") return "day voting";
@@ -444,15 +456,17 @@ function animateCountUps(root, done, timing={}){
   const bars = [...root.querySelectorAll(".mayorBarFill")];
   const finals = els.map(el => Number(el.dataset.final || 0));
   const travelRatios = bars.map(bar => Math.max(.1, Math.min(1, Number(bar.dataset.height || 10) / 100)));
-  const elapsedBeforeStart = timing.revealStartedAt ? Math.max(0, Date.now() - Number(timing.revealStartedAt)) : 0;
-  const duration = Math.max(1000, Number(timing.revealDurationMs || 3000));
-  const start = performance.now() - Math.min(duration, elapsedBeforeStart);
+  // Elke nieuwe lokale onthulling krijgt zijn volledige drie seconden. Zo kan
+  // een terugkerend Infoscherm de grafiek niet overslaan doordat de serverklok
+  // al verder liep terwijl het tabblad geen frames tekende.
+  const duration = 3000;
+  const start = performance.now();
   bars.forEach(bar=>{
     bar.style.height = `${Number(bar.dataset.height || 10)}%`;
     bar.style.animation = "none";
     bar.style.transition = "none";
     bar.style.transformOrigin = "bottom";
-    bar.style.setProperty("--graph-progress","0");
+    bar.style.setProperty("--graph-progress","0","important");
   });
   function frame(now){
     const elapsed = now - start;
@@ -464,14 +478,14 @@ function animateCountUps(root, done, timing={}){
     });
     bars.forEach((bar, i)=>{
       const localProgress = Math.min(1, progress / (travelRatios[i] || 1));
-      bar.style.setProperty("--graph-progress",String(localProgress));
+      bar.style.setProperty("--graph-progress",String(localProgress),"important");
     });
     if(elapsed < duration) requestAnimationFrame(frame);
     else {
       els.forEach(el=>el.textContent = el.dataset.final || "0");
       bars.forEach(bar=>{
         bar.style.height = `${Number(bar.dataset.height || 10)}%`;
-        bar.style.setProperty("--graph-progress","1");
+        bar.style.setProperty("--graph-progress","1","important");
       });
       if(typeof done === "function") done();
     }
@@ -541,4 +555,18 @@ function renderCandidates(id, rows){
 function renderVoteBars(id, rows){
   const max=Math.max(1,...rows.map(r=>r.votes||0));
   $(id).innerHTML=rows.length?rows.map(r=>`<div class="voteBar"><div class="voteBarTop"><strong>${esc(r.name)}</strong><span>${r.votes||0}</span></div><div class="progress"><div class="voteFill" style="width:${Math.round((r.votes||0)/max*100)}%"></div></div></div>`).join(""):'<p class="muted">Nog geen stemmen.</p>';
+}
+
+if(screenTestMode){
+  document.body.classList.add("screenTestEmbedded");
+  window.addEventListener("message",event=>{
+    if(event.data?.type!=="wakkerdam-screen-test" || event.data.surface!=="info") return;
+    displayedState=event.data.state;
+    centralSceneKey="";
+    viewerPlayersKey="";
+    lastMayorResultKey="";
+    lastDayResultKey="";
+    render(displayedState);
+  });
+  window.parent?.postMessage({type:"wakkerdam-screen-test-ready",surface:"info"},"*");
 }

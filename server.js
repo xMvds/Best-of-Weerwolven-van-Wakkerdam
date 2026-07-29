@@ -3,7 +3,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 
-const VERSION = "0.3.53";
+const VERSION = "0.3.54";
 const PORT = process.env.PORT || 3000;
 const VOTE_REVEAL_MS = 3000;
 const RESULT_REVEAL_FALLBACK_MS = 5000;
@@ -280,6 +280,7 @@ function newGame() {
     publicPhaseBeforeWinner: null,
     specialPowersDisabled: false,
     wolfishEverDied: false,
+    piperSpellBreakPending: false,
     hostNote: "",
     createdAt: Date.now()
   };
@@ -434,6 +435,67 @@ function targetOptions({ exclude = [], aliveOnly = true, includeSelf = true, onl
     .filter(p => !onlyWolfLike || isWolfLike(p))
     .filter(p => !notWolfPack || !isWolfPackMember(p))
     .map(p => playerTargetOption(observer, p, { revealActual }));
+}
+
+function nightStepIndex(kind) {
+  return (game.nightSteps || []).findIndex(step => step.kind === kind);
+}
+
+function projectedNightDeathSources() {
+  const sources = new Map();
+  if (!game.night) return sources;
+  const add = (key, kind) => {
+    if (!key || !isAlive(key)) return;
+    if (!sources.has(key)) sources.set(key, []);
+    sources.get(key).push(kind);
+  };
+  const wolfVictim = game.night.wolfVictimKey;
+  const wolfTarget = wolfVictim ? game.players[wolfVictim] : null;
+  const elderWillSurvive = wolfTarget?.roleId === "elder" && !wolfTarget.elderWolfShieldUsed;
+  if (wolfVictim && game.night.infectedKey !== wolfVictim && game.night.witchSaveKey !== wolfVictim && !elderWillSurvive) {
+    add(wolfVictim, "wolves");
+  }
+  if (game.night.bigBadVictimKey && game.night.witchSaveKey !== game.night.bigBadVictimKey) {
+    add(game.night.bigBadVictimKey, "big_bad_wolf");
+  }
+  if (game.night.whiteWolfVictimKey && game.night.witchSaveKey !== game.night.whiteWolfVictimKey) {
+    add(game.night.whiteWolfVictimKey, "white_wolf");
+  }
+  if (game.night.witchPoisonKey) add(game.night.witchPoisonKey, "witch");
+  return sources;
+}
+
+function isAvailableForNightStep(targetKey, stepKind) {
+  if (!isAlive(targetKey)) return false;
+  const currentIndex = nightStepIndex(stepKind);
+  if (currentIndex < 0) return true;
+  const lethalSources = projectedNightDeathSources().get(targetKey) || [];
+  return !lethalSources.some(sourceKind => {
+    const sourceIndex = nightStepIndex(sourceKind);
+    return sourceIndex >= 0 && sourceIndex < currentIndex;
+  });
+}
+
+function cancelPendingNightDeathForKey(key) {
+  if (!game.night || !key) return;
+  const n = game.night;
+  if (n.wolfVictimKey === key) {
+    n.wolfVictimKey = null;
+    n.wolfLockedTargetKey = null;
+    n.wolfLocked = false;
+  }
+  for (const field of ["bigBadVictimKey", "whiteWolfVictimKey", "witchPoisonKey"]) {
+    if (n[field] === key) n[field] = null;
+  }
+  if (n.wolfSelections) {
+    for (const [actorKey, targetKey] of Object.entries(n.wolfSelections)) {
+      if (targetKey === key) {
+        delete n.wolfSelections[actorKey];
+        delete n.wolfVotes?.[actorKey];
+        delete n.wolfConfirms?.[actorKey];
+      }
+    }
+  }
 }
 
 function countSelectedRoles() {
@@ -1379,8 +1441,11 @@ function isStepReady(step) {
   if (!step) return true;
   // Betoverden bekijken elkaar alleen. Deze pagina wordt bewust door de Host
   // doorgeklikt en vraagt geen individuele "Klaar"-bevestigingen.
-  if (step.kind === "enchanted_info") return true;
-  const actors = (step.actorKeys || []).map(k => game.players[k]).filter(Boolean).filter(p => p.alive);
+  if (["enchanted_info", "enchantment_broken"].includes(step.kind)) return true;
+  const actors = (step.actorKeys || [])
+    .map(k => game.players[k])
+    .filter(Boolean)
+    .filter(p => p.alive && isAvailableForNightStep(p.key, step.kind));
   if (step.kind === "wolves") return wolfConsensusReady(step);
   const humanActors = actors.filter(p => !p.isBot);
   return humanActors.length === 0 || humanActors.every(p => step.submissions[p.key]);
@@ -1454,11 +1519,24 @@ function emitAll() {
   }
 }
 
+function emitPreviewUpdate(p) {
+  io.to("host").emit("host_state", hostState());
+  if (p?.socketId) io.to(p.socketId).emit("player_state", playerState(p));
+}
+
+function emitWolfStepUpdate(step = game.currentStep) {
+  io.to("host").emit("host_state", hostState());
+  for (const actorKey of step?.actorKeys || []) {
+    const actor = game.players[actorKey];
+    if (actor?.socketId) io.to(actor.socketId).emit("player_state", playerState(actor));
+  }
+}
+
 function stepEmoji(kind) {
   return ({
     wolf_hound: "🐕", wild_child: "🧒", cupid: "💘", lovers_info: "💞", seer: "🔮", sisters_info: "👭",
     wolves: "🐺", infectious_wolf: "🩸", big_bad_wolf: "🌕", white_wolf: "🤍", witch: "🧪", fox: "🦊",
-    piper: "🎵", enchanted_info: "✨"
+    piper: "🎵", enchanted_info: "✨", enchantment_broken: "◇"
   })[kind] || "🃏";
 }
 
@@ -1517,12 +1595,26 @@ function buildNightSteps() {
     "Kan één slachtoffer redden en/of één speler vergiftigen."
   ));
   steps.push(makeStep("fox", "Vos speurt", playersByRole("fox").filter(p => !p.foxPowerLost).map(p => p.key), "Kies een speler; de app controleert die speler plus twee buren."));
-  steps.push(makeStep("piper", "Fluitspeler betovert", playersByRole("piper").map(p => p.key), "Kies maximaal twee spelers om te betoveren."));
-
+  const piperActors = playersByRole("piper").map(p => p.key);
   const enchanted = alivePlayers().filter(p => p.enchanted).map(p => p.key);
-  if (enchanted.length) steps.push(makeStep("enchanted_info", "Betoverden zien elkaar", enchanted, "Betoverde spelers krijgen een overzicht van de andere betoverden."));
+  if (piperActors.length) {
+    steps.push(makeStep("piper", "Fluitspeler betovert", piperActors, "Kies maximaal twee spelers om te betoveren."));
+    // De herkenningspagina staat vooraf in de tijdlijn wanneer hij deze nacht
+    // aan bod kan komen. Na de Fluitspeleractie wordt de placeholder gevuld.
+    steps.push(makeStep("enchanted_info", "Betoverden zien elkaar", enchanted, "Betoverde spelers krijgen een overzicht van de andere betoverden."));
+  } else if (game.piperSpellBreakPending && enchanted.length) {
+    steps.push(makeStep(
+      "enchantment_broken",
+      "Betovering wordt verbroken",
+      enchanted,
+      "De betovering is verbroken omdat de Fluitspeler dood is."
+    ));
+  } else if (game.piperSpellBreakPending) {
+    game.piperSpellBreakPending = false;
+    for (const player of orderedPlayers(true)) player.enchanted = false;
+  }
 
-  return steps.filter(step => step.actorKeys.length > 0 || ["wolves", "lovers_info"].includes(step.kind));
+  return steps.filter(step => step.actorKeys.length > 0 || ["wolves", "lovers_info", "enchanted_info", "enchantment_broken"].includes(step.kind));
 }
 
 function actionForPlayer(p) {
@@ -1606,6 +1698,7 @@ function actionForPlayer(p) {
 
   const step = game.currentStep;
   if (!step || !step.actorKeys.includes(p.key)) return null;
+  if (!isAvailableForNightStep(p.key, step.kind)) return null;
   const submitted = !!step.submissions[p.key];
   const preview = !submitted ? step.previews?.[p.key] || null : null;
   const base = {
@@ -1686,9 +1779,19 @@ function actionForPlayer(p) {
       return { ...base, text: victim ? `Wolvenslachtoffer: ${victim.name}. Wil je deze speler besmetten in plaats van doden?` : "Er is nog geen wolvenslachtoffer gekozen. Je kunt overslaan.", choices: [{ value: "no", label: "Niet besmetten" }, { value: "yes", label: "Besmetten" }] };
     }
     case "big_bad_wolf":
-      return { ...base, options: targetOptions({ exclude: [p.key, game.night?.wolfVictimKey].filter(Boolean), aliveOnly: true, notWolfPack: true, observer: p }) };
+      return {
+        ...base,
+        options: targetOptions({ exclude: [p.key], aliveOnly: true, notWolfPack: true, observer: p })
+          .filter(option => isAvailableForNightStep(option.key, step.kind))
+      };
     case "white_wolf":
-      return { ...base, options: alivePlayers().filter(q => q.key !== p.key && isWolfLike(q)).map(q => playerTargetOption(p, q)) };
+      return {
+        ...base,
+        options: alivePlayers()
+          .filter(q => q.key !== p.key && isWolfLike(q))
+          .filter(q => isAvailableForNightStep(q.key, step.kind))
+          .map(q => playerTargetOption(p, q))
+      };
     case "witch": {
       const pending = pendingNightVictims()
         .filter(k => isAlive(k))
@@ -1697,15 +1800,28 @@ function actionForPlayer(p) {
         ...base,
         text: "Gebruik eventueel je levensdrank en/of gifdrank. Elk drankje kan maar één keer.",
         pendingVictims: pending,
-        allTargets: targetOptions({ aliveOnly: true, observer: p }),
+        // De levensdrank mag juist een eerder aangevallen speler bereiken; de
+        // gifdrank mag niet meer op iemand die eerder in de nachttijdlijn sterft.
+        allTargets: targetOptions({ aliveOnly: true, observer: p })
+          .filter(option => isAvailableForNightStep(option.key, step.kind)),
         canSave: !p.witchSaveUsed,
         canPoison: !p.witchPoisonUsed,
       };
     }
     case "fox":
-      return { ...base, options: targetOptions({ aliveOnly: true, observer: p }) };
+      return {
+        ...base,
+        options: targetOptions({ aliveOnly: true, observer: p })
+          .filter(option => isAvailableForNightStep(option.key, step.kind))
+      };
     case "piper":
-      return { ...base, options: targetOptions({ exclude: [p.key], aliveOnly: true, observer: p }).filter(o => !game.players[o.key]?.enchanted), maxTargets: 2 };
+      return {
+        ...base,
+        options: targetOptions({ exclude: [p.key], aliveOnly: true, observer: p })
+          .filter(option => !game.players[option.key]?.enchanted)
+          .filter(option => isAvailableForNightStep(option.key, step.kind)),
+        maxTargets: 2
+      };
     case "enchanted_info": {
       const people = alivePlayers()
         .filter(q => q.enchanted && q.key !== p.key)
@@ -1719,6 +1835,15 @@ function actionForPlayer(p) {
         hostControlled: true,
       };
     }
+    case "enchantment_broken":
+      return {
+        ...base,
+        title: "De betovering is verbroken",
+        text: "De Fluitspeler is dood. Vanaf nu ben je niet meer betoverd.",
+        infoOnly: true,
+        hostControlled: true,
+        spellBroken: true,
+      };
     default:
       return base;
   }
@@ -1983,7 +2108,10 @@ function autoSubmitBotActions(step) {
         break;
       }
       case "big_bad_wolf": {
-        const targetKey = pick(targetOptions({ aliveOnly: true, notWolfPack: true }).filter(o => o.key !== game.night?.wolfVictimKey));
+        const targetKey = pick(
+          targetOptions({ aliveOnly: true, notWolfPack: true })
+            .filter(option => isAvailableForNightStep(option.key, step.kind))
+        );
         if (targetKey) {
           game.night.bigBadVictimKey = targetKey;
           step.submissions[p.key] = { targetKey, targetName: game.players[targetKey]?.name, bot: true };
@@ -1991,7 +2119,10 @@ function autoSubmitBotActions(step) {
         break;
       }
       case "white_wolf": {
-        const targetKey = pick(targetOptions({ aliveOnly: true, onlyWolfLike: true, exclude: [p.key] }));
+        const targetKey = pick(
+          targetOptions({ aliveOnly: true, onlyWolfLike: true, exclude: [p.key] })
+            .filter(option => isAvailableForNightStep(option.key, step.kind))
+        );
         if (targetKey) {
           game.night.whiteWolfVictimKey = targetKey;
           step.submissions[p.key] = { targetKey, targetName: game.players[targetKey]?.name, bot: true };
@@ -2006,7 +2137,9 @@ function autoSubmitBotActions(step) {
         const saveKey = !p.witchSaveUsed && pending.length && botWill(p, "witch-save", saveChance)
           ? randomChoice(pending)
           : null;
-        const poisonOptions = alivePlayers().filter(target => target.key !== p.key && target.key !== saveKey);
+        const poisonOptions = alivePlayers()
+          .filter(target => target.key !== p.key && target.key !== saveKey)
+          .filter(target => isAvailableForNightStep(target.key, step.kind));
         const poisonTarget = !p.witchPoisonUsed && poisonOptions.length && botWill(p, "witch-poison", poisonChance)
           ? randomChoice(poisonOptions)
           : null;
@@ -2029,8 +2162,10 @@ function autoSubmitBotActions(step) {
       }
       case "fox": {
         const checkedKeys = new Set((p.foxKnowledge || []).map(item => item.targetKey));
-        const freshOptions = targetOptions({ aliveOnly: true }).filter(option => !checkedKeys.has(option.key));
-        const targetKey = pick(freshOptions.length ? freshOptions : targetOptions({ aliveOnly: true }));
+        const validOptions = targetOptions({ aliveOnly: true })
+          .filter(option => isAvailableForNightStep(option.key, step.kind));
+        const freshOptions = validOptions.filter(option => !checkedKeys.has(option.key));
+        const targetKey = pick(freshOptions.length ? freshOptions : validOptions);
         if (targetKey) {
           const trio = foxTrio(targetKey);
           const found = trio.some(k => isWolfLike(game.players[k]));
@@ -2050,7 +2185,11 @@ function autoSubmitBotActions(step) {
       case "piper": {
         const persona = botPersona(p);
         const targetCount = persona === "voorzichtig" && botWill(p, "piper-one-target", 0.58) ? 1 : 2;
-        const targets = sampleKeys(alivePlayers().filter(q => !q.enchanted), targetCount, [p.key]);
+        const targets = sampleKeys(
+          alivePlayers().filter(q => !q.enchanted && isAvailableForNightStep(q.key, step.kind)),
+          targetCount,
+          [p.key]
+        );
         targets.forEach(k => {
           game.players[k].enchanted = true;
           privateLog(game.players[k], "Je bent betoverd door de Fluitspeler.", "magic");
@@ -2087,7 +2226,18 @@ function hostNextStep({ force = false } = {}) {
     }
   }
 
-  const next = game.nightSteps.find(s => !s.done && !s.skipped);
+  let next = game.nightSteps.find(s => !s.done && !s.skipped);
+  while (next) {
+    next.actorKeys = (next.actorKeys || [])
+      .filter(key => isAlive(key) && isAvailableForNightStep(key, next.kind));
+    const emptyInfoStep = ["lovers_info", "enchanted_info", "enchantment_broken"].includes(next.kind)
+      && next.actorKeys.length === 0;
+    const emptyRoleStep = next.kind !== "wolves" && next.actorKeys.length === 0;
+    if (!emptyInfoStep && !emptyRoleStep) break;
+    next.skipped = true;
+    next.done = true;
+    next = game.nightSteps.find(s => !s.done && !s.skipped);
+  }
   if (!next) {
     resolveNight();
     return;
@@ -2144,6 +2294,10 @@ function finishStep(step) {
   }
   if (step.kind === "cupid") ensureLoversInfoStepAfter(step);
   if (step.kind === "piper") ensureEnchantedInfoStepAfter(step);
+  if (step.kind === "enchantment_broken") {
+    for (const player of orderedPlayers(true)) player.enchanted = false;
+    game.piperSpellBreakPending = false;
+  }
   step.done = true;
   if (game.currentStep?.id === step.id) game.currentStep = null;
 }
@@ -2165,8 +2319,14 @@ function ensureLoversInfoStepAfter(step) {
 
 function ensureEnchantedInfoStepAfter(step) {
   const enchanted = alivePlayers().filter(p => p.enchanted).map(p => p.key);
-  if (!enchanted.length) return;
   const existing = game.nightSteps.find(s => s.kind === "enchanted_info" && !s.done);
+  if (!enchanted.length) {
+    if (existing) {
+      const index = game.nightSteps.findIndex(candidate => candidate.id === existing.id);
+      if (index >= 0) game.nightSteps.splice(index, 1);
+    }
+    return;
+  }
   if (existing) {
     // Neem ook iedereen mee die pas tijdens de huidige Fluitspelerstap
     // betoverd werd.
@@ -2294,6 +2454,7 @@ function handleAction(socket, payload = {}) {
 
   const step = game.currentStep;
   if (!step || !step.actorKeys.includes(p.key)) return;
+  if (!isAvailableForNightStep(p.key, step.kind)) return;
   if (step.kind !== "wolves" && step.submissions[p.key]) return;
 
   switch (step.kind) {
@@ -2348,6 +2509,10 @@ function handleAction(socket, payload = {}) {
     case "sisters_info":
     case "enchanted_info": {
       step.submissions[p.key] = { ready: true };
+      break;
+    }
+    case "enchantment_broken": {
+      step.submissions[p.key] = { ready: true, spellBroken: true };
       break;
     }
     case "seer": {
@@ -2417,7 +2582,7 @@ function handleAction(socket, payload = {}) {
     }
     case "big_bad_wolf": {
       const target = getPlayer(payload.targetKey);
-      if (target && target.alive && !isWolfPackMember(target) && target.key !== game.night?.wolfVictimKey) {
+      if (target && !isWolfPackMember(target) && isAvailableForNightStep(target.key, step.kind)) {
         game.night.bigBadVictimKey = target.key;
         step.submissions[p.key] = {
           targetKey: target.key,
@@ -2429,7 +2594,7 @@ function handleAction(socket, payload = {}) {
     }
     case "white_wolf": {
       const target = getPlayer(payload.targetKey);
-      if (target && target.alive && target.key !== p.key && isWolfLike(target)) {
+      if (target && target.key !== p.key && isWolfLike(target) && isAvailableForNightStep(target.key, step.kind)) {
         game.night.whiteWolfVictimKey = target.key;
         step.submissions[p.key] = {
           targetKey: target.key,
@@ -2447,7 +2612,7 @@ function handleAction(socket, payload = {}) {
         game.night.witchSaveKey = saveKey;
         p.witchSaveUsed = true;
       }
-      if (poisonKey && isAlive(poisonKey)) {
+      if (poisonKey && isAvailableForNightStep(poisonKey, step.kind)) {
         game.night.witchPoisonKey = poisonKey;
         p.witchPoisonUsed = true;
       }
@@ -2461,7 +2626,7 @@ function handleAction(socket, payload = {}) {
     }
     case "fox": {
       const target = getPlayer(payload.targetKey);
-      if (target && target.alive) {
+      if (target && isAvailableForNightStep(target.key, step.kind)) {
         const trio = foxTrio(target.key);
         const found = trio.some(k => isWolfLike(game.players[k]));
         if (!found) p.foxPowerLost = true;
@@ -2486,7 +2651,7 @@ function handleAction(socket, payload = {}) {
     }
     case "piper": {
       const keys = Array.isArray(payload.targetKeys) ? [...new Set(payload.targetKeys)].slice(0, 2) : [];
-      const valid = keys.filter(k => isAlive(k) && k !== p.key && !game.players[k].enchanted);
+      const valid = keys.filter(k => isAvailableForNightStep(k, step.kind) && k !== p.key && !game.players[k].enchanted);
       valid.forEach(k => {
         game.players[k].enchanted = true;
         privateLog(game.players[k], "Je bent betoverd door de Fluitspeler.", "magic");
@@ -2502,7 +2667,8 @@ function handleAction(socket, payload = {}) {
       step.submissions[p.key] = { ok: true };
   }
   if (step.submissions[p.key] && step.previews) delete step.previews[p.key];
-  emitAll();
+  if (step.kind === "wolves") emitWolfStepUpdate(step);
+  else emitAll();
 }
 
 function foxTrio(centerKey) {
@@ -2578,6 +2744,9 @@ function handleDeaths(deaths, continueTo = { phase: "day" }) {
     });
 
     if (isWolfLike(p)) game.wolfishEverDied = true;
+    if (p.roleId === "piper" && orderedPlayers(true).some(player => player.enchanted)) {
+      game.piperSpellBreakPending = true;
+    }
 
     // Angel early win.
     if (p.roleId === "angel" && (game.nightNumber === 1 || game.dayNumber <= 1) && ["wolves", "vote"].includes(d.cause)) {
@@ -3007,7 +3176,7 @@ function endGame(winner) {
 }
 
 
-function startMayorVoting() {
+function startMayorVoting({ force = false } = {}) {
   if (game.phase === "hunter" || game.hunterSequence) {
     return { ok: false, error: "Wacht tot het laatste schot van de Jager volledig is afgerond." };
   }
@@ -3030,7 +3199,11 @@ function startMayorVoting() {
   }
 
   if (game.mayorElection.stage !== "candidates") return { ok: false, error: "Er is geen kandidaatstellingsronde actief." };
-  // Als de host doorklikt, tellen spelers die niet reageerden als "nee".
+  const missingResponses = alivePlayers().filter(player => !game.mayorElection.responses?.[player.key]);
+  if (missingResponses.length && !force) {
+    return { ok: false, error: "Niet iedereen heeft geantwoord. Gebruik forceren om ontbrekende antwoorden als nee te behandelen." };
+  }
+  // Bij forceren tellen spelers die niet reageerden als "nee".
   markMissingMayorCandidateResponsesAsNo();
   const candidates = alivePlayers().filter(p => p.isCandidate);
   if (!candidates.length) {
@@ -3549,14 +3722,14 @@ io.on("connection", (socket) => {
       game.mayorElection.selections = game.mayorElection.selections || {};
       if (!payload.targetKey) {
         delete game.mayorElection.selections[p.key];
-        emitAll();
+        emitPreviewUpdate(p);
         return;
       }
       const target = getPlayer(payload.targetKey);
       if (!target || !target.alive || target.key === p.key) return;
       if (!target.isCandidate || !currentMayorCandidates().some(c => c.key === target.key)) return;
       game.mayorElection.selections[p.key] = target.key;
-      emitAll();
+      emitPreviewUpdate(p);
       return;
     }
     if (payload.kind === "day_vote") {
@@ -3565,27 +3738,55 @@ io.on("connection", (socket) => {
       game.dayVote.selections = game.dayVote.selections || {};
       if (!payload.targetKey) {
         delete game.dayVote.selections[p.key];
-        emitAll();
+        emitPreviewUpdate(p);
         return;
       }
       const target = getPlayer(payload.targetKey);
       if (!target || !target.alive || target.key === p.key) return;
       if (!currentDayVoteTargets().some(t => t.key === target.key)) return;
       game.dayVote.selections[p.key] = target.key;
-      emitAll();
+      emitPreviewUpdate(p);
       return;
     }
 
     const step = game.currentStep;
     if (!step || step.kind !== payload.kind || !step.actorKeys.includes(p.key) || step.submissions?.[p.key]) return;
+    if (!isAvailableForNightStep(p.key, step.kind)) return;
     step.previews = step.previews || {};
     const action = actionForPlayer(p);
     const allowedOptions = new Set((action?.options || []).map(option => option.key));
 
+    if (step.kind === "wolves") {
+      if (game.night?.wolfLocked) return;
+      const target = getPlayer(payload.targetKey);
+      if (!target || !target.alive || isWolfPackMember(target)) return;
+      game.night.wolfSelections = game.night.wolfSelections || {};
+      game.night.wolfVotes = game.night.wolfVotes || {};
+      game.night.wolfConfirms = game.night.wolfConfirms || {};
+      const previous = game.night.wolfSelections[p.key];
+      game.night.wolfSelections[p.key] = target.key;
+      game.night.wolfVotes[p.key] = target.key;
+      if (previous !== target.key) {
+        delete game.night.wolfConfirms[p.key];
+        delete step.submissions[p.key];
+      }
+      step.previews[p.key] = {
+        targetKey: target.key,
+        targetName: target.name,
+        targetCard: playerTargetOption(p, target),
+      };
+      emitWolfStepUpdate(step);
+      return;
+    }
+
     if (step.kind === "witch") {
       const pendingVictims = new Set(pendingNightVictims().filter(victimKey => isAlive(victimKey)));
       const saveKey = payload.saveKey && !p.witchSaveUsed && pendingVictims.has(payload.saveKey) ? payload.saveKey : null;
-      const poisonKey = payload.poisonKey && !p.witchPoisonUsed && isAlive(payload.poisonKey) ? payload.poisonKey : null;
+      const poisonKey = payload.poisonKey
+        && !p.witchPoisonUsed
+        && isAvailableForNightStep(payload.poisonKey, step.kind)
+        ? payload.poisonKey
+        : null;
       step.previews[p.key] = {
         saveKey,
         saveName: saveKey ? game.players[saveKey]?.name || null : null,
@@ -3594,7 +3795,7 @@ io.on("connection", (socket) => {
         poisonName: poisonKey ? game.players[poisonKey]?.name || null : null,
         poisonTarget: poisonKey ? playerTargetOption(p, game.players[poisonKey]) : null,
       };
-      emitAll();
+      emitPreviewUpdate(p);
       return;
     }
 
@@ -3605,7 +3806,7 @@ io.on("connection", (socket) => {
         .slice(0, max);
       if (!targetKeys.length) {
         delete step.previews[p.key];
-        emitAll();
+        emitPreviewUpdate(p);
         return;
       }
       step.previews[p.key] = {
@@ -3613,13 +3814,13 @@ io.on("connection", (socket) => {
         targetNames: targetKeys.map(targetKey => game.players[targetKey]?.name || "?"),
         people: targetKeys.map(targetKey => playerTargetOption(p, game.players[targetKey])),
       };
-      emitAll();
+      emitPreviewUpdate(p);
       return;
     }
 
     if (!payload.targetKey) {
       delete step.previews[p.key];
-      emitAll();
+      emitPreviewUpdate(p);
       return;
     }
     if (allowedOptions.has(payload.targetKey)) {
@@ -3629,7 +3830,7 @@ io.on("connection", (socket) => {
         targetName: target.name,
         targetCard: playerTargetOption(p, target),
       };
-      emitAll();
+      emitPreviewUpdate(p);
     }
   });
 
@@ -3720,12 +3921,20 @@ io.on("connection", (socket) => {
     logPublic("Spelers kunnen zich kandidaat stellen voor burgemeester.", "vote");
     emitAll();
   });
-  socket.on("host_start_mayor_vote", () => {
-    const result = startMayorVoting();
+  socket.on("host_start_mayor_vote", (payload = {}) => {
+    const result = startMayorVoting({ force: !!payload.force });
     if (!result.ok) socket.emit("host_error", result.error);
     emitAll();
   });
-  socket.on("host_close_mayor", () => { closeMayorElection(); emitAll(); });
+  socket.on("host_close_mayor", (payload = {}) => {
+    const missing = mayorVotingEligiblePlayers().some(player => !game.mayorElection.votes?.[player.key]);
+    if (missing && !payload.force) {
+      socket.emit("host_error", "Niet iedereen heeft gestemd. Gebruik forceren om ontbrekende stemmen willekeurig in te vullen.");
+      return;
+    }
+    closeMayorElection({ fillMissing: !!payload.force });
+    emitAll();
+  });
 
   socket.on("host_open_day_vote", () => {
     if (!game.started || game.phase === "ended" || game.phase === "hunter" || game.hunterSequence) return;
@@ -3733,7 +3942,15 @@ io.on("connection", (socket) => {
     openDayVoteAuto("De dagstemming is geopend.");
     emitAll();
   });
-  socket.on("host_close_day_vote", () => { closeDayVote(); emitAll(); });
+  socket.on("host_close_day_vote", (payload = {}) => {
+    const missing = dayVotingEligiblePlayers().some(player => !game.dayVote.votes?.[player.key]);
+    if (missing && !payload.force) {
+      socket.emit("host_error", "Niet iedereen heeft gestemd. Gebruik forceren om ontbrekende stemmen willekeurig in te vullen.");
+      return;
+    }
+    closeDayVote({ fillMissing: !!payload.force });
+    emitAll();
+  });
 
   socket.on("host_kick_player", ({ key } = {}) => {
     const result = kickPlayer(key);
@@ -3752,6 +3969,8 @@ io.on("connection", (socket) => {
     const p = getPlayer(key);
     if (!p) return;
     p.alive = true;
+    cancelPendingNightDeathForKey(p.key);
+    if (p.roleId === "piper") game.piperSpellBreakPending = false;
     logPublic(`${p.name} is handmatig teruggebracht.`, "safe");
     emitAll();
   });

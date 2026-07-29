@@ -1,6 +1,6 @@
 {
   "name": "wakkerdam-online-helper",
-  "version": "0.3.53",
+  "version": "0.3.54",
   "description": "Private online werewolf/social deduction helper with host, player and info screens.",
   "main": "server.js",
   "type": "commonjs",

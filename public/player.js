@@ -1,4 +1,5 @@
-const socket = io();
+const screenTestMode = new URLSearchParams(location.search).has("screenTest");
+const socket = io({autoConnect:!screenTestMode});
 const $ = (id) => document.getElementById(id);
 let state = null;
 let playerKey = sessionStorage.getItem("wakkerdam_player_key") || "";
@@ -25,6 +26,7 @@ let lastPlayerStateAt = 0;
 let foregroundSyncTimer = null;
 let foregroundSyncRequestAt = 0;
 let foregroundSyncSequence = 0;
+let selectionLimitHint = "";
 
 const ROLE_ART = {
   villager: [
@@ -41,6 +43,19 @@ const ROLE_ART = {
   witch: [{ src: "/assets/cards/Heks.png", title: "Heks" }],
   hunter: [{ src: "/assets/cards/jager.png", title: "Jager" }]
 };
+
+const preloadedRoleArt = [];
+function preloadRoleArt(){
+  const sources = [...new Set(Object.values(ROLE_ART).flat().map(item=>item.src))];
+  for(const src of sources){
+    const image = new Image();
+    image.decoding = "async";
+    image.src = src;
+    image.decode?.().catch(()=>{});
+    preloadedRoleArt.push(image);
+  }
+}
+preloadRoleArt();
 
 function stableHash(str){
   const s = String(str || "");
@@ -66,7 +81,7 @@ function renderPlayerIdentity(person, className=""){
   const revealedClass = person.cardRevealed ? "revealed" : "public";
   if(art){
     const preserveKey = `${person.key || person.name || roleId}:${roleId}:${art.src}:${className}`;
-    return `<span class="playerIdentityCard ${revealedClass} ${className}"><img src="${esc(art.src)}" alt="${esc(person.cardRoleName || art.title || "Spelerkaart")}" data-preserve-key="${esc(preserveKey)}" draggable="false"></span>`;
+    return `<span class="playerIdentityCard ${revealedClass} ${className}"><img src="${esc(art.src)}" alt="${esc(person.cardRoleName || art.title || "Spelerkaart")}" data-preserve-key="${esc(preserveKey)}" draggable="false" loading="eager" decoding="async"></span>`;
   }
   return `<span class="playerIdentityCard fallback ${revealedClass} ${className}"><span class="playerIdentityEmoji">${esc(person.cardRoleEmoji || "🃏")}</span><span class="playerIdentityRole">${esc(person.cardRoleName || "Rol")}</span></span>`;
 }
@@ -139,6 +154,70 @@ function actionImageKey(image){
     || [image?.getAttribute("src") || "", image?.getAttribute("alt") || "", image?.className || ""].join("|");
 }
 
+function syncElementAttributes(current,next){
+  [...current.attributes].forEach(attribute=>{
+    if(!next.hasAttribute(attribute.name)) current.removeAttribute(attribute.name);
+  });
+  [...next.attributes].forEach(attribute=>{
+    if(current.getAttribute(attribute.name)!==attribute.value) current.setAttribute(attribute.name,attribute.value);
+  });
+}
+
+function patchStableSelectionState(box,fragment){
+  const currentRoot=box.querySelector("[data-action-key]");
+  const nextRoot=fragment.querySelector("[data-action-key]");
+  if(!currentRoot || !nextRoot || currentRoot.dataset.actionKey!==nextRoot.dataset.actionKey) return false;
+  const currentTargets=[...currentRoot.querySelectorAll("[data-target]")];
+  const nextTargets=[...nextRoot.querySelectorAll("[data-target]")];
+  const currentKeys=currentTargets.map(node=>node.dataset.target).join("|");
+  const nextKeys=nextTargets.map(node=>node.dataset.target).join("|");
+  if(currentKeys!==nextKeys) return false;
+
+  const currentByKey=new Map(currentTargets.map(node=>[node.dataset.target,node]));
+  for(const nextTarget of nextTargets){
+    const currentTarget=currentByKey.get(nextTarget.dataset.target);
+    if(!currentTarget) return false;
+    syncElementAttributes(currentTarget,nextTarget);
+    const currentMarks=currentTarget.querySelector(".wolfTargetMeta");
+    const nextMarks=nextTarget.querySelector(".wolfTargetMeta");
+    if(currentMarks && nextMarks && currentMarks.innerHTML!==nextMarks.innerHTML) currentMarks.innerHTML=nextMarks.innerHTML;
+    else if(currentMarks && !nextMarks) currentMarks.remove();
+    else if(!currentMarks && nextMarks) currentTarget.append(nextMarks.cloneNode(true));
+  }
+
+  for(const id of ["confirmSingleBtn","wolfConfirmBtn","submitMulti","submitWitch"]){
+    const currentButton=currentRoot.querySelector(`#${id}`);
+    const nextButton=nextRoot.querySelector(`#${id}`);
+    if(currentButton && nextButton){
+      syncElementAttributes(currentButton,nextButton);
+      currentButton.textContent=nextButton.textContent;
+    }
+  }
+
+  const currentHint=currentRoot.querySelector(".selectionLimitHint");
+  const nextHint=nextRoot.querySelector(".selectionLimitHint");
+  if(currentHint && nextHint) currentHint.textContent=nextHint.textContent;
+  else if(currentHint && !nextHint) currentHint.remove();
+  else if(!currentHint && nextHint){
+    const grid=currentRoot.querySelector(".playerChoices");
+    grid?.insertAdjacentElement("afterend",nextHint.cloneNode(true));
+  }
+
+  const currentInputs=[...currentRoot.querySelectorAll(".witchChoiceTile input")];
+  const nextInputs=[...nextRoot.querySelectorAll(".witchChoiceTile input")];
+  if(currentInputs.length===nextInputs.length && currentInputs.length){
+    for(const nextInput of nextInputs){
+      const currentInput=currentInputs.find(input=>input.name===nextInput.name && input.value===nextInput.value);
+      if(!currentInput) continue;
+      currentInput.checked=nextInput.checked;
+      const currentTile=currentInput.closest(".witchChoiceTile");
+      const nextTile=nextInput.closest(".witchChoiceTile");
+      if(currentTile && nextTile) syncElementAttributes(currentTile,nextTile);
+    }
+  }
+  return true;
+}
+
 function commitActionHtml(box, markup){
   if(markup === lastActionMarkup && box.childNodes.length) return false;
 
@@ -155,6 +234,10 @@ function commitActionHtml(box, markup){
 
   const template = document.createElement("template");
   template.innerHTML = markup;
+  if(patchStableSelectionState(box,template.content)){
+    lastActionMarkup=markup;
+    return false;
+  }
   template.content.querySelectorAll("img").forEach(nextImage=>{
     const bucket = preserved.get(actionImageKey(nextImage));
     const currentImage = bucket?.shift();
@@ -296,6 +379,7 @@ function render(){
     pendingCandidateConfirm = false;
     pendingCandidateChoice = null;
     pendingFinalConfirm = null;
+    selectionLimitHint = "";
     selectedWitchSave = null;
     selectedWitchPoison = null;
     clearTimeout(candidateConfirmTimer);
@@ -378,8 +462,7 @@ function renderAction(){
     const hunterStage = state.hunterSequence?.stage || "";
     const title = state.phase === "night" ? "Nacht" : state.phase === "day" || (state.phase === "hunter" && hunterStage === "summary") ? "Je hebt de nacht overleefd" : state.phase === "hunter" ? "Het laatste schot" : state.phase === "lobby" ? "Lobby" : "Wacht";
     const sub = state.phase === "night" ? "Je slaapt." : state.phase === "hunter" && hunterStage !== "summary" ? "De uitslag wordt op het Infoscherm onthuld." : (state.phase === "lobby" ? "Wacht op de host." : "");
-    const enchantedNotice = state.me.enchanted ? `<div class="enchantedSelfNotice"><strong>Je bent betoverd!</strong><span>De Betoverde</span></div>` : "";
-    commitActionHtml(box, `<div class="playerCenter"><h1>${esc(title)}</h1>${sub?`<p>${esc(sub)}</p>`:""}${enchantedNotice}${roleCard(true)}</div>`);
+    commitActionHtml(box, `<div class="playerCenter"><h1>${esc(title)}</h1>${sub?`<p>${esc(sub)}</p>`:""}${roleCard(true)}</div>`);
     return;
   }
 
@@ -399,7 +482,11 @@ function renderAction(){
 
   if(a.submitted){
     const voteAction = a.kind === "mayor_vote" || a.kind === "day_vote";
-    const submittedTitle = voteAction ? a.title : "Je koos";
+    const submittedTitle = voteAction
+      ? a.title
+      : a.kind === "lovers_info"
+        ? "Je hebt je geliefden gezien"
+        : "Je koos";
     const sleepRole = a.actorRoleName || state.me.role?.name || "rol";
     const sleepMessage = voteAction ? "" : `<p class="sleepStatus">${esc(a.sleepMessage || `De ${sleepRole} gaat weer slapen.`)}</p>`;
     commitActionHtml(box, `<div class="playerCenter submitted"><h1>${esc(submittedTitle)}</h1>${renderSubmittedResult(a)}${sleepMessage}</div>`);
@@ -407,7 +494,7 @@ function renderAction(){
   }
 
   const completeClass = a.kind === "witch" && !a.canSave && !a.canPoison ? " actionComplete" : "";
-  let html=`<div class="playerCenter active action-${esc(a.kind)}${completeClass}"><h1>${esc(a.title)}</h1>${!["wolves","lovers_info"].includes(a.kind) && a.text?`<p>${esc(a.text)}</p>`:""}`;
+  let html=`<div class="playerCenter active action-${esc(a.kind)}${completeClass}" data-action-key="${esc(a.id || a.kind)}:${esc(a.kind)}"><h1>${esc(a.title)}</h1>${!["wolves","lovers_info"].includes(a.kind) && a.text?`<p>${esc(a.text)}</p>`:""}`;
 
   if(a.kind === "wolves"){
     html += renderWolfAction(a);
@@ -416,11 +503,13 @@ function renderAction(){
   } else if(["wild_child","seer","big_bad_wolf","white_wolf","fox","hunter_shot","mayor_vote","day_vote"].includes(a.kind)){
     html += renderSingleTargetAction(a);
   } else if(a.kind === "cupid"){
-    html += `<p class="small muted">Kies twee spelers.</p>${renderChoiceButtonsAsTargets(a.options||[], "multi", 2)}<button class="btn primary confirmBtn" id="submitMulti">Bevestigen</button>`;
+    html += `<p class="small muted">Kies twee spelers.</p>${renderChoiceButtonsAsTargets(a.options||[], "multi", 2)}${renderSelectionLimitHint()}<button class="btn primary confirmBtn" id="submitMulti">Bevestigen</button>`;
   } else if(a.kind === "lovers_info"){
     html += renderLoversInfo(a);
   } else if(a.kind === "enchanted_info"){
     html += renderEnchantedInfo(a);
+  } else if(a.kind === "enchantment_broken"){
+    html += renderEnchantmentBroken(a);
   } else if(a.infoOnly || a.kind === "sisters_info"){
     html += `<button class="btn primary confirmBtn" id="readyBtn">Klaar</button>`;
   } else if(a.kind === "infectious_wolf"){
@@ -428,7 +517,7 @@ function renderAction(){
   } else if(a.kind === "witch"){
     html += renderWitch(a);
   } else if(a.kind === "piper"){
-    html += `<p class="small muted">Kies maximaal twee spelers.</p>${renderChoiceButtonsAsTargets(a.options||[], "multi", 2)}<button class="btn primary confirmBtn" id="submitMulti">Bevestig betovering</button>`;
+    html += `<p class="small muted">Kies maximaal twee spelers.</p>${renderChoiceButtonsAsTargets(a.options||[], "multi", 2)}${renderSelectionLimitHint()}<button class="btn primary confirmBtn" id="submitMulti">Bevestig betovering</button>`;
   } else if(a.kind === "mayor_candidate"){
     html += `<div class="mayorExplain"><p>De burgemeester heeft bij dagstemmingen een dubbele stem.</p></div>`;
     if(a.candidateResponse === "yes" || a.selfCandidate){
@@ -506,6 +595,10 @@ function renderChoiceButtons(choices, kind){
   return `<div class="choices bigChoices">${choices.map(c=>`<button class="choice" data-choice="${esc(c.value)}" data-kind="${esc(kind)}">${esc(c.label)}</button>`).join("")}</div>`;
 }
 
+function renderSelectionLimitHint(){
+  return selectionLimitHint ? `<p class="selectionLimitHint" role="status">${esc(selectionLimitHint)}</p>` : "";
+}
+
 function renderSingleTargetAction(a){
   const needsFinal = a.kind === "day_vote" || a.kind === "mayor_vote";
   const samePending = needsFinal && pendingFinalConfirm && pendingFinalConfirm.kind === a.kind && pendingFinalConfirm.targetKey === selectedSingle;
@@ -578,14 +671,23 @@ function bindActionButtons(a){
     const mode=btn.dataset.mode;
     if(mode === "multi"){
       const max=Number(btn.dataset.max||2);
-      if(selectedTargets.has(key)) selectedTargets.delete(key);
-      else if(selectedTargets.size<max) selectedTargets.add(key);
+      if(selectedTargets.has(key)){
+        selectedTargets.delete(key);
+        selectionLimitHint="";
+      }else if(selectedTargets.size<max){
+        selectedTargets.add(key);
+        selectionLimitHint="";
+      }else{
+        selectionLimitHint=`Maximaal ${max} gekozen — deselecteer eerst iemand.`;
+        renderAction();
+        return;
+      }
       socket.emit("player_preview", { kind:a.kind, targetKeys:[...selectedTargets] });
       renderAction();
     } else if(mode === "wolf"){
       if(a.wolfLocked || a.wolfConsensus?.locked){ return; }
       selectedSingle = key;
-      socket.emit("player_action", { kind:"wolves", targetKey:key });
+      socket.emit("player_preview", { kind:"wolves", targetKey:key });
     } else {
       selectedSingle = selectedSingle === key ? null : key;
       if(!selectedSingle && pendingFinalConfirm?.kind === a.kind){
@@ -664,6 +766,7 @@ function submitMultiTargets(a){
   if(a.kind==="piper" && keys.length<1){toast("Kies minimaal één speler.");return;}
   socket.emit("player_action", { kind:a.kind, targetKeys:keys });
   selectedTargets.clear();
+  selectionLimitHint="";
 }
 
 function renderSubmittedResult(a){
@@ -780,7 +883,11 @@ function renderEnchantedInfo(a){
   const cards = people.length
     ? renderResultPeople("", people, "magic enchantedGroup")
     : `<p class="muted">Er zijn geen andere levende betoverden.</p>`;
-  return `<div class="enchantedInfo">${cards}<p class="hostControlledNotice">De Host gaat verder wanneer iedereen elkaar heeft gezien.</p></div>`;
+  return `<div class="enchantedInfo"><div class="enchantedSelfNotice"><strong>Je bent betoverd!</strong><span>De Betoverde</span></div>${cards}<p class="hostControlledNotice">De Host gaat verder wanneer iedereen elkaar heeft gezien.</p></div>`;
+}
+
+function renderEnchantmentBroken(){
+  return `<div class="enchantmentBrokenNotice"><span class="brokenMagicMark" aria-hidden="true">◇</span><strong>De betovering is verbroken</strong><p>De Fluitspeler is dood. Je bent vanaf nu niet meer betoverd.</p><small>De Host gaat verder.</small></div>`;
 }
 
 function renderWitch(a){
@@ -809,4 +916,22 @@ function renderWitch(a){
   }
   html += `</div><button id="submitWitch" class="btn primary confirmBtn">Bevestigen</button>`;
   return html;
+}
+
+if(screenTestMode){
+  document.body.classList.add("screenTestEmbedded");
+  window.addEventListener("message",event=>{
+    if(event.data?.type!=="wakkerdam-screen-test" || event.data.surface!=="player") return;
+    state=event.data.state;
+    playerKey=state?.me?.key || "screen_test_player";
+    lastActionKey="";
+    lastActionMarkup="";
+    selectedTargets.clear();
+    selectedSingle=null;
+    selectedWitchSave=null;
+    selectedWitchPoison=null;
+    selectionLimitHint="";
+    render();
+  });
+  window.parent?.postMessage({type:"wakkerdam-screen-test-ready",surface:"player"},"*");
 }

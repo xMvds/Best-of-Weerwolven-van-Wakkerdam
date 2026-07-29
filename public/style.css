@@ -5483,3 +5483,282 @@ body.playerScreen.inGame #submitWitch{
     transform:translateY(-2px);
   }
 }
+
+/* v0.3.54 — rustige selecties, universeel forceren en een blijvend slotthema. */
+.btn.forceArming{
+  position:relative;
+  isolation:isolate;
+  overflow:hidden;
+  opacity:1!important;
+}
+.btn.forceArming::after{
+  content:"";
+  position:absolute;
+  z-index:-1;
+  inset:0 0 0 auto;
+  width:100%;
+  pointer-events:none;
+  background:linear-gradient(90deg,rgba(226,230,238,.12),rgba(239,242,247,.46));
+  animation:forceButtonDrain 1s linear forwards;
+}
+.btn.forceReady{
+  opacity:1!important;
+  border-color:rgba(240,201,90,.72)!important;
+  box-shadow:0 0 18px rgba(240,201,90,.16);
+}
+@keyframes forceButtonDrain{to{width:0}}
+
+.playerScreen .witchChoiceTile.selected::after{
+  content:none!important;
+  display:none!important;
+}
+.playerScreen .witchChoiceTile.none{
+  border-color:rgba(240,201,90,.58)!important;
+  background:linear-gradient(180deg,rgba(75,59,22,.46),rgba(25,20,9,.72))!important;
+  color:#ffe6a1!important;
+  box-shadow:inset 0 0 0 1px rgba(240,201,90,.08)!important;
+  opacity:1!important;
+}
+.playerScreen .witchChoiceTile.none .witchNoActionIcon{color:#e8c968!important}
+.playerScreen .witchChoiceTile.none.selected{
+  border-color:#ffe28a!important;
+  outline:3px solid rgba(255,226,138,.88)!important;
+  outline-offset:-5px;
+  background:linear-gradient(180deg,#5d491d,#281f0d)!important;
+  box-shadow:0 0 24px rgba(240,201,90,.25)!important;
+}
+.selectionLimitHint{
+  width:min(100%,620px);
+  min-height:1.35em;
+  margin:4px auto 0;
+  color:#ffe29a;
+  font-size:clamp(12px,1.6vw,15px);
+  font-weight:750;
+  text-align:center;
+}
+.enchantmentBrokenNotice{
+  display:grid;
+  place-items:center;
+  width:min(100%,680px);
+  margin:auto;
+  padding:clamp(18px,4vw,34px);
+  border:1px solid rgba(181,150,255,.28);
+  border-radius:24px;
+  background:linear-gradient(180deg,rgba(32,26,50,.58),rgba(9,10,18,.76));
+  text-align:center;
+}
+.enchantmentBrokenNotice .brokenMagicMark{
+  color:#c7afe9;
+  font-size:clamp(42px,8vw,76px);
+  line-height:1;
+}
+.enchantmentBrokenNotice strong{
+  margin-top:8px;
+  font-family:Georgia,"Palatino Linotype","Book Antiqua",Palatino,serif;
+  font-size:clamp(24px,4vw,42px);
+}
+.enchantmentBrokenNotice p{margin:10px auto 0;color:#d5cfdf}
+.enchantmentBrokenNotice small{margin-top:14px;color:var(--muted)}
+
+.playerTargetChoice img,
+.playerIdentityCard img,
+.roleArtCard,
+.hostTargetRoleCard,
+.viewerRoleCard,
+.winnerRoleCard{
+  backface-visibility:hidden;
+  -webkit-backface-visibility:hidden;
+  image-rendering:auto;
+}
+
+.mayorBarFill{
+  transform:scaleY(var(--graph-progress,0))!important;
+  transform-origin:50% 100%!important;
+  transition:none!important;
+  animation:none!important;
+  will-change:transform;
+}
+
+.infoScreen.winnerTransitionBlack::after{
+  animation:winnerChapterCurtain 2.7s cubic-bezier(.63,0,.25,1) both!important;
+}
+.infoScreen.winnerTransitionBlack::before{
+  animation:winnerChapterLight 2.7s ease-in-out both!important;
+}
+@keyframes winnerChapterCurtain{
+  0%{clip-path:polygon(-8% -8%,-8% -8%,-8% -8%);opacity:0}
+  24%{opacity:.88}
+  44%,54%{clip-path:polygon(-8% -8%,208% -8%,-8% 208%);opacity:1}
+  78%{opacity:.78}
+  100%{clip-path:polygon(208% 208%,208% 208%,208% 208%);opacity:0}
+}
+@keyframes winnerChapterLight{
+  0%,15%{opacity:0;transform:translate3d(-24%,-24%,0) rotate(-8deg)}
+  43%{opacity:.72}
+  57%{opacity:.58}
+  100%{opacity:0;transform:translate3d(28%,28%,0) rotate(-8deg)}
+}
+
+.infoScreen .viewerHero.ended{
+  isolation:isolate;
+  transition:background 1.4s ease,border-color 1.4s ease,box-shadow 1.4s ease;
+}
+.infoScreen .viewerHero.ended::after{
+  content:"";
+  position:absolute;
+  z-index:0;
+  inset:-12%;
+  pointer-events:none;
+  opacity:.66;
+  transform:translate3d(0,0,0);
+  animation:winnerAtmosphere 11s ease-in-out infinite alternate;
+}
+.infoScreen .viewerHero.ended .infoContent{position:relative;z-index:1}
+.infoScreen .viewerHero.ended.winner-village{
+  border-color:rgba(255,224,139,.38)!important;
+  background:
+    radial-gradient(circle at 18% 10%,rgba(255,250,202,.72) 0 2%,rgba(247,194,86,.3) 10%,transparent 31%),
+    linear-gradient(180deg,#537d91 0%,#b08342 46%,#253826 100%)!important;
+  box-shadow:0 24px 100px rgba(11,18,18,.72),inset 0 -20vh 90px rgba(8,29,17,.42)!important;
+}
+.infoScreen .viewerHero.ended.winner-village::after{
+  background:
+    linear-gradient(114deg,transparent 31%,rgba(255,245,185,.13) 43%,rgba(255,250,209,.34) 48%,transparent 58%),
+    radial-gradient(ellipse at 50% 105%,rgba(97,147,73,.38),transparent 54%);
+}
+.infoScreen .viewerHero.ended.winner-wolves{
+  border-color:rgba(217,57,47,.45)!important;
+  background:
+    radial-gradient(circle at 83% 9%,rgba(255,124,54,.72) 0 2%,rgba(144,25,28,.44) 11%,transparent 31%),
+    radial-gradient(ellipse at 50% 105%,rgba(105,5,15,.78),transparent 62%),
+    linear-gradient(180deg,#15050a 0%,#4d1019 47%,#060307 100%)!important;
+  box-shadow:0 24px 110px rgba(0,0,0,.92),inset 0 0 110px rgba(111,4,17,.38)!important;
+}
+.infoScreen .viewerHero.ended.winner-wolves::after{
+  background:
+    linear-gradient(112deg,transparent 28%,rgba(215,31,31,.08) 42%,rgba(255,81,47,.22) 49%,transparent 59%),
+    radial-gradient(ellipse at 50% 92%,rgba(185,16,26,.2),transparent 62%);
+}
+.infoScreen .viewerHero.ended.winner-piper{
+  border-color:rgba(188,141,255,.44)!important;
+}
+.infoScreen .viewerHero.ended.winner-lovers{
+  border-color:rgba(240,201,90,.42)!important;
+  background:
+    radial-gradient(circle at 50% 20%,rgba(240,201,90,.2),transparent 34%),
+    linear-gradient(180deg,#241026,#160812 64%,#080509 100%)!important;
+}
+.infoScreen .viewerHero.ended.winner-lovers::after{
+  background:radial-gradient(ellipse at 50% 42%,rgba(211,83,116,.2),transparent 54%);
+}
+@keyframes winnerAtmosphere{
+  from{opacity:.5;transform:translate3d(-1.2%,.8%,0) scale(1.02)}
+  to{opacity:.8;transform:translate3d(1.2%,-.8%,0) scale(1.055)}
+}
+
+/* Alle echte Player- en Infoschermen vanuit één mobiele debugstudio. */
+.screenTestStudio{
+  min-height:100dvh;
+  overflow:auto;
+  background:
+    radial-gradient(circle at 14% 0%,rgba(176,124,255,.13),transparent 28%),
+    linear-gradient(145deg,#080a11,#101521 58%,#07080d);
+}
+.screenTestShell{
+  width:min(1500px,calc(100vw - 24px));
+  margin:0 auto;
+  padding:16px 0 28px;
+}
+.screenTestHeader{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:14px;
+  margin-bottom:12px;
+}
+.screenTestHeader h1{margin:0;font-size:clamp(24px,3vw,42px)}
+.screenTestHeader p{margin:5px 0 0;color:var(--muted)}
+.screenTestControls{
+  display:grid;
+  grid-template-columns:auto auto minmax(150px,.7fr) minmax(220px,1.3fr) auto auto;
+  align-items:end;
+  gap:9px;
+  padding:12px;
+  border:1px solid var(--line);
+  border-radius:20px;
+  background:rgba(12,15,25,.9);
+  box-shadow:var(--shadow);
+}
+.screenTestControls label{display:grid;gap:5px;color:var(--muted);font-size:12px}
+.screenTestControls select{min-width:0;width:100%;min-height:42px}
+.screenTestSurfaceTabs,.screenTestViewportButtons,.screenTestNav{display:flex;gap:6px;flex-wrap:wrap}
+.screenTestSurfaceTabs .active,.screenTestViewportButtons .active{
+  border-color:rgba(240,201,90,.7);
+  background:linear-gradient(135deg,#735316,#bd8d25);
+}
+.screenTestMeta{
+  display:flex;
+  justify-content:space-between;
+  gap:12px;
+  margin:10px 4px;
+  color:var(--muted);
+  font-size:13px;
+}
+.screenTestStage{
+  display:grid;
+  place-items:start center;
+  min-height:400px;
+  padding:12px;
+  overflow:auto;
+  border:1px solid var(--line);
+  border-radius:24px;
+  background:#03050a;
+}
+.screenTestViewport{
+  width:100%;
+  height:min(78dvh,920px);
+  overflow:hidden;
+  border:1px solid rgba(255,255,255,.2);
+  border-radius:18px;
+  background:#05060a;
+  box-shadow:0 18px 60px rgba(0,0,0,.68);
+  transition:width .22s ease,height .22s ease;
+}
+.screenTestViewport.phone{width:390px;height:844px}
+.screenTestViewport.tablet{width:820px;height:1080px}
+.screenTestViewport.monitor{width:min(1280px,100%);height:720px}
+.screenTestViewport iframe{display:block;width:100%;height:100%;border:0;background:#05060a}
+.screenTestEmbedded .debugFab{display:none!important}
+
+@media(max-width:900px){
+  .screenTestControls{grid-template-columns:1fr 1fr}
+  .screenTestControls label{grid-column:span 1}
+  .screenTestControls .screenTestViewportButtons{grid-column:1/-1}
+  .screenTestViewport.auto{height:calc(100dvh - 250px);min-height:520px}
+}
+@media(max-width:560px){
+  .screenTestShell{width:calc(100vw - 12px);padding-top:8px}
+  .screenTestHeader{align-items:flex-start;flex-direction:column}
+  .screenTestControls{grid-template-columns:1fr}
+  .screenTestControls>*,
+  .screenTestControls label,
+  .screenTestControls .screenTestViewportButtons{grid-column:1}
+  .screenTestSurfaceTabs .btn,.screenTestViewportButtons .btn{flex:1}
+  .screenTestStage{padding:5px;border-radius:16px}
+  .screenTestViewport,
+  .screenTestViewport.phone,
+  .screenTestViewport.tablet,
+  .screenTestViewport.monitor{
+    width:100%;
+    height:calc(100dvh - 238px);
+    min-height:520px;
+    border-radius:12px;
+  }
+}
+
+@media(prefers-reduced-motion:reduce){
+  .btn.forceArming::after{animation:none;width:0}
+  .infoScreen.winnerTransitionBlack::after{animation:winnerPageSwap 1.4s ease-in-out both!important}
+  .infoScreen.winnerTransitionBlack::before{display:none!important}
+  .infoScreen .viewerHero.ended::after{animation:none}
+}
