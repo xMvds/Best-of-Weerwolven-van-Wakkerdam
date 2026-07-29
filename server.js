@@ -3,7 +3,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 
-const VERSION = "0.3.52";
+const VERSION = "0.3.53";
 const PORT = process.env.PORT || 3000;
 const VOTE_REVEAL_MS = 3000;
 const RESULT_REVEAL_FALLBACK_MS = 5000;
@@ -3512,6 +3512,23 @@ io.on("connection", (socket) => {
     emitAll();
   });
 
+  socket.on("player_sync", ({ playerKey } = {}) => {
+    const requestedKey = String(playerKey || game.socketToKey[socket.id] || "").trim();
+    const p = requestedKey ? game.players[requestedKey] : null;
+    if (!p) {
+      socket.emit("state", publicState());
+      return;
+    }
+    socket.join("player");
+    p.socketId = socket.id;
+    p.connected = true;
+    game.socketToKey[socket.id] = p.key;
+    socket.emit("joined", { playerKey: p.key, name: p.name, lobbyId: game.lobbyId });
+    socket.emit("state", publicState());
+    socket.emit("player_state", playerState(p));
+    io.to("host").emit("host_state", hostState());
+  });
+
   socket.on("rename", ({ name } = {}) => {
     const key = game.socketToKey[socket.id];
     const p = getPlayer(key);
@@ -3774,7 +3791,10 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     const key = game.socketToKey[socket.id];
     const p = key ? game.players[key] : null;
-    if (p) {
+    // Een oude mobiele transportverbinding kan pas sluiten nadat dezelfde
+    // speler alweer met een nieuwe socket is gesynchroniseerd. Alleen de
+    // werkelijk actuele socket mag de speler dan offline zetten/verwijderen.
+    if (p && p.socketId === socket.id) {
       if (!game.started && !p.isBot) {
         // Lobbyregel: vóór de start is tabblad dicht = speler uit de lobby.
         delete game.players[key];

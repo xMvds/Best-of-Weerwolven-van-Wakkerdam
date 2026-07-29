@@ -163,6 +163,7 @@ test("every enchanted player sees the complete current group without a Ready sub
     const enchantedPlayers = players.filter(player => player.latest?.me?.enchanted);
     assert.equal(enchantedPlayers.length, expectedCount);
     for (const player of enchantedPlayers) {
+      await waitUntil(() => player.latest?.action?.kind === "enchanted_info", `enchanted Player state ${night}`);
       assert.equal(player.latest.action.kind, "enchanted_info");
       assert.equal(player.latest.action.hostControlled, true);
       assert.equal(player.latest.action.people.length, expectedCount - 1);

@@ -3034,6 +3034,257 @@ body.playerScreen.inGame .playerCenter.active .playerChoices .targetName{
   }
 }
 
+/* v0.3.53 — betrouwbare touchkeuzes, Fluitspelerfinale en herstelde mobiele status */
+.enchantedSelfNotice{
+  display:grid;
+  justify-items:center;
+  gap:3px;
+  margin:0 auto;
+  color:#e8dbff;
+  text-align:center;
+  text-shadow:0 0 18px rgba(160,103,255,.34);
+}
+.enchantedSelfNotice strong{
+  font-family:Georgia,"Palatino Linotype","Book Antiqua",Palatino,serif;
+  font-size:clamp(20px,3vw,32px);
+}
+.enchantedSelfNotice span{
+  color:#bfa7ea;
+  font-size:clamp(12px,1.6vw,16px);
+  letter-spacing:.08em;
+  text-transform:uppercase;
+}
+
+.playerScreen .witchChoiceTile{
+  isolation:isolate;
+}
+.playerScreen .witchChoiceTile.none{
+  border-color:rgba(166,177,197,.34)!important;
+  background:linear-gradient(180deg,rgba(24,32,47,.88),rgba(9,14,23,.94))!important;
+  box-shadow:none!important;
+  opacity:.78;
+}
+.playerScreen .witchChoiceTile.none .witchNoActionIcon{
+  color:#8f9aad!important;
+}
+.playerScreen .witchChoiceTile.none.selected{
+  border-color:#b8c2d2!important;
+  outline:2px solid rgba(184,194,210,.74)!important;
+  outline-offset:-4px;
+  background:linear-gradient(180deg,#2b3443,#111824)!important;
+  box-shadow:0 0 20px rgba(151,169,195,.18)!important;
+  opacity:1;
+}
+.playerScreen .witchChoiceTile.save.selected,
+.playerScreen .witchChoiceTile.poison.selected{
+  outline:3px solid currentColor!important;
+  outline-offset:-5px;
+  transform:translateY(-2px);
+}
+.playerScreen .witchChoiceTile.save.selected{color:#9ff4c0!important;}
+.playerScreen .witchChoiceTile.poison.selected{color:#ff9eac!important;}
+.playerScreen .witchChoiceTile.selected::after{
+  content:"✓";
+  position:absolute;
+  z-index:4;
+  top:6px;
+  right:6px;
+  display:grid;
+  place-items:center;
+  width:26px;
+  height:26px;
+  color:#07110b;
+  background:currentColor;
+  border:2px solid rgba(255,255,255,.72);
+  box-shadow:0 5px 15px rgba(0,0,0,.5);
+  font-weight:1000;
+  line-height:1;
+}
+
+.infoScreen .viewerHero.piperWinner{
+  background:
+    radial-gradient(circle at 50% 28%,rgba(176,124,255,.22),transparent 31%),
+    radial-gradient(circle at 16% 82%,rgba(113,64,181,.18),transparent 38%),
+    linear-gradient(180deg,#0c1020 0%,#080713 64%,#03040a 100%)!important;
+}
+.infoScreen .viewerHero.piperWinner::before{
+  content:"";
+  position:absolute;
+  z-index:0;
+  inset:-12%;
+  pointer-events:none;
+  opacity:.64;
+  background:
+    radial-gradient(circle at 50% 45%,transparent 0 17%,rgba(187,140,255,.12) 17.5% 18%,transparent 18.5% 28%,rgba(139,91,220,.09) 28.5% 29%,transparent 29.5%),
+    linear-gradient(115deg,transparent 35%,rgba(185,135,255,.08) 49%,transparent 63%);
+  transform:translate3d(0,0,0) scale(1);
+  animation:piperWinnerAura 8s ease-in-out infinite;
+}
+.infoScreen .viewerHero.piperWinner .infoContent{
+  position:relative;
+  z-index:1;
+}
+@keyframes piperWinnerAura{
+  50%{opacity:.9;transform:translate3d(0,-1.2%,0) scale(1.035);}
+}
+.infoScreen.winnerTransitionPiper::after{
+  background:
+    radial-gradient(circle at 13% 10%,#f0ddff 0 2%,#8a55c7 9%,rgba(53,23,92,.86) 31%,transparent 55%),
+    linear-gradient(135deg,#050309 0 30%,#321a50 54%,#8e5fbd 72%,#090512 100%)!important;
+}
+.infoScreen.winnerTransitionPiper::before{
+  background:linear-gradient(112deg,transparent 37%,rgba(141,82,218,.08) 44%,rgba(214,174,255,.82) 49%,rgba(255,246,255,.96) 50%,rgba(121,69,188,.24) 57%,transparent 64%);
+  filter:blur(8px);
+}
+.infoScreen .piperWinnerStage{
+  width:min(1560px,100%)!important;
+  max-height:none!important;
+  gap:clamp(7px,1.2svh,15px)!important;
+}
+.infoScreen .piperWinnerLead{
+  display:grid;
+  place-items:center;
+  width:100%;
+}
+.infoScreen .piperWinnerLead .piperLeadCard{
+  width:clamp(138px,12vw,195px)!important;
+  min-width:0!important;
+  max-width:195px!important;
+  height:auto!important;
+  min-height:0!important;
+  padding:8px!important;
+  border-color:rgba(204,165,255,.78)!important;
+  background:linear-gradient(180deg,rgba(63,35,93,.7),rgba(10,10,24,.86))!important;
+  box-shadow:0 20px 54px rgba(0,0,0,.5),0 0 36px rgba(156,97,235,.24)!important;
+}
+.infoScreen .piperWinnerLead .piperLeadCard .winnerRoleCard{
+  width:100%!important;
+  height:clamp(180px,31svh,290px)!important;
+  max-height:290px!important;
+  object-fit:contain!important;
+}
+.infoScreen .piperEnchantedGroup{
+  display:grid;
+  justify-items:center;
+  gap:7px;
+  width:100%;
+  min-width:0;
+}
+.infoScreen .piperEnchantedGroup .winnerGroupTitle{
+  font-size:clamp(15px,1.8vw,27px)!important;
+  color:#d8c1fa;
+}
+.infoScreen .piperEnchantedScroller{
+  width:100%;
+  min-width:0;
+  overflow-x:auto;
+  overflow-y:visible;
+  padding:3px 12px 13px;
+  scrollbar-width:thin;
+  scrollbar-color:rgba(181,143,235,.5) transparent;
+}
+.infoScreen .piperEnchantedCards{
+  display:flex!important;
+  flex-wrap:nowrap!important;
+  align-items:flex-start!important;
+  justify-content:center!important;
+  width:max-content!important;
+  min-width:100%!important;
+  margin:0 auto!important;
+  padding-left:var(--piper-overlap,0px);
+}
+.infoScreen .piperEnchantedCard{
+  position:relative;
+  flex:0 0 var(--piper-enchanted-card-width,112px)!important;
+  width:var(--piper-enchanted-card-width,112px)!important;
+  min-width:var(--piper-enchanted-card-width,112px)!important;
+  max-width:156px!important;
+  height:auto!important;
+  min-height:0!important;
+  margin-left:calc(var(--piper-overlap,0px) * -1)!important;
+  padding:5px!important;
+  border-color:rgba(181,143,235,.46)!important;
+  background:rgba(10,10,24,.76)!important;
+  box-shadow:0 12px 32px rgba(0,0,0,.42)!important;
+}
+.infoScreen .piperEnchantedCard h3{
+  position:relative;
+  z-index:2;
+  display:grid;
+  place-items:center;
+  min-height:2.15em;
+  margin:0 0 4px!important;
+  padding:2px;
+  color:#f1e7ff!important;
+  background:rgba(8,7,18,.9);
+  font-size:clamp(10px,1vw,15px)!important;
+  line-height:1.05!important;
+  overflow-wrap:anywhere;
+}
+.infoScreen .piperEnchantedCard .winnerRoleCard{
+  width:100%!important;
+  height:auto!important;
+  max-height:clamp(92px,20svh,176px)!important;
+  aspect-ratio:2 / 3;
+  object-fit:contain!important;
+}
+.infoScreen .piperEnchantedCard.dead{
+  opacity:.48!important;
+  filter:grayscale(1) saturate(.35)!important;
+}
+
+@media(max-width:1024px), (hover:none) and (pointer:coarse){
+  body.playerScreen.inGame .playerCenter.action-witch{
+    width:100%!important;
+    align-items:center!important;
+  }
+  body.playerScreen.inGame .playerCenter.action-witch .witchPanel{
+    grid-template-columns:minmax(0,1fr)!important;
+    grid-template-areas:
+      "saveTitle"
+      "saveChoices"
+      "poisonTitle"
+      "poisonChoices"!important;
+    width:100%!important;
+    overflow:visible!important;
+  }
+  body.playerScreen.inGame .playerCenter.action-witch .witchChoices{
+    width:100%!important;
+    overflow:visible!important;
+    scroll-margin-block:80px;
+  }
+  body.playerScreen.inGame .playerCenter.action-witch #submitWitch{
+    margin-top:12px!important;
+  }
+  .playerScreen .witchChoiceTile.selected::after{
+    width:24px;
+    height:24px;
+    top:4px;
+    right:4px;
+  }
+  .infoScreen .piperEnchantedCards{
+    justify-content:flex-start!important;
+    min-width:max-content!important;
+    padding-inline:10px!important;
+  }
+  .infoScreen .piperEnchantedCard{
+    --piper-overlap:0px;
+    flex-basis:clamp(94px,26vw,126px)!important;
+    width:clamp(94px,26vw,126px)!important;
+    min-width:clamp(94px,26vw,126px)!important;
+    margin-left:0!important;
+    scroll-snap-align:center;
+  }
+  .infoScreen .piperEnchantedScroller{
+    scroll-snap-type:x proximity;
+    -webkit-overflow-scrolling:touch;
+  }
+}
+
+@media(prefers-reduced-motion:reduce){
+  .infoScreen .viewerHero.piperWinner::before{animation:none!important;}
+}
+
 /* v0.3.43 — spelerkaarten als identiteit, rustige rolresultaten en ruimere eindscore */
 .hostScreen #phasePills{
   height:68px;
@@ -5195,5 +5446,40 @@ body.playerScreen.inGame #submitWitch{
   body.playerScreen.inGame .witchChoiceTile,
   .playerScreen .witchChoiceTile.none{
     min-height:94px!important;
+  }
+}
+
+/* v0.3.53 final cascade — alleen de betoverde kaart krijgt een paars accent. */
+.playerScreen .enchantedInfo,
+.playerScreen .enchantedInfo .submittedPeople.magic,
+.playerScreen .enchantedInfo .submittedPeopleGrid,
+.playerScreen .enchantedInfo .submittedPeople.magic article{
+  border:0!important;
+  outline:0!important;
+  background:transparent!important;
+  box-shadow:none!important;
+}
+.playerScreen .enchantedInfo .submittedPeople.magic{
+  padding:0!important;
+}
+.playerScreen .enchantedInfo .submittedPeople.magic .playerIdentityCard{
+  outline:2px solid rgba(181,150,255,.62)!important;
+  outline-offset:1px;
+  border:0!important;
+  background:transparent!important;
+  box-shadow:0 0 12px rgba(153,99,255,.16)!important;
+}
+.playerScreen .enchantedInfo .submittedPeople.magic article>strong{
+  color:#f2e8ff;
+  text-shadow:0 0 12px rgba(153,99,255,.2);
+}
+@media(max-width:1024px), (hover:none) and (pointer:coarse){
+  body.playerScreen.inGame .playerTargetChoice.selected,
+  body.playerScreen.inGame .choice.selected{
+    outline:3px solid #ffe39a!important;
+    outline-offset:-5px;
+    border-color:#fff0bd!important;
+    box-shadow:0 0 0 2px rgba(64,39,5,.72),0 0 26px rgba(240,201,90,.34)!important;
+    transform:translateY(-2px);
   }
 }

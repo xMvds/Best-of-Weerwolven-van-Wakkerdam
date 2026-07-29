@@ -10,11 +10,11 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 test("release version is coherent in server, package and browser cache keys", () => {
   const pkg = JSON.parse(read("package.json"));
-  assert.equal(pkg.version, "0.3.52");
-  assert.match(read("server.js"), /const VERSION = "0\.3\.52";/);
+  assert.equal(pkg.version, "0.3.53");
+  assert.match(read("server.js"), /const VERSION = "0\.3\.53";/);
   for (const file of ["public/host.html", "public/index.html", "public/viewer.html"]) {
-    assert.match(read(file), /\?v=0\.3\.52/);
-    assert.doesNotMatch(read(file), /\?v=0\.3\.51/);
+    assert.match(read(file), /\?v=0\.3\.53/);
+    assert.doesNotMatch(read(file), /\?v=0\.3\.52/);
   }
 });
 
@@ -515,6 +515,48 @@ test("v0.3.52 confirms wolf consensus, remembers Host roles and keeps touch choi
   assert.match(finalLayer, /\.infoScreen \.infoContent,[\s\S]*text-align:center!important/);
 });
 
+test("v0.3.53 keeps combined Witch choices, resumes mobile sessions and finishes the Piper presentation", () => {
+  const server = read("server.js");
+  const player = read("public/player.js");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  const finalLayer = css.slice(css.indexOf("v0.3.53 final cascade"));
+
+  assert.match(player, /let selectedWitchSave = null;/);
+  assert.match(player, /let selectedWitchPoison = null;/);
+  assert.match(player, /const saveKey=selectedWitchSave;[\s\S]*const poisonKey=selectedWitchPoison;[\s\S]*kind:"witch", saveKey:[\s\S]*poisonKey:/);
+  assert.match(player, /if\(input\.name === "saveKey"\) selectedWitchSave = input\.value \|\| null;/);
+  assert.match(player, /if\(input\.name === "poisonKey"\) selectedWitchPoison = input\.value \|\| null;/);
+  assert.match(player, /const selectedSave=pending\.some[\s\S]*: null\);/);
+  assert.match(player, /const selectedPoison=all\.some[\s\S]*: null\);/);
+  assert.match(css, /\.witchChoiceTile\.none\{[\s\S]*border-color:rgba\(166,177,197,.34\)!important[\s\S]*box-shadow:none!important/);
+  assert.match(css, /\.witchChoiceTile\.save\.selected,[\s\S]*\.witchChoiceTile\.poison\.selected\{[\s\S]*outline:3px solid currentColor!important/);
+
+  assert.match(player, /function requestForegroundSync\(reason="resume"\)/);
+  assert.match(player, /socket\.emit\("player_sync", \{ playerKey:key, lobbyId:lastLobbyId \|\| null, reason \}\)/);
+  assert.match(player, /document\.addEventListener\("visibilitychange"/);
+  assert.match(player, /window\.addEventListener\("pageshow"/);
+  assert.match(player, /window\.addEventListener\("focus"/);
+  assert.match(server, /socket\.on\("player_sync", \(\{ playerKey \} = \{\}\) =>/);
+  assert.match(server, /if \(p && p\.socketId === socket\.id\)/);
+
+  assert.match(player, /Je bent betoverd!/);
+  assert.match(player, /De Betoverde/);
+  assert.ok(finalLayer.length > 0, "v0.3.53 final cascade is missing");
+  assert.match(finalLayer, /\.enchantedInfo,[\s\S]*background:transparent!important[\s\S]*box-shadow:none!important/);
+  assert.match(finalLayer, /\.playerIdentityCard\{[\s\S]*outline:2px solid rgba\(181,150,255,.62\)!important/);
+
+  assert.doesNotMatch(viewer, /De Host gaat verder, anders start de keuze na tien seconden\./);
+  assert.match(viewer, /s\.winner\?\.team === "piper"/);
+  assert.match(viewer, /players\.filter\(p=>p\.enchanted && p\.key !== piper\?\.key\)/);
+  assert.match(viewer, /winnerPlayerCard\(piper,false,"piperLeadCard"\)/);
+  assert.match(viewer, /winnerPlayerCard\(p,false,"piperEnchantedCard"\)/);
+  assert.match(viewer, /winnerPlayerCard[\s\S]*p\.alive\?'alive':'dead'/);
+  assert.match(viewer, /winnerTransitionPiper/);
+  assert.match(css, /\.infoScreen\.winnerTransitionPiper::after/);
+  assert.match(css, /\.infoScreen \.piperEnchantedCard\.dead\{[\s\S]*grayscale\(1\)/);
+});
+
 test("social phases stay blocked until the Hunter sequence is completely finished", () => {
   const server = read("server.js");
   const host = read("public/host.js");
@@ -563,7 +605,8 @@ test("Host current step is simplified and receives live unconfirmed role choices
   assert.match(server, /if \(step\.kind === "witch"\)[\s\S]*saveName[\s\S]*poisonName/);
   assert.match(player, /socket\.emit\("player_preview", \{ kind:a\.kind, targetKeys:\[\.\.\.selectedTargets\] \}\)/);
   assert.match(player, /kind:"witch"[\s\S]*saveKey:[\s\S]*poisonKey:/);
-  assert.match(player, /const preview=a\.preview\|\|\{\}/);
+  assert.match(player, /selectedWitchSave = preview\?\.saveKey \|\| null/);
+  assert.match(player, /selectedWitchPoison = preview\?\.poisonKey \|\| null/);
   assert.match(player, /witchChoice\("save",o\.key,o\.name,selectedSave/);
   assert.match(player, /witchChoice\("poison",o\.key/);
   assert.match(player, /selectedSingle = selectedSingle === key \? null : key/);

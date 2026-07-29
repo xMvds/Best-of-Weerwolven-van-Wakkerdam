@@ -121,7 +121,7 @@ function finalMayorText(result){
 }
 function centralKeyForState(s, mayorActive, voteActive, mayorStage){
   if(s.winner){
-    return `winner:${s.winner.team||""}:${(s.players||[]).map(p=>`${p.key}:${p.alive?1:0}:${p.roleName||""}`).join("|")}`;
+    return `winner:${s.winner.team||""}:${(s.players||[]).map(p=>`${p.key}:${p.alive?1:0}:${p.enchanted?1:0}:${p.roleName||""}`).join("|")}`;
   }
   if(s.phase === "hunter" && s.hunterSequence){
     const h=s.hunterSequence;
@@ -145,7 +145,11 @@ socket.emit("register_viewer");
 socket.on("connect",()=>socket.emit("register_viewer"));
 window.addEventListener("resize",()=>{
   clearTimeout(resizeTimer);
-  resizeTimer=setTimeout(()=>{ if(displayedState?.winner) render(displayedState); },120);
+  resizeTimer=setTimeout(()=>{
+    if(!displayedState?.winner) return;
+    centralSceneKey="";
+    render(displayedState);
+  },120);
 });
 socket.on("state",s=>{
   const startsWinner = !!s?.winner && !s?.winnerPublicRevealed && (!displayedState || !displayedState.winner);
@@ -172,12 +176,14 @@ socket.on("state",s=>{
     return;
   }
   clearTimeout(winnerTransitionTimer);
-  document.body.classList.remove("winnerTransitionBlack","winnerTransitionVillage","winnerTransitionWolves","winnerTransitionOther");
+  document.body.classList.remove("winnerTransitionBlack","winnerTransitionVillage","winnerTransitionWolves","winnerTransitionPiper","winnerTransitionOther");
   void document.body.offsetWidth;
   const winnerTone = s.winner?.team === "village"
     ? "winnerTransitionVillage"
     : s.winner?.team === "wolves"
       ? "winnerTransitionWolves"
+      : s.winner?.team === "piper"
+        ? "winnerTransitionPiper"
       : "winnerTransitionOther";
   document.body.classList.add("winnerTransitionBlack", winnerTone);
   winnerTransitionTimer=setTimeout(()=>{
@@ -193,6 +199,7 @@ function render(s){
   const infoClass = getInfoPhaseClass(s);
   const transientHeroClasses=["deathPulse","hunterImpact"].filter(className=>hero.classList.contains(className));
   hero.className=`viewerHero ${infoClass}`;
+  if(s.winner?.team === "piper") hero.classList.add("piperWinner");
   transientHeroClasses.forEach(className=>hero.classList.add(className));
   const mayorActive = s.phase === "mayor" && !!s.mayorElection?.open;
   const voteActive = s.phase === "voting" && !!s.dayVote?.open;
@@ -293,7 +300,7 @@ function renderHunterCentral(id, s){
   const allDeaths = sequence.allDeaths || s.lastDeaths || [];
   const hunterDeath = sequence.hunterDeath || allDeaths.find(d=>d.key===sequence.hunterKey);
   if(sequence.stage === "announcement"){
-    $(id).innerHTML = `<div class="hunterAnnouncement hunterCenteredScene"><div class="hunterLastShotSeal">${hunterBullseye("hunterBullseyeSeal")}<strong>Laatste schot</strong><small>De Host gaat verder, anders start de keuze na tien seconden.</small></div>${hunterDeath?deathCardHtml(hunterDeath,"hunterPrimaryCard"):""}</div>`;
+    $(id).innerHTML = `<div class="hunterAnnouncement hunterCenteredScene"><div class="hunterLastShotSeal">${hunterBullseye("hunterBullseyeSeal")}<strong>Laatste schot</strong></div>${hunterDeath?deathCardHtml(hunterDeath,"hunterPrimaryCard"):""}</div>`;
     return;
   }
   if(sequence.stage === "choosing"){
@@ -478,13 +485,25 @@ function roleArtForName(roleName, seed, cardVariant=null){
   if(roleName === "Burger" && Number(cardVariant) >= 1 && Number(cardVariant) <= artList.length) return artList[Number(cardVariant)-1];
   return artList[stableHash(seed||roleName)%artList.length];
 }
-function winnerPlayerCard(p, defeated=false){
+function winnerPlayerCard(p, defeated=false, extraClass=""){
   const src = roleArtForName(p.roleName, p.key || p.name, p.cardVariant);
   const visual = src ? `<img class="winnerRoleCard" src="${esc(src)}" alt="${esc(p.roleName || '')}">` : `<span class="emoji winnerEmoji">${esc(p.roleEmoji || '🃏')}</span><p class="muted">${esc(p.roleName || '')}</p>`;
-  return `<div class="winnerPlayerCard ${p.alive?'alive':'dead'} ${defeated?'defeated':''}"><h3>${esc(p.name)}</h3>${visual}</div>`;
+  return `<div class="winnerPlayerCard ${p.alive?'alive':'dead'} ${defeated?'defeated':''} ${extraClass}"><h3>${esc(p.name)}</h3>${visual}</div>`;
 }
 function renderWinnerCentral(id, s){
   const players = s.players || [];
+  if(s.winner?.team === "piper"){
+    const piper = players.find(p=>p.roleName === "Fluitspeler") || players.find(p=>p.team === "solo_piper") || null;
+    const enchanted = players.filter(p=>p.enchanted && p.key !== piper?.key);
+    const viewportWidth = Math.max(320, window.innerWidth || 1280);
+    const availableWidth = Math.min(1540, viewportWidth * .9);
+    const enchantedCardWidth = Math.max(72, Math.min(156, Math.floor(availableWidth / Math.max(1, enchanted.length))));
+    const overflowWidth = Math.max(0, enchantedCardWidth * enchanted.length - availableWidth);
+    const piperOverlap = enchanted.length > 1 ? Math.min(20, Math.ceil(overflowWidth / (enchanted.length - 1))) : 0;
+    const enchantedStyle = `--piper-enchanted-count:${Math.max(1,enchanted.length)};--piper-enchanted-card-width:${enchantedCardWidth}px;--piper-overlap:${piperOverlap}px`;
+    $(id).innerHTML = `<div class="winnerStage piperWinnerStage"><h3>${esc(s.winner?.title || "De Fluitspeler wint!")}</h3><section class="piperWinnerLead">${piper?winnerPlayerCard(piper,false,"piperLeadCard"):""}</section><section class="piperEnchantedGroup"><h3 class="winnerGroupTitle">De Betoverden</h3><div class="piperEnchantedScroller"><div class="piperEnchantedCards" style="${enchantedStyle}">${enchanted.map(p=>winnerPlayerCard(p,false,"piperEnchantedCard")).join("")}</div></div></section></div>`;
+    return;
+  }
   let main = [];
   let defeated = [];
   if(s.winner?.team === 'wolves') {

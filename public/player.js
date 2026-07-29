@@ -19,6 +19,12 @@ let lastLoverHeartToken = "";
 let loverHeartTimer = null;
 let playerRenderFrame = null;
 let lastActionMarkup = "";
+let selectedWitchSave = null;
+let selectedWitchPoison = null;
+let lastPlayerStateAt = 0;
+let foregroundSyncTimer = null;
+let foregroundSyncRequestAt = 0;
+let foregroundSyncSequence = 0;
 
 const ROLE_ART = {
   villager: [
@@ -86,6 +92,46 @@ function schedulePlayerRender(){
     playerRenderFrame = null;
     render();
   });
+}
+
+function storedPlayerKey(){
+  return playerKey
+    || sessionStorage.getItem("wakkerdam_player_key")
+    || localStorage.getItem("wakkerdam_last_player_key")
+    || (lastLobbyId ? localStorage.getItem(lobbyKey(lastLobbyId)) : "")
+    || "";
+}
+
+function requestForegroundSync(reason="resume"){
+  const key = storedPlayerKey();
+  if(!key) return;
+  playerKey = key;
+  const sequence = ++foregroundSyncSequence;
+  clearTimeout(foregroundSyncTimer);
+  const send = ()=>{
+    if(sequence !== foregroundSyncSequence) return;
+    if(!socket.connected){
+      socket.connect();
+      foregroundSyncTimer = setTimeout(send, 320);
+      return;
+    }
+    foregroundSyncRequestAt = Date.now();
+    socket.emit("player_sync", { playerKey:key, lobbyId:lastLobbyId || null, reason });
+    foregroundSyncTimer = setTimeout(()=>{
+      if(sequence !== foregroundSyncSequence || lastPlayerStateAt >= foregroundSyncRequestAt) return;
+      // Een mobiele browser kan na sluimerstand een ogenschijnlijk verbonden,
+      // maar bevroren transport vasthouden. Alleen als de expliciete sync niet
+      // antwoordt, bouwen we de Socket.IO-verbinding opnieuw op.
+      socket.disconnect();
+      socket.connect();
+    },1500);
+  };
+  send();
+}
+
+function resumePlayerScreen(reason){
+  if(document.visibilityState === "hidden") return;
+  requestAnimationFrame(()=>requestForegroundSync(reason));
 }
 
 function actionImageKey(image){
@@ -183,7 +229,7 @@ $("roleInfoClose")?.addEventListener("click", ()=>{
 function join(){ socket.emit("join", { name: $("nameInput").value, playerKey }); }
 
 socket.on("connect", ()=>{
-  if(playerKey) socket.emit("join", { playerKey });
+  if(storedPlayerKey()) socket.emit("join", { playerKey:storedPlayerKey() });
   else setTimeout(()=>$('nameInput')?.focus(),80);
 });
 socket.on("join_denied", msg=>{
@@ -205,7 +251,14 @@ socket.on("joined", data=>{
   $("joinCard").classList.add("hidden");
   $("gameUI").classList.remove("hidden");
 });
-socket.on("player_state", s=>{ const prev=state; state=s; maybeVibrateForAction(prev,s); schedulePlayerRender(); });
+socket.on("player_state", s=>{
+  lastPlayerStateAt = Date.now();
+  clearTimeout(foregroundSyncTimer);
+  const prev=state;
+  state=s;
+  maybeVibrateForAction(prev,s);
+  schedulePlayerRender();
+});
 socket.on("state", s=>{
   lastLobbyId = s.lobbyId || lastLobbyId;
   if(!state){
@@ -216,6 +269,12 @@ socket.on("state", s=>{
     }
   }
 });
+document.addEventListener("visibilitychange", ()=>{
+  if(document.visibilityState === "visible") resumePlayerScreen("visibility");
+});
+window.addEventListener("pageshow", ()=>resumePlayerScreen("pageshow"));
+window.addEventListener("focus", ()=>resumePlayerScreen("focus"));
+window.addEventListener("online", ()=>resumePlayerScreen("online"));
 
 function maybeVibrateForAction(prev,next){
   const a=next?.action;
@@ -237,6 +296,8 @@ function render(){
     pendingCandidateConfirm = false;
     pendingCandidateChoice = null;
     pendingFinalConfirm = null;
+    selectedWitchSave = null;
+    selectedWitchPoison = null;
     clearTimeout(candidateConfirmTimer);
     clearTimeout(finalConfirmTimer);
     lastActionKey = actionKey;
@@ -245,6 +306,10 @@ function render(){
       preview.targetKeys.forEach(key=>selectedTargets.add(key));
     }
     selectedSingle = preview?.targetKey || state.action?.selectedTargetKey || null;
+    if(state.action?.kind === "witch"){
+      selectedWitchSave = preview?.saveKey || null;
+      selectedWitchPoison = preview?.poisonKey || null;
+    }
   }
   document.body.classList.add("inGame");
   document.body.classList.toggle("playerDead", !state.me.alive && state.phase !== "hunter");
@@ -313,7 +378,8 @@ function renderAction(){
     const hunterStage = state.hunterSequence?.stage || "";
     const title = state.phase === "night" ? "Nacht" : state.phase === "day" || (state.phase === "hunter" && hunterStage === "summary") ? "Je hebt de nacht overleefd" : state.phase === "hunter" ? "Het laatste schot" : state.phase === "lobby" ? "Lobby" : "Wacht";
     const sub = state.phase === "night" ? "Je slaapt." : state.phase === "hunter" && hunterStage !== "summary" ? "De uitslag wordt op het Infoscherm onthuld." : (state.phase === "lobby" ? "Wacht op de host." : "");
-    commitActionHtml(box, `<div class="playerCenter"><h1>${esc(title)}</h1>${sub?`<p>${esc(sub)}</p>`:""}${roleCard(true)}</div>`);
+    const enchantedNotice = state.me.enchanted ? `<div class="enchantedSelfNotice"><strong>Je bent betoverd!</strong><span>De Betoverde</span></div>` : "";
+    commitActionHtml(box, `<div class="playerCenter"><h1>${esc(title)}</h1>${sub?`<p>${esc(sub)}</p>`:""}${enchantedNotice}${roleCard(true)}</div>`);
     return;
   }
 
@@ -557,20 +623,23 @@ function bindActionButtons(a){
     socket.emit("player_action", { kind:"mayor_candidate", isCandidate:wantsCandidate });
   });
   const submitWitch=$("submitWitch"); if(submitWitch) submitWitch.addEventListener("click",()=>{
-    const saveKey=(document.querySelector("input[name=saveKey]:checked")||{}).value || null;
-    const poisonKey=(document.querySelector("input[name=poisonKey]:checked")||{}).value || null;
+    const saveKey=selectedWitchSave;
+    const poisonKey=selectedWitchPoison;
     socket.emit("player_action", { kind:"witch", saveKey: saveKey==="none"?null:saveKey, poisonKey: poisonKey==="none"?null:poisonKey });
   });
   const emitWitchPreview=()=>{
-    const saveKey=(document.querySelector("input[name=saveKey]:checked")||{}).value || null;
-    const poisonKey=(document.querySelector("input[name=poisonKey]:checked")||{}).value || null;
     socket.emit("player_preview", {
       kind:"witch",
-      saveKey: saveKey==="none"?null:saveKey,
-      poisonKey: poisonKey==="none"?null:poisonKey
+      saveKey: selectedWitchSave==="none"?null:selectedWitchSave,
+      poisonKey: selectedWitchPoison==="none"?null:selectedWitchPoison
     });
   };
-  box.querySelectorAll("input[name=saveKey],input[name=poisonKey]").forEach(input=>input.addEventListener("change", emitWitchPreview));
+  box.querySelectorAll("input[name=saveKey],input[name=poisonKey]").forEach(input=>input.addEventListener("change", ()=>{
+    if(input.name === "saveKey") selectedWitchSave = input.value || null;
+    if(input.name === "poisonKey") selectedWitchPoison = input.value || null;
+    emitWitchPreview();
+    renderAction();
+  }));
 }
 
 function submitTarget(a,key){
@@ -717,9 +786,8 @@ function renderEnchantedInfo(a){
 function renderWitch(a){
   const pending=a.pendingVictims||[];
   const all=a.allTargets||[];
-  const preview=a.preview||{};
-  const selectedSave=pending.some(o=>o.key===preview.saveKey) ? preview.saveKey : "none";
-  const selectedPoison=all.some(o=>o.key===preview.poisonKey) ? preview.poisonKey : "none";
+  const selectedSave=pending.some(o=>o.key===selectedWitchSave) ? selectedWitchSave : (selectedWitchSave === "none" ? "none" : null);
+  const selectedPoison=all.some(o=>o.key===selectedWitchPoison) ? selectedWitchPoison : (selectedWitchPoison === "none" ? "none" : null);
   const saveGrid = choiceGridMetrics(1 + pending.length);
   const poisonGrid = choiceGridMetrics(1 + all.length);
   const combinedMobileRows = saveGrid.mobileRows + poisonGrid.mobileRows;

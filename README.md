@@ -1,4 +1,15 @@
-# Wakkerdam Online Helper — v0.3.52
+# Wakkerdam Online Helper — v0.3.53
+
+## Nieuw in v0.3.53
+
+- Op telefoon en tablet bewaart de Heks de levensdrank- en gifdrankkeuze los van elkaar. Beide doelen worden samen vooraf getoond en atomair bevestigd, zodat tegelijk redden en vergiftigen betrouwbaar werkt.
+- Hekskeuzes zijn op touchschermen duidelijker: alleen een werkelijk gekozen reddingsdoel krijgt groen en een vergiftigingsdoel rood. **Niemand redden** en **Niemand vergiftigen** zijn standaard neutraal en worden pas gemarkeerd wanneer ze bewust zijn gekozen.
+- Wanneer een mobiele browser na appwissel, tabwissel, vergrendeling of sluimerstand terugkeert, vraagt het Spelerscherm direct de actuele spelstatus op. Een vastgelopen mobiele verbinding wordt automatisch opnieuw opgebouwd, zonder handmatig verversen.
+- De buitenste panelen van het Betoverden-overzicht zijn weer volledig neutraal. Alleen iedere afzonderlijke spelerskaart houdt een dun, subtiel paars accent.
+- Betoverde spelers zien op hun eigen rustige spelerscherm **Je bent betoverd!** met daaronder **De Betoverde**.
+- Bij winst van de Fluitspeler staat de Fluitspelerkaart centraal bovenaan en staan alle ooit betoverde spelers eronder, inclusief grijze kaarten van overleden Betoverden.
+- De eindovergang heeft voor een Fluitspelerwinst een eigen paarse, diagonale cinematische overgang die subtiel in het eindscherm blijft doorwerken.
+- De Jageraankondiging toont niet langer de technische tekst over de automatische tiensecondenfallback.
 
 ## Nieuw in v0.3.52
 
