@@ -18,6 +18,7 @@ let roleInfoAutoCloseTimer = null;
 let lastLoverHeartToken = "";
 let loverHeartTimer = null;
 let playerRenderFrame = null;
+let lastActionMarkup = "";
 
 const ROLE_ART = {
   villager: [
@@ -58,7 +59,8 @@ function renderPlayerIdentity(person, className=""){
   const art = getRoleArt(roleId, person.key || person.name || roleId, person.cardVariant);
   const revealedClass = person.cardRevealed ? "revealed" : "public";
   if(art){
-    return `<span class="playerIdentityCard ${revealedClass} ${className}"><img src="${esc(art.src)}" alt="${esc(person.cardRoleName || art.title || "Spelerkaart")}"></span>`;
+    const preserveKey = `${person.key || person.name || roleId}:${roleId}:${art.src}:${className}`;
+    return `<span class="playerIdentityCard ${revealedClass} ${className}"><img src="${esc(art.src)}" alt="${esc(person.cardRoleName || art.title || "Spelerkaart")}" data-preserve-key="${esc(preserveKey)}" draggable="false"></span>`;
   }
   return `<span class="playerIdentityCard fallback ${revealedClass} ${className}"><span class="playerIdentityEmoji">${esc(person.cardRoleEmoji || "🃏")}</span><span class="playerIdentityRole">${esc(person.cardRoleName || "Rol")}</span></span>`;
 }
@@ -86,11 +88,54 @@ function schedulePlayerRender(){
   });
 }
 
+function actionImageKey(image){
+  return image?.dataset?.preserveKey
+    || [image?.getAttribute("src") || "", image?.getAttribute("alt") || "", image?.className || ""].join("|");
+}
+
+function commitActionHtml(box, markup){
+  if(markup === lastActionMarkup && box.childNodes.length) return false;
+
+  // Hergebruik reeds gedecodeerde PNG-nodes. De omringende actie-HTML mag
+  // veranderen, maar de kaart zelf wordt binnen dezelfde paint verplaatst en
+  // verdwijnt daardoor niet twee frames op tragere apparaten.
+  const preserved = new Map();
+  box.querySelectorAll("img").forEach(image=>{
+    const key = actionImageKey(image);
+    const bucket = preserved.get(key) || [];
+    bucket.push(image);
+    preserved.set(key, bucket);
+  });
+
+  const template = document.createElement("template");
+  template.innerHTML = markup;
+  template.content.querySelectorAll("img").forEach(nextImage=>{
+    const bucket = preserved.get(actionImageKey(nextImage));
+    const currentImage = bucket?.shift();
+    if(!currentImage) return;
+    [...currentImage.attributes].forEach(attribute=>{
+      if(!nextImage.hasAttribute(attribute.name)) currentImage.removeAttribute(attribute.name);
+    });
+    [...nextImage.attributes].forEach(attribute=>{
+      // Laat een identieke src ongemoeid: zo blijft de reeds gedecodeerde
+      // bitmap gegarandeerd aan dezelfde DOM-node gekoppeld.
+      if(currentImage.getAttribute(attribute.name) !== attribute.value) {
+        currentImage.setAttribute(attribute.name, attribute.value);
+      }
+    });
+    nextImage.replaceWith(currentImage);
+  });
+
+  box.replaceChildren(template.content);
+  lastActionMarkup = markup;
+  return true;
+}
+
 $("joinForm")?.addEventListener("submit", e=>{ e.preventDefault(); join(); });
 $("nameInput").addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); join(); } });
 window.addEventListener("load",()=>setTimeout(()=>$('nameInput')?.focus(),80));
 
-// Join-scherm debug: D spammen of woord "in" lang indrukken.
+// Verborgen debug: uitsluitend vijf losse D-toetsen kort na elkaar.
 let debugDPresses = [];
 let playerDebugAutoHideTimer = null;
 function showPlayerDebug(){
@@ -100,28 +145,16 @@ function showPlayerDebug(){
 }
 function hidePlayerDebug(){ $("playerDebugFab")?.classList.add("hidden"); clearTimeout(playerDebugAutoHideTimer); }
 window.addEventListener("keydown", (e)=>{
-  if(document.body.classList.contains("inGame")) return;
+  if(e.repeat) return;
   if(String(e.key||"").toLowerCase() !== "d") return;
   const now = Date.now();
-  debugDPresses = debugDPresses.filter(t => now - t < 1600);
+  debugDPresses = debugDPresses.filter(t => now - t < 1200);
   debugDPresses.push(now);
-  if(debugDPresses.length >= 5) showPlayerDebug();
+  if(debugDPresses.length >= 5){
+    debugDPresses = [];
+    showPlayerDebug();
+  }
 });
-(function setupJoinDebugHold(){
-  const hold = $("joinDebugHold");
-  let timer = null;
-  const start = (e)=>{ if(document.body.classList.contains("inGame")) return; clearTimeout(timer); timer = setTimeout(showPlayerDebug, 850); };
-  const stop = ()=>{ clearTimeout(timer); timer = null; };
-  hold?.addEventListener("pointerdown", start);
-  hold?.addEventListener("pointerup", stop);
-  hold?.addEventListener("pointerleave", stop);
-  hold?.addEventListener("pointercancel", stop);
-})();
-$("playerDebugHotspot")?.addEventListener("click", showPlayerDebug);
-$("playerDebugHotspot")?.addEventListener("pointerdown", ()=>{ clearTimeout(window.__debugHotspotHold); window.__debugHotspotHold = setTimeout(showPlayerDebug, 450); });
-$("playerDebugHotspot")?.addEventListener("pointerup", ()=>clearTimeout(window.__debugHotspotHold));
-$("playerDebugHotspot")?.addEventListener("pointercancel", ()=>clearTimeout(window.__debugHotspotHold));
-$("playerDebugHotspot")?.addEventListener("pointerleave", ()=>clearTimeout(window.__debugHotspotHold));
 $("playerDebugClose")?.addEventListener("click", hidePlayerDebug);
 $("openInfoFromPlayer")?.addEventListener("click", ()=>window.open("/info", "_blank"));
 $("openHostFromPlayer")?.addEventListener("click", ()=>{
@@ -231,7 +264,7 @@ function roleCard(compact=false){
   if(state.me.wildChildTurned) tags.push("nu wolfachtig");
   const art = getRoleArt(r.id, state.me.key || playerKey || r.id, state.me.cardVariant);
   const visual = art
-    ? `<div class="roleArtWrap"><img class="roleArtImage" src="${esc(art.src)}" alt="${esc(art.title || r.name)}"></div>`
+    ? `<div class="roleArtWrap"><img class="roleArtImage" src="${esc(art.src)}" alt="${esc(art.title || r.name)}" data-preserve-key="own-role:${esc(state.me.key || playerKey || r.id)}:${esc(art.src)}" draggable="false"></div>`
     : `<div class="roleArtFallback"><div class="bigEmoji">${esc(r.emoji)}</div></div>`;
   const metaParts = [];
   if(!art) metaParts.push(`<h2>${esc(r.name)}</h2>`);
@@ -246,33 +279,33 @@ function renderAction(){
     const isWolfLoss = state.winner.team === "village" && state.me.wolfLike;
     const winnerTitle = isWolfLoss ? "Het dorp wint..." : state.winner.title;
     const winnerText = isWolfLoss ? "helaas, het wolvenras is uitgeroeid." : (state.winner.text || "");
-    box.innerHTML = `<div class="playerCenter"><h1>${esc(winnerTitle)}</h1><p>${esc(winnerText)}</p>${roleCard(true)}</div>`;
+    commitActionHtml(box, `<div class="playerCenter"><h1>${esc(winnerTitle)}</h1><p>${esc(winnerText)}</p>${roleCard(true)}</div>`);
     return;
   }
 
   const dayVoteRevealPending = state?.dayVote?.result?.revealed === false
     || state?.dayVote?.result?.publicRevealed === false;
   if(dayVoteRevealPending){
-    box.innerHTML = `<div class="playerCenter revealWaiting"><h1>De stemmen worden geteld</h1><p>Wacht op de onthulling op het Infoscherm.</p>${roleCard(true)}</div>`;
+    commitActionHtml(box, `<div class="playerCenter revealWaiting"><h1>De stemmen worden geteld</h1><p>Wacht op de onthulling op het Infoscherm.</p>${roleCard(true)}</div>`);
     return;
   }
 
   const ownEliminationPending = state?.dayVote?.result?.eliminatedKey === state?.me?.key
     && (state.dayVote.result.revealed === false || state.dayVote.result.publicRevealed === false);
   if(!state.me.alive && ownEliminationPending){
-    box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1>${roleCard(true)}</div>`;
+    commitActionHtml(box, `<div class="playerCenter"><h1>De stemmen worden geteld</h1>${roleCard(true)}</div>`);
     return;
   }
 
   const hunterActionVisible = !!a && ["hunter_shot","hunter_wait"].includes(a.kind);
   if(state.publicDeathPending && !hunterActionVisible){
     const text = state.phase === "hunter" ? "De Jager maakt zijn laatste keuze." : "Het Infoscherm onthult wat er is gebeurd.";
-    box.innerHTML = `<div class="playerCenter revealWaiting"><h1>De uitslag wordt onthuld</h1><p>${esc(text)}</p>${roleCard(true)}</div>`;
+    commitActionHtml(box, `<div class="playerCenter revealWaiting"><h1>De uitslag wordt onthuld</h1><p>${esc(text)}</p>${roleCard(true)}</div>`);
     return;
   }
 
   if(!state.me.alive && !hunterActionVisible){
-    box.innerHTML = `<div class="deadScreen"><div class="deadMark">✖</div><h1>Je bent uitgeschakeld</h1>${roleCard(true)}</div>`;
+    commitActionHtml(box, `<div class="deadScreen"><div class="deadMark">✖</div><h1>Je bent uitgeschakeld</h1>${roleCard(true)}</div>`);
     return;
   }
 
@@ -280,20 +313,20 @@ function renderAction(){
     const hunterStage = state.hunterSequence?.stage || "";
     const title = state.phase === "night" ? "Nacht" : state.phase === "day" || (state.phase === "hunter" && hunterStage === "summary") ? "Je hebt de nacht overleefd" : state.phase === "hunter" ? "Het laatste schot" : state.phase === "lobby" ? "Lobby" : "Wacht";
     const sub = state.phase === "night" ? "Je slaapt." : state.phase === "hunter" && hunterStage !== "summary" ? "De uitslag wordt op het Infoscherm onthuld." : (state.phase === "lobby" ? "Wacht op de host." : "");
-    box.innerHTML = `<div class="playerCenter"><h1>${esc(title)}</h1>${sub?`<p>${esc(sub)}</p>`:""}${roleCard(true)}</div>`;
+    commitActionHtml(box, `<div class="playerCenter"><h1>${esc(title)}</h1>${sub?`<p>${esc(sub)}</p>`:""}${roleCard(true)}</div>`);
     return;
   }
 
   if(a.waitingOnly){
-    box.innerHTML = `<div class="playerCenter hunterPlayerWaiting"><h1>${esc(a.title)}</h1>${a.text?`<p>${esc(a.text)}</p>`:""}${roleCard(true)}</div>`;
+    commitActionHtml(box, `<div class="playerCenter hunterPlayerWaiting"><h1>${esc(a.title)}</h1>${a.text?`<p>${esc(a.text)}</p>`:""}${roleCard(true)}</div>`);
     return;
   }
 
   if(a.kind === "mayor_result_wait"){
     if(!a.revealed){
-      box.innerHTML = `<div class="playerCenter"><h1>De stemmen worden geteld</h1>${roleCard(true)}</div>`;
+      commitActionHtml(box, `<div class="playerCenter"><h1>De stemmen worden geteld</h1>${roleCard(true)}</div>`);
     } else {
-      box.innerHTML = `<div class="playerCenter"><h1>${titleHtml(a.finalTitle || "de burgemeester is bekend")}</h1>${roleCard(true)}</div>`;
+      commitActionHtml(box, `<div class="playerCenter"><h1>${titleHtml(a.finalTitle || "de burgemeester is bekend")}</h1>${roleCard(true)}</div>`);
     }
     return;
   }
@@ -302,8 +335,8 @@ function renderAction(){
     const voteAction = a.kind === "mayor_vote" || a.kind === "day_vote";
     const submittedTitle = voteAction ? a.title : "Je koos";
     const sleepRole = a.actorRoleName || state.me.role?.name || "rol";
-    const sleepMessage = voteAction ? "" : `<p class="sleepStatus">De ${esc(sleepRole)} gaat weer slapen.</p>`;
-    box.innerHTML = `<div class="playerCenter submitted"><h1>${esc(submittedTitle)}</h1>${renderSubmittedResult(a)}${sleepMessage}</div>`;
+    const sleepMessage = voteAction ? "" : `<p class="sleepStatus">${esc(a.sleepMessage || `De ${sleepRole} gaat weer slapen.`)}</p>`;
+    commitActionHtml(box, `<div class="playerCenter submitted"><h1>${esc(submittedTitle)}</h1>${renderSubmittedResult(a)}${sleepMessage}</div>`);
     return;
   }
 
@@ -346,8 +379,7 @@ function renderAction(){
   }
 
   html += `</div>`;
-  box.innerHTML=html;
-  bindActionButtons(a);
+  if(commitActionHtml(box, html)) bindActionButtons(a);
 }
 
 function renderWolfAction(a){
@@ -611,7 +643,7 @@ function submittedActionLabel(kind){
 function renderResultPeople(title, people, tone=""){
   const rows = (people || []).filter(Boolean);
   if(!rows.length) return "";
-  return `<section class="submittedPeople ${tone}"><h2>${esc(title)}</h2><div class="submittedPeopleGrid">${rows.map(person=>`<article><strong>${esc(person.name || "Speler")}</strong>${renderPlayerIdentity(person,"submittedIdentity")}</article>`).join("")}</div></section>`;
+  return `<section class="submittedPeople ${tone}">${title?`<h2>${esc(title)}</h2>`:""}<div class="submittedPeopleGrid">${rows.map(person=>`<article><strong>${esc(person.name || "Speler")}</strong>${renderPlayerIdentity(person,"submittedIdentity")}</article>`).join("")}</div></section>`;
 }
 
 function renderRoleInfo(){
@@ -677,7 +709,7 @@ function renderLoversInfo(a){
 function renderEnchantedInfo(a){
   const people = a.people || [];
   const cards = people.length
-    ? renderResultPeople("De andere betoverden", people, "magic")
+    ? renderResultPeople("", people, "magic enchantedGroup")
     : `<p class="muted">Er zijn geen andere levende betoverden.</p>`;
   return `<div class="enchantedInfo">${cards}<p class="hostControlledNotice">De Host gaat verder wanneer iedereen elkaar heeft gezien.</p></div>`;
 }

@@ -4,14 +4,14 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Wakkerdam Online Helper — Speler</title>
-  <link rel="stylesheet" href="/style.css?v=0.3.50" />
+  <link rel="stylesheet" href="/style.css?v=0.3.52" />
 </head>
 <body class="playerScreen">
   <div class="bg"></div>
   <main class="wrap playerWrap">
     <section id="joinCard" class="joinScreenHero simpleJoinScreen">
       <div class="joinHeroInner simpleJoinInner">
-        <label class="joinPrompt" for="nameInput">Vul je naam <span id="joinDebugHold" class="joinDebugHold">in</span></label>
+        <label class="joinPrompt" for="nameInput">Vul je naam in</label>
         <form id="joinForm" class="joinForm">
           <input id="nameInput" placeholder="Naam" maxlength="18" autocomplete="name" enterkeyhint="join" autofocus />
           <button id="joinBtn" class="btn primary joinSubmitBtn" type="submit">Meedoen met het spel</button>
@@ -28,7 +28,6 @@
     <button id="roleInfoClose" class="roleInfoClose" type="button" aria-label="Sluiten">×</button>
     <div id="roleInfoContent"></div>
   </aside>
-  <button id="playerDebugHotspot" class="playerDebugHotspot" type="button" aria-label="debug"></button>
   <div id="playerDebugFab" class="playerDebugFab hidden">
     <button id="playerDebugClose" class="btn ghost smallBtn" type="button">×</button>
     <strong>Debug</strong>
@@ -37,6 +36,6 @@
   </div>
   <div id="toast" class="toast hidden"></div>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/player.js?v=0.3.50"></script>
+  <script src="/player.js?v=0.3.52"></script>
 </body>
 </html>

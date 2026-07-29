@@ -14,7 +14,7 @@ let queuedRenderState=null;
 let viewerPlayersKey="";
 let centralSceneKey="";
 const acknowledgedRevealTokens=new Set();
-const revealMemoryKey="wakkerdam_seen_reveals_v0350";
+const revealMemoryKey="wakkerdam_seen_reveals_v0351";
 function loadSeenRevealTokens(){
   try{
     const stored=JSON.parse(sessionStorage.getItem(revealMemoryKey) || "[]");
@@ -91,8 +91,7 @@ function deathVisual(d){
 function deathCardHtml(d, className=""){
   const visual = deathVisual(d);
   const causeMark = d.cause === "hunter" ? `<span class="deathCauseMark hunterCause" aria-label="Uitgeschakeld door de Jager">${hunterBullseye("hunterBullseyeMini")}</span>` : "";
-  const roleMark = d.roleName === "Jager" ? `<span class="deathRoleMark hunterRoleMark" aria-label="Jager">${hunterBullseye("hunterBullseyeMini")}</span>` : "";
-  return `<div class="deathCard deathCardWithArt ${className} ${d.cause==="hunter"?"hunterDeathCard":""}"><h3>${esc(d.name)}</h3>${visual.html}${visual.hasArt ? "" : `<p class="muted">${esc(d.roleName || "")}</p>`}${roleMark}${causeMark}</div>`;
+  return `<div class="deathCard deathCardWithArt ${className} ${d.cause==="hunter"?"hunterDeathCard":""}"><h3>${esc(d.name)}</h3>${visual.html}${visual.hasArt ? "" : `<p class="muted">${esc(d.roleName || "")}</p>`}${causeMark}</div>`;
 }
 function linkedDeathHtml(primary, linkedDeaths=[]){
   const linked = (linkedDeaths || []).filter(d => d?.cause === "love" && d.linkedToKey === primary?.key);
@@ -173,15 +172,20 @@ socket.on("state",s=>{
     return;
   }
   clearTimeout(winnerTransitionTimer);
-  document.body.classList.remove("winnerTransitionBlack");
+  document.body.classList.remove("winnerTransitionBlack","winnerTransitionVillage","winnerTransitionWolves","winnerTransitionOther");
   void document.body.offsetWidth;
-  document.body.classList.add("winnerTransitionBlack");
+  const winnerTone = s.winner?.team === "village"
+    ? "winnerTransitionVillage"
+    : s.winner?.team === "wolves"
+      ? "winnerTransitionWolves"
+      : "winnerTransitionOther";
+  document.body.classList.add("winnerTransitionBlack", winnerTone);
   winnerTransitionTimer=setTimeout(()=>{
     displayedState=s;
     scheduleViewerRender(s);
     acknowledgeReveal("winner", s.winnerRevealToken);
-  },840);
-  setTimeout(()=>document.body.classList.remove("winnerTransitionBlack"),1650);
+  },860);
+  setTimeout(()=>document.body.classList.remove("winnerTransitionBlack",winnerTone),1900);
 });
 function render(s){
   if($("version")) $("version").textContent=`v${s.version}`;
@@ -213,7 +217,7 @@ function render(s){
     const hunterStage = s.hunterSequence?.stage || "announcement";
     if(hunterStage === "announcement"){
       title="De Jager is uitgeschakeld";
-      sub=`${s.hunterSequence?.hunterName || "De Jager"} lost nog één laatste schot.`;
+      sub="De Jager lost nog één laatste schot.";
     } else if(hunterStage === "choosing"){
       title="Het laatste schot";
       sub="";
@@ -289,7 +293,7 @@ function renderHunterCentral(id, s){
   const allDeaths = sequence.allDeaths || s.lastDeaths || [];
   const hunterDeath = sequence.hunterDeath || allDeaths.find(d=>d.key===sequence.hunterKey);
   if(sequence.stage === "announcement"){
-    $(id).innerHTML = `<div class="hunterAnnouncement hunterCenteredScene">${hunterDeath?deathCardHtml(hunterDeath,"hunterPrimaryCard"):""}<div class="hunterLastShotSeal">${hunterBullseye("hunterBullseyeSeal")}<strong>Laatste schot</strong><small>De Host gaat verder, anders start de keuze na tien seconden.</small></div></div>`;
+    $(id).innerHTML = `<div class="hunterAnnouncement hunterCenteredScene"><div class="hunterLastShotSeal">${hunterBullseye("hunterBullseyeSeal")}<strong>Laatste schot</strong><small>De Host gaat verder, anders start de keuze na tien seconden.</small></div>${hunterDeath?deathCardHtml(hunterDeath,"hunterPrimaryCard"):""}</div>`;
     return;
   }
   if(sequence.stage === "choosing"){
@@ -300,7 +304,7 @@ function renderHunterCentral(id, s){
     const shotDeaths = sequence.shotDeaths || [];
     const showShot = ()=>{
       const linkedKeys = new Set(shotDeaths.filter(d=>d.cause==="love"&&d.linkedToKey).map(d=>d.key));
-      $(id).innerHTML = `<div class="hunterShotReveal hunterCenteredScene">${hunterBullseye("hunterBullseyeImpact")}<div class="hunterShotCopy"><strong>Het schot is gelost</strong><small>Het dorp ziet wie er is geraakt.</small></div><div class="hunterShotCards">${shotDeaths.filter(d=>!linkedKeys.has(d.key)).map(d=>linkedDeathHtml(d,shotDeaths)).join("")}</div></div>`;
+      $(id).innerHTML = `<div class="hunterShotReveal hunterCenteredScene"><div class="hunterShotCopy"><strong>Het schot is gelost</strong><small>Het dorp ziet wie er is geraakt.</small></div><div class="hunterShotCards">${shotDeaths.filter(d=>!linkedKeys.has(d.key)).map(d=>linkedDeathHtml(d,shotDeaths)).join("")}</div></div>`;
       const hero=$("hero");
       hero?.classList.remove("hunterImpact");
       if(hero) void hero.offsetWidth;
@@ -314,7 +318,7 @@ function renderHunterCentral(id, s){
   }
   const shotDeaths = sequence.shotDeaths || [];
   const linkedKeys = new Set(shotDeaths.filter(d=>d.cause==="love"&&d.linkedToKey).map(d=>d.key));
-  $(id).innerHTML = `<div class="hunterRoundSummary hunterCenteredScene">${hunterBullseye("hunterBullseyeSummary")}<div class="hunterShotCards">${shotDeaths.filter(d=>!linkedKeys.has(d.key)).map(d=>linkedDeathHtml(d,shotDeaths)).join("")}</div></div>`;
+  $(id).innerHTML = `<div class="hunterRoundSummary hunterCenteredScene"><div class="hunterShotCards">${shotDeaths.filter(d=>!linkedKeys.has(d.key)).map(d=>linkedDeathHtml(d,shotDeaths)).join("")}</div></div>`;
 }
 function getInfoPhaseClass(s){
   if(s?.winner || s?.phase === "ended") return "ended";
@@ -432,6 +436,7 @@ function animateCountUps(root, done, timing={}){
   const els = [...root.querySelectorAll(".countUp")];
   const bars = [...root.querySelectorAll(".mayorBarFill")];
   const finals = els.map(el => Number(el.dataset.final || 0));
+  const travelRatios = bars.map(bar => Math.max(.1, Math.min(1, Number(bar.dataset.height || 10) / 100)));
   const elapsedBeforeStart = timing.revealStartedAt ? Math.max(0, Date.now() - Number(timing.revealStartedAt)) : 0;
   const duration = Math.max(1000, Number(timing.revealDurationMs || 3000));
   const start = performance.now() - Math.min(duration, elapsedBeforeStart);
@@ -445,14 +450,15 @@ function animateCountUps(root, done, timing={}){
   function frame(now){
     const elapsed = now - start;
     const progress = Math.min(1, elapsed / duration);
-    // Lineair oplopen voorkomt dat de balk al visueel stilstaat terwijl het
-    // laatste stemcijfer nog moet verschijnen.
-    const eased = progress;
     els.forEach((el, i)=>{
       const final = finals[i] || 0;
-      el.textContent = String(progress >= 1 ? final : Math.floor(final * eased));
+      const localProgress = Math.min(1, progress / (travelRatios[i] || 1));
+      el.textContent = String(localProgress >= 1 ? final : Math.floor(final * localProgress));
     });
-    bars.forEach(bar=>{ bar.style.setProperty("--graph-progress",String(eased)); });
+    bars.forEach((bar, i)=>{
+      const localProgress = Math.min(1, progress / (travelRatios[i] || 1));
+      bar.style.setProperty("--graph-progress",String(localProgress));
+    });
     if(elapsed < duration) requestAnimationFrame(frame);
     else {
       els.forEach(el=>el.textContent = el.dataset.final || "0");

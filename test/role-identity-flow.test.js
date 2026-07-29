@@ -115,6 +115,9 @@ test("role-card permissions survive a complete Cupid, Ziener, Wolves and Witch n
   await waitUntil(() => players.every(player => player.latest?.me?.roleId), "assigned roles");
   assert.equal(players[0].latest.me.roleId, "cupid");
   assert.equal(players[1].latest.me.roleId, "seer");
+  const firstNightKinds = hostState.nightSteps.map(step => step.kind);
+  assert.ok(firstNightKinds.includes("lovers_info"), "Lovers must already be visible in the first-night timeline");
+  assert.ok(firstNightKinds.indexOf("cupid") < firstNightKinds.indexOf("lovers_info"));
 
   const variants = hostState.players.map(player => player.cardVariant);
   assert.ok(variants.every(variant => [1, 2, 3, 4].includes(variant)));
@@ -183,6 +186,14 @@ test("role-card permissions survive a complete Cupid, Ziener, Wolves and Witch n
   assert.equal(wolf.latest.action.options.find(option => option.key === wolfVictim.key).cardRoleId, "villager");
   wolf.socket.emit("player_action", { kind: "wolves", targetKey: wolfVictim.key, confirm: true });
   await waitUntil(() => hostState?.currentStep?.ready, "Wolf consensus");
+  await waitUntil(() => wolf.latest?.action?.submitted, "Wolf choice confirmation");
+  assert.equal(wolf.latest.action.submission.targetKey, wolfVictim.key);
+  assert.equal(wolf.latest.action.submission.targetCard?.key, wolfVictim.key);
+  assert.equal(wolf.latest.action.sleepMessage, "De Weerwolven gaan weer slapen.");
+  const hostWolfChoice = hostState.currentStep.wolfConsensus.rows.find(row => row.key === wolf.key);
+  assert.equal(hostWolfChoice.targetCard?.key, wolfVictim.key);
+  assert.equal(hostWolfChoice.targetCard?.cardRoleId, "villager");
+  assert.equal(hostState.currentStep.wolfConsensus.consensusTargetCard?.key, wolfVictim.key);
 
   host.emit("host_next_step");
   await waitUntil(() => hostState?.currentStep?.kind === "witch", "Witch step");
@@ -201,10 +212,97 @@ test("role-card permissions survive a complete Cupid, Ziener, Wolves and Witch n
   host.emit("host_start_next_night");
   await waitUntil(() => hostState?.phase === "night" && hostState?.nightNumber === 2, "second night");
   assert.equal(hostState.nightSteps.some(step => step.kind === "witch"), false, "Witch must not wake after both potions are used");
+  assert.equal(hostState.nightSteps.some(step => step.kind === "lovers_info"), false, "Lovers only see each other in the first night");
   host.emit("host_next_step");
   await waitUntil(() => hostState?.currentStep?.kind === "seer", "second Seer step");
   await waitUntil(() => seer.latest?.action?.kind === "seer" && !seer.latest.action.submitted, "second Seer action");
   const rememberedWolf = seer.latest.action.options.find(option => option.key === wolf.key);
   assert.equal(rememberedWolf.cardRoleId, "werewolf");
   assert.equal(rememberedWolf.cardRevealed, true);
+
+  host.emit("host_reset");
+  await waitUntil(() => hostState?.phase === "lobby" && !hostState?.started, "reset lobby");
+  assert.equal(hostState.players.find(player => player.key === players[0].key)?.assignedRoleId, "cupid");
+  assert.equal(hostState.players.find(player => player.key === players[1].key)?.assignedRoleId, "seer");
+});
+
+test("bot personalities perform every active special role instead of silently doing nothing", { timeout: 20000 }, async t => {
+  const port = await freePort();
+  const child = spawn(process.execPath, ["server.js"], {
+    cwd: root,
+    env: { ...process.env, PORT: String(port) },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  t.after(() => {
+    if (!child.killed) child.kill("SIGTERM");
+  });
+
+  const url = `http://127.0.0.1:${port}`;
+  await waitUntil(async () => {
+    try {
+      return (await fetch(`${url}/host`)).ok;
+    } catch {
+      return false;
+    }
+  }, "bot server");
+
+  const host = await connectSocket(url);
+  t.after(() => host.disconnect());
+  let hostState = null;
+  host.on("host_state", state => { hostState = state; });
+  host.emit("register_host");
+  await waitUntil(() => hostState, "bot Host state");
+
+  for (let count = 1; count <= 7; count += 1) {
+    host.emit("host_add_test_player");
+    await waitUntil(() => hostState?.players?.length === count, `bot ${count}`);
+  }
+  const bots = hostState.players.slice().sort((a, b) => a.seat - b.seat);
+
+  host.emit("host_apply_preset", { preset: "custom" });
+  await waitUntil(() => hostState?.selectedRoleTotal === 0, "empty bot preset");
+  for (const roleId of ["villager", "infectious_wolf", "werewolf", "piper", "witch", "cupid", "seer"]) {
+    host.emit("host_set_role_count", { roleId, count: 1 });
+  }
+  await waitUntil(() => hostState?.selectedRoleTotal === 7, "seven bot roles");
+
+  const assignments = [
+    ["villager", bots[0]],
+    ["infectious_wolf", bots[1]], // avontuurlijk: gebruikt de besmetting
+    ["werewolf", bots[2]],
+    ["piper", bots[3]],
+    ["witch", bots[4]], // avontuurlijk: gebruikt de gifdrank
+    ["cupid", bots[5]],
+    ["seer", bots[6]],
+  ];
+  for (const [roleId, bot] of assignments) {
+    host.emit("host_assign_role", { playerKey: bot.key, roleId });
+  }
+  await waitUntil(
+    () => assignments.every(([roleId, bot]) => hostState.players.find(player => player.key === bot.key)?.assignedRoleId === roleId),
+    "bot role assignments",
+  );
+
+  host.emit("host_start_game");
+  await waitUntil(() => hostState?.started && hostState?.nightNumber === 1, "bot game start");
+
+  const openStep = async kind => {
+    host.emit("host_next_step");
+    return waitUntil(() => hostState?.currentStep?.kind === kind && hostState.currentStep.ready, `${kind} bot step`);
+  };
+  const firstSubmission = () => Object.values(hostState.currentStep.submissions || {})[0] || null;
+
+  await openStep("cupid");
+  assert.equal(firstSubmission()?.people?.length, 2, "Cupido bot must create a pair");
+  await openStep("lovers_info");
+  await openStep("seer");
+  assert.ok(firstSubmission()?.targetKey, "Seer bot must investigate a target");
+  await openStep("wolves");
+  assert.ok(hostState.currentStep.wolfConsensus?.consensusTargetKey, "Bot wolves must reach a consensus");
+  await openStep("infectious_wolf");
+  assert.equal(firstSubmission()?.infect, true, "Adventurous Infectious Wolf must use its power");
+  await openStep("witch");
+  assert.ok(firstSubmission()?.poisonTarget?.key, "Adventurous Witch must use a potion");
+  await openStep("piper");
+  assert.ok(firstSubmission()?.people?.length >= 1, "Piper bot must enchant at least one player");
 });

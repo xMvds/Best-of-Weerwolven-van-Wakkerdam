@@ -3,7 +3,7 @@ const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 
-const VERSION = "0.3.50";
+const VERSION = "0.3.52";
 const PORT = process.env.PORT || 3000;
 const VOTE_REVEAL_MS = 3000;
 const RESULT_REVEAL_FALLBACK_MS = 5000;
@@ -1132,6 +1132,28 @@ function weightedBotChoice(preferred, fallback, preferChance = 0.75) {
   return randomChoice(fallbackList.length ? fallbackList : preferredList);
 }
 
+const BOT_PERSONAS = ["voorzichtig", "avontuurlijk", "onvoorspelbaar"];
+
+function botPersona(p) {
+  if (!p) return "onvoorspelbaar";
+  if (!p.botPersona) p.botPersona = BOT_PERSONAS[Math.abs(Number(p.seat || 0)) % BOT_PERSONAS.length];
+  return p.botPersona;
+}
+
+function botRoll(p, salt = "") {
+  const text = `${p?.key || "bot"}:${salt}:${game.nightNumber}:${game.dayNumber}`;
+  let hash = 2166136261;
+  for (let index = 0; index < text.length; index += 1) {
+    hash ^= text.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967295;
+}
+
+function botWill(p, salt, chance) {
+  return botRoll(p, salt) < Math.max(0, Math.min(1, Number(chance || 0)));
+}
+
 function botCandidatePhaseAuto() {
   if (!game.started || game.phase !== "mayor" || game.mayorElection?.stage !== "candidates") return;
   const alive = alivePlayers();
@@ -1140,9 +1162,11 @@ function botCandidatePhaseAuto() {
   for (const p of bots) {
     if (game.mayorElection.responses[p.key]) continue;
     const team = effectiveTeam(p);
-    // Test-AI: wolven stellen zich iets vaker kandidaat, burgers soms. Niet te slim/perfect.
-    const chance = team === "wolf" ? 0.45 : 0.30;
-    const wantsCandidate = Math.random() < chance;
+    const persona = botPersona(p);
+    // Persoonlijkheden zorgen voor afwisseling zonder verborgen informatie te gebruiken.
+    const personaBias = persona === "avontuurlijk" ? 0.16 : persona === "voorzichtig" ? -0.10 : 0;
+    const chance = Math.max(0.12, Math.min(0.66, (team === "wolf" ? 0.42 : 0.30) + personaBias));
+    const wantsCandidate = botWill(p, "mayor-candidate", chance);
     p.isCandidate = wantsCandidate;
     game.mayorElection.responses[p.key] = wantsCandidate ? "yes" : "no";
   }
@@ -1174,10 +1198,13 @@ function botMayorVotingAuto() {
     const options = candidates.filter(c => c.key !== voter.key);
     if (!options.length || game.mayorElection.votes[voter.key]) continue;
     let pickTarget;
+    const persona = botPersona(voter);
     if (effectiveTeam(voter) === "wolf") {
-      pickTarget = weightedBotChoice(options.filter(c => effectiveTeam(c) === "wolf"), options, 0.85);
+      const packChance = persona === "onvoorspelbaar" ? 0.58 : persona === "avontuurlijk" ? 0.82 : 0.70;
+      pickTarget = weightedBotChoice(options.filter(c => effectiveTeam(c) === "wolf"), options, packChance);
     } else {
-      pickTarget = weightedBotChoice(options.filter(c => effectiveTeam(c) !== "wolf"), options, 0.75);
+      const villageChance = persona === "onvoorspelbaar" ? 0.54 : persona === "avontuurlijk" ? 0.72 : 0.64;
+      pickTarget = weightedBotChoice(options.filter(c => effectiveTeam(c) !== "wolf"), options, villageChance);
     }
     if (pickTarget) {
       game.mayorElection.votes[voter.key] = pickTarget.key;
@@ -1195,12 +1222,16 @@ function botDayVotingAuto() {
     const options = targets.filter(p => p.key !== voter.key);
     if (!options.length) continue;
     let pickTarget;
+    const persona = botPersona(voter);
     if (effectiveTeam(voter) === "wolf") {
-      // Wolven stemmen liever niet op wolven en kiezen willekeurig uit dorp/solo's.
-      pickTarget = weightedBotChoice(options.filter(p => effectiveTeam(p) !== "wolf"), options, 0.92);
+      // Wolven hebben een lichte voorkeur voor niet-wolven, maar een onvoorspelbare
+      // bot kan bewust een vreemd stemspoor achterlaten.
+      const avoidPackChance = persona === "onvoorspelbaar" ? 0.62 : persona === "avontuurlijk" ? 0.84 : 0.76;
+      pickTarget = weightedBotChoice(options.filter(p => effectiveTeam(p) !== "wolf"), options, avoidPackChance);
     } else {
-      // Dorpelingen maken een simpele, testgerichte keuze: soms raak op wolfachtig, anders random.
-      pickTarget = weightedBotChoice(options.filter(p => isWolfLike(p)), options, 0.55);
+      // Bots blijven testbaar en levendig, maar krijgen geen perfecte verdenkingen.
+      const suspicionChance = persona === "avontuurlijk" ? 0.44 : persona === "voorzichtig" ? 0.30 : 0.20;
+      pickTarget = weightedBotChoice(options.filter(p => isWolfLike(p)), options, suspicionChance);
     }
     if (pickTarget) {
       game.dayVote.votes[voter.key] = pickTarget.key;
@@ -1287,7 +1318,7 @@ function maybeAutoCloseDayVoteIfComplete() {
 }
 
 function openDayVoteAuto(reason = "") {
-  if (!game.started || game.phase === "ended") return;
+  if (!game.started || game.phase === "ended" || game.phase === "hunter" || game.hunterSequence) return;
   game.phase = "voting";
   game.dayAftermath = { active: false, fromNight: false };
   const runoffCandidates = game.dayVote?.result?.runoffPending ? (game.dayVote.result.runoffCandidates || []) : null;
@@ -1369,6 +1400,9 @@ function wolfConsensusView(step = game.currentStep) {
       colorIndex: idx % 6,
       targetKey,
       targetName: targetKey ? game.players[targetKey]?.name || "?" : null,
+      targetCard: targetKey && game.players[targetKey]
+        ? playerTargetOption(wolf, game.players[targetKey])
+        : null,
       confirmed: !!confirms[key],
       isBot: !!wolf?.isBot,
     };
@@ -1378,11 +1412,15 @@ function wolfConsensusView(step = game.currentStep) {
   const allConfirmedSame = rows.length > 0 && rows.every(r => r.confirmed && r.targetKey && r.targetKey === consensusTargetKey);
   const locked = !!game.night?.wolfLocked;
   const lockedTargetKey = game.night?.wolfLockedTargetKey || (locked ? game.night?.wolfVictimKey : null);
+  const visibleConsensusTargetKey = allConfirmedSame ? consensusTargetKey : (locked ? lockedTargetKey : null);
   return {
     rows,
     allConfirmedSame,
-    consensusTargetKey: allConfirmedSame ? consensusTargetKey : (locked ? lockedTargetKey : null),
-    consensusTargetName: allConfirmedSame ? game.players[consensusTargetKey]?.name || "?" : (lockedTargetKey ? game.players[lockedTargetKey]?.name || "?" : null),
+    consensusTargetKey: visibleConsensusTargetKey,
+    consensusTargetName: visibleConsensusTargetKey ? game.players[visibleConsensusTargetKey]?.name || "?" : null,
+    consensusTargetCard: visibleConsensusTargetKey
+      ? rows.find(row => row.targetKey === visibleConsensusTargetKey)?.targetCard || null
+      : null,
     locked,
     lockedTargetKey,
   };
@@ -1449,11 +1487,14 @@ function buildNightSteps() {
   if (n === 1) {
     steps.push(makeStep("wolf_hound", "Wolfshond kiest kant", playersByRole("wolf_hound").filter(p => !p.wolfDogChoice).map(p => p.key), "Kiest definitief burger of wolf."));
     steps.push(makeStep("wild_child", "Wolvenkind kiest rolmodel", playersByRole("wild_child").filter(p => !p.wildChildModelKey).map(p => p.key), "Kiest een rolmodel. Als dat rolmodel sterft, wordt het Wolvenkind wolfachtig."));
-    steps.push(makeStep("cupid", "Cupido kiest geliefden", playersByRole("cupid").map(p => p.key), "Kies twee spelers die geliefden worden."));
+    const cupidActors = playersByRole("cupid").map(p => p.key);
+    steps.push(makeStep("cupid", "Cupido kiest geliefden", cupidActors, "Kies twee spelers die geliefden worden."));
+    // Deze herkenningsstap staat vanaf het begin zichtbaar in de eerste-nachttijdlijn.
+    // Na Cupido wordt de lege placeholder met de echte geliefden gevuld.
+    if (cupidActors.length) {
+      steps.push(makeStep("lovers_info", "Geliefden zien elkaar", [], "Geliefden krijgen elkaars naam te zien."));
+    }
   }
-
-  const lovers = alivePlayers().filter(p => p.loverKey).map(p => p.key);
-  if (n === 1 && lovers.length) steps.push(makeStep("lovers_info", "Geliefden zien elkaar", lovers, "Geliefden krijgen elkaars naam te zien."));
 
   steps.push(makeStep("seer", "Ziener onderzoekt", playersByRole("seer").map(p => p.key), "Kies één speler om diens rol te bekijken."));
 
@@ -1481,7 +1522,7 @@ function buildNightSteps() {
   const enchanted = alivePlayers().filter(p => p.enchanted).map(p => p.key);
   if (enchanted.length) steps.push(makeStep("enchanted_info", "Betoverden zien elkaar", enchanted, "Betoverde spelers krijgen een overzicht van de andere betoverden."));
 
-  return steps.filter(step => step.actorKeys.length > 0 || ["wolves"].includes(step.kind));
+  return steps.filter(step => step.actorKeys.length > 0 || ["wolves", "lovers_info"].includes(step.kind));
 }
 
 function actionForPlayer(p) {
@@ -1605,6 +1646,25 @@ function actionForPlayer(p) {
       const ownSelection = game.night?.wolfSelections?.[p.key] || null;
       const ownConfirmed = !!game.night?.wolfConfirms?.[p.key];
       const wolfLocked = !!game.night?.wolfLocked;
+      const lockedTargetKey = game.night?.wolfLockedTargetKey || game.night?.wolfVictimKey || null;
+      const lockedTarget = lockedTargetKey ? game.players[lockedTargetKey] : null;
+      if (wolfLocked && lockedTarget) {
+        return {
+          ...base,
+          submitted: true,
+          submission: {
+            targetKey: lockedTarget.key,
+            targetName: lockedTarget.name,
+            targetCard: playerTargetOption(p, lockedTarget),
+            confirmed: true,
+          },
+          sleepMessage: "De Weerwolven gaan weer slapen.",
+          ownSelection: lockedTarget.key,
+          ownConfirmed: true,
+          wolfLocked: true,
+          wolfLockedTargetKey: lockedTarget.key,
+        };
+      }
       return {
         ...base,
         // Belangrijk: bij de wolven is een klik alleen een voorlopige selectie.
@@ -1653,7 +1713,7 @@ function actionForPlayer(p) {
       return {
         ...base,
         title: "De Betoverden",
-        text: "Dit zijn de andere betoverde spelers.",
+        text: "",
         people,
         infoOnly: true,
         hostControlled: true,
@@ -1742,7 +1802,9 @@ function startGame() {
   const shuffled = shuffle(remainingDeck);
   players.forEach(p => {
     p.roleId = preassigned.get(p.key) || shuffled.shift();
-    p.assignedRoleId = null;
+    // Een door de Host toegepaste rol blijft als preset bewaard. Tijdens het spel
+    // is de selector verborgen; na Reset staat dezelfde keuze weer klaar.
+    p.assignedRoleId = preassigned.get(p.key) || null;
     privateLog(p, `Je rol is: ${roleDef(p.roleId).name}`, "role");
   });
   game.night = freshNightState();
@@ -1772,6 +1834,7 @@ function freshNightState() {
 }
 
 function startNextNight() {
+  if (game.phase === "hunter" || game.hunterSequence) return;
   if (game.pendingWinner) { const w = game.pendingWinner; game.pendingWinner = null; endGame(w); return; }
   if (game.phase === "ended") return;
   game.phase = "night";
@@ -1822,7 +1885,12 @@ function autoSubmitBotActions(step) {
 
     switch (step.kind) {
       case "wolf_hound": {
-        const choice = Math.random() < 0.5 ? "village" : "wolf";
+        const persona = botPersona(p);
+        const choice = persona === "avontuurlijk"
+          ? "wolf"
+          : persona === "voorzichtig"
+            ? "village"
+            : (botWill(p, "wolf-hound-side", 0.5) ? "wolf" : "village");
         p.wolfDogChoice = choice;
         step.submissions[p.key] = { choice, bot: true };
         break;
@@ -1859,7 +1927,9 @@ function autoSubmitBotActions(step) {
         break;
       }
       case "seer": {
-        const targetKey = pick(targetOptions({ aliveOnly: true, exclude: [p.key] }));
+        const unseen = targetOptions({ aliveOnly: true, exclude: [p.key] })
+          .filter(option => !p.seerKnowledge?.[option.key]);
+        const targetKey = pick(unseen.length ? unseen : targetOptions({ aliveOnly: true, exclude: [p.key] }));
         if (targetKey) {
           const target = game.players[targetKey];
           const targetRole = roleDef(target.roleId);
@@ -1892,7 +1962,24 @@ function autoSubmitBotActions(step) {
         break;
       }
       case "infectious_wolf": {
-        step.submissions[p.key] = { infect: false, bot: true };
+        const victim = game.night?.wolfVictimKey ? game.players[game.night.wolfVictimKey] : null;
+        const persona = botPersona(p);
+        const chance = persona === "avontuurlijk"
+          ? 1
+          : persona === "voorzichtig"
+            ? (game.nightNumber >= 2 ? 0.32 : 0.12)
+            : 0.38;
+        const infect = !!victim && !p.infectUsed && botWill(p, "infectious-wolf", chance);
+        if (infect) {
+          game.night.infectedKey = victim.key;
+          p.infectUsed = true;
+        }
+        step.submissions[p.key] = {
+          infect,
+          targetName: infect ? victim.name : null,
+          targetCard: infect ? playerTargetOption(p, victim) : null,
+          bot: true
+        };
         break;
       }
       case "big_bad_wolf": {
@@ -1912,22 +1999,58 @@ function autoSubmitBotActions(step) {
         break;
       }
       case "witch": {
-        step.submissions[p.key] = { saveName: null, poisonName: null, bot: true };
+        const persona = botPersona(p);
+        const pending = pendingNightVictims().filter(key => isAlive(key));
+        const saveChance = persona === "voorzichtig" ? 1 : persona === "avontuurlijk" ? 0.34 : 0.48;
+        const poisonChance = persona === "avontuurlijk" ? 1 : persona === "voorzichtig" ? 0.18 : 0.42;
+        const saveKey = !p.witchSaveUsed && pending.length && botWill(p, "witch-save", saveChance)
+          ? randomChoice(pending)
+          : null;
+        const poisonOptions = alivePlayers().filter(target => target.key !== p.key && target.key !== saveKey);
+        const poisonTarget = !p.witchPoisonUsed && poisonOptions.length && botWill(p, "witch-poison", poisonChance)
+          ? randomChoice(poisonOptions)
+          : null;
+        if (saveKey) {
+          game.night.witchSaveKey = saveKey;
+          p.witchSaveUsed = true;
+        }
+        if (poisonTarget) {
+          game.night.witchPoisonKey = poisonTarget.key;
+          p.witchPoisonUsed = true;
+        }
+        step.submissions[p.key] = {
+          saveName: saveKey ? game.players[saveKey]?.name || null : null,
+          poisonName: poisonTarget?.name || null,
+          saveTarget: saveKey ? playerTargetOption(p, game.players[saveKey]) : null,
+          poisonTarget: poisonTarget ? playerTargetOption(p, poisonTarget) : null,
+          bot: true
+        };
         break;
       }
       case "fox": {
-        const targetKey = pick(targetOptions({ aliveOnly: true }));
+        const checkedKeys = new Set((p.foxKnowledge || []).map(item => item.targetKey));
+        const freshOptions = targetOptions({ aliveOnly: true }).filter(option => !checkedKeys.has(option.key));
+        const targetKey = pick(freshOptions.length ? freshOptions : targetOptions({ aliveOnly: true }));
         if (targetKey) {
           const trio = foxTrio(targetKey);
           const found = trio.some(k => isWolfLike(game.players[k]));
           if (!found) p.foxPowerLost = true;
           game.night.foxResult = { actorKey: p.key, targetKey, trio, found };
+          p.foxKnowledge = p.foxKnowledge || [];
+          p.foxKnowledge.push({
+            targetKey,
+            targetName: game.players[targetKey]?.name,
+            trio: trio.slice(),
+            foundWolfLike: found,
+          });
           step.submissions[p.key] = { targetName: game.players[targetKey]?.name, foundWolfLike: found, checked: trio.map(k => game.players[k]?.name), bot: true };
         } else step.submissions[p.key] = { bot: true, skipped: true };
         break;
       }
       case "piper": {
-        const targets = sampleKeys(alivePlayers().filter(q => !q.enchanted), 2, [p.key]);
+        const persona = botPersona(p);
+        const targetCount = persona === "voorzichtig" && botWill(p, "piper-one-target", 0.58) ? 1 : 2;
+        const targets = sampleKeys(alivePlayers().filter(q => !q.enchanted), targetCount, [p.key]);
         targets.forEach(k => {
           game.players[k].enchanted = true;
           privateLog(game.players[k], "Je bent betoverd door de Fluitspeler.", "magic");
@@ -2028,7 +2151,13 @@ function finishStep(step) {
 function ensureLoversInfoStepAfter(step) {
   const lovers = alivePlayers().filter(p => p.loverKey).map(p => p.key);
   if (!lovers.length) return;
-  if (game.nightSteps.some(s => s.kind === "lovers_info")) return;
+  const existing = game.nightSteps.find(s => s.kind === "lovers_info" && !s.done);
+  if (existing) {
+    existing.actorKeys = lovers;
+    existing.submissions = {};
+    existing.previews = {};
+    return;
+  }
   const idx = game.nightSteps.findIndex(s => s.id === step.id);
   const infoStep = makeStep("lovers_info", "Geliefden zien elkaar", lovers, "Geliefden krijgen elkaars naam te zien.");
   game.nightSteps.splice(idx >= 0 ? idx + 1 : 0, 0, infoStep);
@@ -2879,6 +3008,9 @@ function endGame(winner) {
 
 
 function startMayorVoting() {
+  if (game.phase === "hunter" || game.hunterSequence) {
+    return { ok: false, error: "Wacht tot het laatste schot van de Jager volledig is afgerond." };
+  }
   if (!game.mayorElection.open) return { ok: false, error: "Er is geen burgemeesterfase actief." };
 
   // Herstemming na gelijke hoogste score: stem opnieuw alleen tussen de gedeelde top-kandidaten.
@@ -2962,6 +3094,7 @@ function startMayorVoting() {
 }
 
 function closeMayorElection({ fillMissing = true } = {}) {
+  if (game.phase === "hunter" || game.hunterSequence) return;
   if (!game.mayorElection.open) return;
   if (game.mayorElection.stage !== "voting") {
     game.mayorElection = { open: false, stage: "idle", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
@@ -3020,6 +3153,7 @@ function closeMayorElection({ fillMissing = true } = {}) {
 }
 
 function closeDayVote({ fillMissing = true } = {}) {
+  if (game.phase === "hunter" || game.hunterSequence) return;
   if (!game.dayVote.open) return;
   if (fillMissing) fillMissingDayVotesRandom();
   const view = dayVoteView();
@@ -3253,6 +3387,7 @@ function createTestPlayer() {
     seat: Object.keys(game.players).length,
     connected: true,
     isBot: true,
+    botPersona: BOT_PERSONAS[Object.keys(game.players).length % BOT_PERSONAS.length],
     roleId: null,
     assignedRoleId: null,
     cardVariant: null,
@@ -3559,7 +3694,7 @@ io.on("connection", (socket) => {
   socket.on("host_start_next_night", () => { startNextNight(); emitAll(); });
 
   socket.on("host_open_mayor", () => {
-    if (!game.started || game.phase === "ended") return;
+    if (!game.started || game.phase === "ended" || game.phase === "hunter" || game.hunterSequence) return;
     game.phase = "mayor";
     game.dayAftermath = { active: false, fromNight: false };
     game.mayorElection = { open: true, stage: "candidates", votes: {}, selections: {}, responses: {}, result: null, runoffCandidates: null };
@@ -3576,7 +3711,7 @@ io.on("connection", (socket) => {
   socket.on("host_close_mayor", () => { closeMayorElection(); emitAll(); });
 
   socket.on("host_open_day_vote", () => {
-    if (!game.started || game.phase === "ended") return;
+    if (!game.started || game.phase === "ended" || game.phase === "hunter" || game.hunterSequence) return;
     if (game.phase === "mayor" && game.mayorElection?.stage !== "result") return;
     openDayVoteAuto("De dagstemming is geopend.");
     emitAll();

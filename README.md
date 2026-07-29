@@ -1,4 +1,28 @@
-# Wakkerdam Online Helper — v0.3.50
+# Wakkerdam Online Helper — v0.3.52
+
+## Nieuw in v0.3.52
+
+- Zodra alle wolven hetzelfde slachtoffer hebben bevestigd, krijgen zij dezelfde rustige actiebevestiging als andere nachtrollen: **Je koos**, de naam en Burgerkaart van het slachtoffer, **Te doden** en **De Weerwolven gaan weer slapen**.
+- Rollen die de Host vooraf op spelers toepast blijven als lobby-preset bewaard en staan na Reset weer bij dezelfde spelers geselecteerd.
+- Testspelers hebben drie eenvoudige speelstijlen. De Heks en Besmettelijke Oerwolf gebruiken hun kracht nu soms echt, terwijl Ziener en Vos minder vaak dezelfde speler opnieuw onderzoeken en de Fluitspeler afwisselt tussen één en twee doelen.
+- De knop na het Jager-overzicht kan niet meer disabled blijven door een oude forceertimer; **Naar volledig dagoverzicht** is meteen normaal aanklikbaar.
+- Kaart-PNG's op het Spelerscherm worden tijdens live state-updates als bestaande, reeds gedecodeerde DOM-nodes hergebruikt. Ongewijzigde schermen worden niet opnieuw opgebouwd, waardoor het korte verdwijnen/terugkomen op andere apparaten is weggenomen.
+- **Geliefden zien elkaar** staat vanaf het begin in de tijdlijn van nacht één wanneer Cupido meespeelt. Na Cupido wordt dezelfde stap met de echte geliefden gevuld; vanaf nacht twee staat hij er niet meer in.
+- Telefoon- en tabletkeuzes gebruiken weer de gecentreerde monitorcompositie, maar met echte verticale pagina-scroll, leesbare minimumkaartmaten en een bereikbare sticky bevestigingsknop.
+- Host- en Info-overzichten zijn op touchformaten opnieuw gecentreerd zonder de leidende monitorindeling te wijzigen.
+
+## Nieuw in v0.3.51
+
+- Iedere levende wolf toont zijn live doel op het Hostscherm met spelersnaam en vaste kaart-PNG. Na consensus staat het daadwerkelijke wolvenslachtoffer één keer apart.
+- De stemgrafiek laat alle balken tegelijk en met dezelfde fysieke snelheid vertrekken; de hoogste balk bereikt na exact drie seconden zijn eindhoogte en kortere balken zijn eerder klaar.
+- Het onzichtbare debugvlak en de lang-indrukactie op het woord “in” zijn verwijderd. Spelerdebug opent uitsluitend na vijf snelle, losse D-toetsen.
+- Jagerkaarten krijgen geen bullseye-rolmarkering meer. Alleen het slachtoffer van het laatste schot krijgt het kleine bullseyevak.
+- De Jageraankondiging gebruikt de generieke tekst **De Jager lost nog één laatste schot** en plaatst het grote bullseye-embleem boven de Jagerkaart.
+- Het Hostscherm toont gedurende de volledige Jagerflow ook de Jagerkaart en ziet een gekozen schotslachtoffer onmiddellijk, voordat het Infoscherm de uitslag openbaar maakt.
+- Burgemeesterverkiezing, dagstemming en een volgende nacht zijn op zowel Host als server geblokkeerd totdat de Jagerflow volledig is afgerond. Een onbeantwoorde Jagerkeuze kan nog steeds veilig willekeurig worden geforceerd.
+- Betoverde kaarten gebruiken alleen een zachte paarse outline; de extra paarse vlakken, gloed en overbodige groepskop zijn verwijderd.
+- **Start spel** is groen.
+- Het winnaarsscherm gebruikt een diagonale, teamafhankelijke cinematische overgang: een gouden zonsopkomst voor het dorp en een rode zonsondergang voor de wolven.
 
 ## Nieuw in v0.3.50
 

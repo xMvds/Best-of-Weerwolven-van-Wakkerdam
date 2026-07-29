@@ -120,6 +120,8 @@ function clearForceAdvance(){
   forceAdvanceSeconds = 0;
   forceAdvanceReady = false;
   forceAdvanceContext = "";
+  const nextButton = $("nextStepBtn");
+  if(nextButton) nextButton.disabled = false;
 }
 function armForceAdvance(context){
   if(forceAdvanceContext && forceAdvanceContext !== context) clearForceAdvance();
@@ -188,6 +190,7 @@ function renderPhase(){
   const hasLivingMayor=(state.players||[]).some(p=>p.alive && p.isMayor);
   const dayAftermath=!!state.dayAftermath?.active;
   const pendingWinner=!!state.pendingWinner;
+  const hunterFlowActive=inHunter || !!state.hunterSequence;
   const remaining=hasRemainingNightStep();
   const isWolfStep=inNight && state.currentStep?.kind === "wolves";
   const noActiveStep=inNight && !state.currentStep;
@@ -197,12 +200,14 @@ function renderPhase(){
   showButton("startBtn", true);
   showButton("resetBtn", true);
   showButton("nextStepBtn", inNight || inHunter);
-  $("nextStepBtn").disabled=!!forceAdvanceTimer;
   const unfinishedSteps = (state.nightSteps||[]).filter(x=>!x.done&&!x.skipped);
   const currentIsFinalNightStep = !!state.currentStep && state.currentStep.ready && unfinishedSteps.length === 1 && unfinishedSteps[0].id === state.currentStep.id;
   const hunterStage = state.hunterSequence?.stage || "";
   const forceContext = inHunter ? `hunter:${hunterStage}` : `night:${state.currentStep?.id || ""}`;
   if(forceAdvanceContext && forceAdvanceContext !== forceContext) clearForceAdvance();
+  // Zet dit pas ná het wisselen van de force-context. Anders kan de knop na
+  // shot_suspense → summary één render lang (en daarna blijvend) disabled blijven.
+  $("nextStepBtn").disabled=!!forceAdvanceTimer;
   if(!forceAdvanceTimer && !forceAdvanceReady){
     $("nextStepBtn").textContent = inHunter
       ? (hunterStage === "summary" ? "Naar volledig dagoverzicht" : hunterStage === "announcement" ? "Laat de Jager kiezen" : hunterStage === "choosing" ? "Forceer Jagerkeuze" : hunterStage === "shot_suspense" ? "Forceer onthulling" : "Volgende Jagerstap")
@@ -222,21 +227,21 @@ function renderPhase(){
   const mayorResultReady = !!(state.started && inMayor && mayorStage === "result" && !state.dayVote?.open && !mayorRunoffReady);
   const dayRunoffReady = !!(!pendingWinner && state.started && inDay && !ended && !state.dayVote?.open && state.dayVote?.result?.runoffPending);
   const normalDayVoteReady = !!(!pendingWinner && state.started && inDay && !ended && !state.dayVote?.open && !state.dayVote?.result && ((state.players||[]).filter(p=>p.alive).length >= 2));
-  showButton("mayorBtn", !pendingWinner && state.started && inDay && !state.mayorElection?.open && !hasLivingMayor);
-  showButton("startMayorVoteBtn", (inMayor && mayorStage === "candidates") || mayorRunoffReady);
-  $("startMayorVoteBtn").disabled = !(((inMayor && mayorStage === "candidates") || mayorRunoffReady));
+  showButton("mayorBtn", !hunterFlowActive && !pendingWinner && state.started && inDay && !state.mayorElection?.open && !hasLivingMayor);
+  showButton("startMayorVoteBtn", !hunterFlowActive && ((inMayor && mayorStage === "candidates") || mayorRunoffReady));
+  $("startMayorVoteBtn").disabled = hunterFlowActive || !(((inMayor && mayorStage === "candidates") || mayorRunoffReady));
   $("startMayorVoteBtn").textContent = mayorRunoffReady ? "Start herstemming" : candidateCount > 0 ? "Laat spelers stemmen" : "Ga door zonder kandidaat";
-  showButton("closeMayorBtn", inMayor && mayorStage === "voting");
+  showButton("closeMayorBtn", !hunterFlowActive && inMayor && mayorStage === "voting");
   if(inMayor && mayorStage === "voting") $("closeMayorBtn").textContent = "Burgemeester afronden";
   // Hotfix v0.3.28: na de burgemeesteruitslag moet deze knop altijd zichtbaar zijn in het controlepaneel.
-  showButton("voteBtn", mayorResultReady || normalDayVoteReady || dayRunoffReady);
-  $("voteBtn").disabled = !(mayorResultReady || normalDayVoteReady || dayRunoffReady);
+  showButton("voteBtn", !hunterFlowActive && (mayorResultReady || normalDayVoteReady || dayRunoffReady));
+  $("voteBtn").disabled = hunterFlowActive || !(mayorResultReady || normalDayVoteReady || dayRunoffReady);
   $("voteBtn").textContent = dayRunoffReady ? "Start herstemming" : "Open dagstemming";
   $("voteBtn").classList.toggle("majorDayVoteBtn", mayorResultReady || dayRunoffReady);
-  showButton("closeVoteBtn", inVoting);
+  showButton("closeVoteBtn", !hunterFlowActive && inVoting);
   if(inVoting) $("closeVoteBtn").textContent = "Stemming afronden";
-  showButton("nextNightBtn", pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open && !dayRunoffReady));
-  $("nextNightBtn").disabled=!(pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open && !dayRunoffReady));
+  showButton("nextNightBtn", !hunterFlowActive && (pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open && !dayRunoffReady)));
+  $("nextNightBtn").disabled=hunterFlowActive || !(pendingWinner || (state.started && inDay && !ended && !dayAftermath && !state.dayVote?.open && !dayRunoffReady));
   $("nextNightBtn").textContent = pendingWinner ? "Toon winnaar" : "Start volgende nacht";
 
   if ($("voteCard")) $("voteCard").classList.add("hidden");
@@ -280,22 +285,25 @@ function renderStep(){
 function renderHostHunterStep(){
   const sequence = state.hunterSequence || {};
   const hunterName = sequence.hunterName || "De Jager";
+  const hunterCard = sequence.hunterDeath
+    ? `<div class="hunterHostHunterCard">${renderHostDeathCard(sequence.hunterDeath)}</div>`
+    : "";
   if(sequence.stage === "awaiting_vote_reveal"){
-    return `<div class="hunterHostStep"><h3>Jager uitgeschakeld</h3><p>De dagstemuitslag wordt eerst op het Infoscherm onthuld.</p><strong>${esc(hunterName)}</strong></div>`;
+    return `<div class="hunterHostStep"><h3>Jager uitgeschakeld</h3><p>De dagstemuitslag wordt eerst op het Infoscherm onthuld.</p>${hunterCard}<strong>${esc(hunterName)}</strong></div>`;
   }
   if(sequence.stage === "announcement"){
-    return `<div class="hunterHostStep"><span class="hunterHostEmblem">${hunterBullseye("hunterBullseyeHost")}</span><h3>De Jager is uitgeschakeld</h3><p>Laat de Jager kiezen wanneer het aankondigingsscherm rustig gelezen is. Zonder klik gaat dit na tien seconden automatisch.</p><strong>${esc(hunterName)}</strong></div>`;
+    return `<div class="hunterHostStep"><span class="hunterHostEmblem">${hunterBullseye("hunterBullseyeHost")}</span><h3>De Jager is uitgeschakeld</h3><p>Laat de Jager kiezen wanneer het aankondigingsscherm rustig gelezen is. Zonder klik gaat dit na tien seconden automatisch.</p>${hunterCard}<strong>${esc(hunterName)}</strong></div>`;
   }
   if(sequence.stage === "choosing"){
-    return `<div class="hunterHostStep suspense"><h3>Laatste schot</h3><p>De keuze wordt gemaakt.</p><strong>${esc(hunterName)}</strong></div>`;
+    return `<div class="hunterHostStep suspense"><h3>Laatste schot</h3><p>De keuze wordt gemaakt. De Host kan na de beveiligingstimer een willekeurig geldig doel forceren.</p>${hunterCard}<strong>${esc(hunterName)}</strong></div>`;
   }
   if(sequence.stage === "shot_suspense"){
-    const target = (sequence.shotDeaths || [])[0];
-    return `<div class="hunterHostStep suspense"><h3>Laatste schot bevestigd</h3><p>Het Infoscherm bouwt de onthulling op.</p>${target?`<div class="hunterHostTarget"><strong>${esc(target.name)}</strong><span>wordt meegenomen</span></div>`:""}</div>`;
+    const deaths = sequence.shotDeaths || [];
+    return `<div class="hunterHostStep suspense hunterHostSummary"><h3>Laatste schot bevestigd</h3><p>De Host ziet de uitslag direct; het Infoscherm bouwt de openbare onthulling nog op.</p><div class="hunterHostShotPair">${hunterCard}${deaths.map(renderHostDeathCard).join("")}</div></div>`;
   }
   if(sequence.stage === "summary"){
     const deaths = sequence.shotDeaths || [];
-    return `<div class="hunterHostStep hunterHostSummary"><span class="hunterHostEmblem">${hunterBullseye("hunterBullseyeHost")}</span><h3>Jager-overzicht</h3><p>Alleen het laatste schot en eventuele gekoppelde gevolgen.</p><div class="hunterHostOverview">${deaths.map(renderHostDeathCard).join("")}</div></div>`;
+    return `<div class="hunterHostStep hunterHostSummary"><h3>Jager-overzicht</h3><p>De Jager en de directe gevolgen van het laatste schot.</p><div class="hunterHostShotPair">${hunterCard}${deaths.map(renderHostDeathCard).join("")}</div></div>`;
   }
   return `<p class="muted">De Jager-sequentie wordt voorbereid.</p>`;
 }
@@ -361,12 +369,11 @@ function renderHostDeathCard(death){
   const roleId = hostDeathRoleId(death.roleName);
   const src = roleId ? roleCardPath(roleId, death.cardVariant) : null;
   const hunterMark = death.cause === "hunter" ? `<span class="hostHunterCause" title="Uitgeschakeld door de Jager">${hunterBullseye("hunterBullseyeMini")}</span>` : "";
-  const hunterRoleMark = death.roleName === "Jager" ? `<span class="hostHunterRoleMark" title="Jager">${hunterBullseye("hunterBullseyeMini")}</span>` : "";
   const cause = deathCauseLabel(death);
   const visual = src
     ? `<img src="${esc(src)}" alt="${esc(death.roleName || "Rol")}">`
     : `<span class="hostDeathFallback">${esc(death.roleEmoji || "🃏")}</span>`;
-  return `<article class="hostHunterDeathCard"><strong>${esc(death.name)}</strong>${visual}${hunterRoleMark}${hunterMark}<small class="hostDeathCause">${esc(cause)}</small></article>`;
+  return `<article class="hostHunterDeathCard ${death.cause === "hunter" ? "hunterShotVictim" : ""}"><strong>${esc(death.name)}</strong>${visual}${hunterMark}<small class="hostDeathCause">${esc(cause)}</small></article>`;
 }
 
 function deathCauseLabel(death){
@@ -515,16 +522,24 @@ function formatHostWolfConsensus(s){
     if(w.targetKey === uniqueLeader) return "good";
     return "bad";
   };
-  const cards=rows.map(w=>`<div class="wolfRow wolfColor${w.colorIndex} wolfHostCard ${cardClass(w)}"><span class="wolfMarker">${w.marker}</span><div><strong>${esc(w.name)}</strong><div class="roleName">${w.targetName?`kiest ${esc(w.targetName)}`:'nog geen keuze'} · ${w.confirmed?'bevestigd':'niet bevestigd'}</div></div></div>`).join("");
+  const cards=rows.map(w=>{
+    const status = w.confirmed ? "Bevestigd" : w.targetKey ? "Live geselecteerd" : "Nog geen keuze";
+    const target = w.targetCard || (w.targetName ? { name:w.targetName, cardRoleId:"villager", cardRoleName:"Burger" } : null);
+    const decision = target
+      ? roleTargetDecision("Kiest", target, w.confirmed ? "wolfChoiceConfirmed" : "wolfChoiceLive")
+      : roleDecision("Kiest", "Nog niemand gekozen");
+    return `<article class="wolfHostChoiceCard wolfColor${w.colorIndex} ${cardClass(w)}"><header><span class="wolfMarker">${w.marker}</span><div><strong>${esc(w.name)}</strong><small>${esc(status)}</small></div></header>${decision}</article>`;
+  }).join("");
   let verdict;
   if(locked && s.wolfConsensus?.consensusTargetName){
-    verdict = `<div class="resultBox wolfConsensusResult wolfConsensusGood wolfLockedResultName"><div class="resultBig"><strong>${esc(s.wolfConsensus.consensusTargetName)}</strong></div></div>`;
+    const target = s.wolfConsensus.consensusTargetCard || { name:s.wolfConsensus.consensusTargetName, cardRoleId:"villager", cardRoleName:"Burger" };
+    verdict = `<section class="wolfLockedVictim"><h4>Daadwerkelijk slachtoffer</h4>${roleTargetDecision("Uitgeschakeld door de wolven", target, "actualWolfVictim")}</section>`;
   } else if(mismatch){
     verdict = `<div class="resultBox wolfConsensusResult wolfConsensusBad"><div class="resultBig">de wolven zijn aan het kiezen.</div></div>`;
   } else {
     verdict = `<div class="resultBox wolfConsensusResult wolfConsensusNeutral"><div class="resultBig">de wolven zijn aan het kiezen.</div></div>`;
   }
-  return `${verdict}<div class="hostWolfConsensus">${cards}</div>`;
+  return `<div class="wolfConsensusCardStage">${verdict}<div class="hostWolfConsensus">${cards}</div></div>`;
 }
 
 function renderPlayers(){

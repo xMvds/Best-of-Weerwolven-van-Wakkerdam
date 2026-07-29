@@ -10,11 +10,11 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 test("release version is coherent in server, package and browser cache keys", () => {
   const pkg = JSON.parse(read("package.json"));
-  assert.equal(pkg.version, "0.3.50");
-  assert.match(read("server.js"), /const VERSION = "0\.3\.50";/);
+  assert.equal(pkg.version, "0.3.52");
+  assert.match(read("server.js"), /const VERSION = "0\.3\.52";/);
   for (const file of ["public/host.html", "public/index.html", "public/viewer.html"]) {
-    assert.match(read(file), /\?v=0\.3\.50/);
-    assert.doesNotMatch(read(file), /\?v=0\.3\.49/);
+    assert.match(read(file), /\?v=0\.3\.52/);
+    assert.doesNotMatch(read(file), /\?v=0\.3\.51/);
   }
 });
 
@@ -44,7 +44,7 @@ test("stable reveal animation remains while the approved centered Info compositi
   assert.doesNotMatch(finalLayer, /\.infoScreen \.viewerHero:not\(\.viewerEnded\)\{[\s\S]*grid-template-rows/);
 });
 
-test("info voting reaches and holds the final vote", () => {
+test("info voting moves every bar at one physical speed while the highest takes three seconds", () => {
   const viewer = read("public/viewer.js");
   const server = read("server.js");
   assert.match(viewer, /--voter-font-size:\$\{Math\.max\(11,22-Math\.max\(0,String\(v\.name\|\|""\)\.length-10\)\*\.55\)\.toFixed\(1\)\}px/);
@@ -52,11 +52,11 @@ test("info voting reaches and holds the final vote", () => {
   assert.match(viewer, /Number\(timing\.revealDurationMs \|\| 3000\)/);
   assert.match(viewer, /const elapsedBeforeStart = timing\.revealStartedAt/);
   assert.match(viewer, /const progress = Math\.min\(1, elapsed \/ duration\)/);
-  assert.match(viewer, /const eased = progress;/);
-  assert.match(viewer, /Math\.floor\(final \* eased\)/);
-  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress",String\(eased\)\)/);
+  assert.match(viewer, /const travelRatios = bars\.map\(bar => Math\.max\(\.1, Math\.min\(1, Number\(bar\.dataset\.height \|\| 10\) \/ 100\)\)\)/);
+  assert.match(viewer, /const localProgress = Math\.min\(1, progress \/ \(travelRatios\[i\] \|\| 1\)\)/);
+  assert.match(viewer, /Math\.floor\(final \* localProgress\)/);
+  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress",String\(localProgress\)\)/);
   assert.match(viewer, /Math\.max\(10,Math\.round\(\(\(r\.votes\|\|0\)\/max\)\*100\)\)/);
-  assert.doesNotMatch(viewer, /travelRatio|localProgress|function voteHeight/);
   assert.doesNotMatch(viewer, /1 - Math\.pow\(1 - progress, 3\)|finalVoteHold|countDuration/);
   assert.doesNotMatch(viewer, /ownDuration = final <= 0/);
 });
@@ -114,12 +114,15 @@ test("public results remain gated until their reveal boundary while Host stays l
   assert.doesNotMatch(hostState, /publicWinnerVisible|voteRevealPending|resultIsPublic/);
 });
 
-test("winner page swaps only after the Infoscherm is fully black", () => {
+test("winner page swaps behind a team-specific diagonal cinematic transition", () => {
   const viewer = read("public/viewer.js");
   const css = read("public/style.css");
-  assert.match(viewer, /document\.body\.classList\.add\("winnerTransitionBlack"\)/);
-  assert.match(viewer, /setTimeout\(\(\)=>\{[\s\S]*displayedState=s;[\s\S]*scheduleViewerRender\(s\);[\s\S]*acknowledgeReveal\("winner", s\.winnerRevealToken\);[\s\S]*\},840\)/);
-  assert.match(css, /@keyframes winnerPageSwap\{[\s\S]*50%\{opacity:1\}[\s\S]*56%\{opacity:1\}/);
+  assert.match(viewer, /const winnerTone = s\.winner\?\.team === "village"[\s\S]*"winnerTransitionVillage"[\s\S]*"winnerTransitionWolves"/);
+  assert.match(viewer, /document\.body\.classList\.add\("winnerTransitionBlack", winnerTone\)/);
+  assert.match(viewer, /setTimeout\(\(\)=>\{[\s\S]*displayedState=s;[\s\S]*scheduleViewerRender\(s\);[\s\S]*acknowledgeReveal\("winner", s\.winnerRevealToken\);[\s\S]*\},860\)/);
+  assert.match(css, /\.infoScreen\.winnerTransitionVillage::after[\s\S]*radial-gradient/);
+  assert.match(css, /\.infoScreen\.winnerTransitionWolves::after[\s\S]*radial-gradient/);
+  assert.match(css, /@keyframes winnerDiagonalCurtain\{[\s\S]*clip-path:polygon/);
 });
 
 test("choice screens fit their full grid and confirmation control inside touch viewports", () => {
@@ -197,15 +200,15 @@ test("lover deaths stay linked to the original reveal and remain gated for Playe
   assert.match(css, /\.loverDeathStack[\s\S]*position:absolute[\s\S]*top:0[\s\S]*left:0/);
 });
 
-test("action tiles are square and all vote bars start and stop together", () => {
+test("action tiles are square and vote bars use count-aware linear travel", () => {
   const player = read("public/player.js");
   const viewer = read("public/viewer.js");
   const css = read("public/style.css");
   assert.match(player, /class="witchNoActionIcon"/);
   assert.match(css, /v0\.3\.45 final cascade[\s\S]*\.playerScreen \.playerTargetChoice[\s\S]*border-radius:0!important/);
   assert.match(css, /\.playerScreen \.witchPanel>h3\{text-align:center!important;\}/);
-  assert.doesNotMatch(viewer, /travelRatio|localProgress|const delay=/);
-  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress",String\(eased\)\)/);
+  assert.match(viewer, /travelRatios/);
+  assert.match(viewer, /bar\.style\.setProperty\("--graph-progress",String\(localProgress\)\)/);
   assert.match(viewer, /bar\.style\.setProperty\("--graph-progress","1"\)/);
   assert.match(css, /\.mayorBarFill\{[\s\S]*transform:scaleY\(var\(--graph-progress,0\)\)!important/);
 });
@@ -229,7 +232,7 @@ test("submitted night actions use the sleep message and never show Ingestuurd", 
   assert.match(player, /"Te betoveren"/);
   assert.doesNotMatch(player, /Je antwoord is doorgevoerd/);
   assert.doesNotMatch(player, /\$\{sleepMessage\}\$\{ownCard\}/);
-  assert.match(player, /De \$\{esc\(sleepRole\)\} gaat weer slapen/);
+  assert.match(player, /a\.sleepMessage \|\| `De \$\{sleepRole\} gaat weer slapen\.`/);
   assert.doesNotMatch(player, /<p>Ingestuurd\.<\/p>/);
 });
 
@@ -390,7 +393,7 @@ test("Player confirmations clear the gold edge and Seer follows the standard sle
   const player = read("public/player.js");
   const css = read("public/style.css");
   assert.match(css, /body\.playerScreen\.inGame \.confirmBtn,[\s\S]*bottom:max\(18px,env\(safe-area-inset-bottom,0px\)\)!important/);
-  assert.match(player, /const sleepMessage = voteAction \? "" : `<p class="sleepStatus">De \$\{esc\(sleepRole\)\} gaat weer slapen\.<\/p>`/);
+  assert.match(player, /const sleepMessage = voteAction \? "" : `<p class="sleepStatus">\$\{esc\(a\.sleepMessage \|\| `De \$\{sleepRole\} gaat weer slapen\.`\)\}<\/p>`/);
   assert.match(player, /const sleepRole = a\.actorRoleName \|\| state\.me\.role\?\.name \|\| "rol"/);
   assert.match(player, /if\(a\.kind === "seer" && sub\.result\)/);
   assert.match(player, /cupid:"Te koppelen aan"/);
@@ -427,6 +430,103 @@ test("Hunter uses an Info-led announcement, choice, shot reveal and summary sequ
   assert.match(css, /\.hunterBullseyeIcon\{/);
   assert.match(css, /\.infoScreen \.viewerHero\.hunter \.bigStatus\{/);
   assert.match(css, /@keyframes hunterImpactFlash/);
+});
+
+test("v0.3.51 presents live wolf cards, private debug access and corrected Hunter and enchanted styling", () => {
+  const server = read("server.js");
+  const host = read("public/host.js");
+  const hostHtml = read("public/host.html");
+  const player = read("public/player.js");
+  const playerHtml = read("public/index.html");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  const finalLayer = css.slice(css.indexOf("v0.3.51 — live wolvenkaarten"));
+
+  assert.match(server, /targetCard: targetKey && game\.players\[targetKey\][\s\S]*playerTargetOption\(wolf, game\.players\[targetKey\]\)/);
+  assert.match(server, /consensusTargetCard: visibleConsensusTargetKey/);
+  assert.match(host, /class="wolfHostChoiceCard/);
+  assert.match(host, /roleTargetDecision\("Kiest", target/);
+  assert.match(host, /class="wolfLockedVictim"/);
+  assert.match(host, /Daadwerkelijk slachtoffer/);
+
+  assert.doesNotMatch(playerHtml, /playerDebugHotspot|joinDebugHold/);
+  assert.doesNotMatch(player, /playerDebugHotspot|setupJoinDebugHold|__debugHotspotHold/);
+  assert.match(player, /if\(e\.repeat\) return/);
+  assert.match(player, /debugDPresses\.length >= 5/);
+  assert.match(player, /now - t < 1200/);
+
+  assert.match(hostHtml, /id="startBtn" class="btn good"/);
+  assert.match(finalLayer, /\.hostScreen #startBtn\.btn\.good/);
+  assert.match(player, /renderResultPeople\("", people, "magic enchantedGroup"\)/);
+  assert.doesNotMatch(player, /De andere betoverden/);
+  assert.doesNotMatch(server, /Dit zijn de andere betoverde spelers\./);
+  assert.match(finalLayer, /\.playerScreen \.submittedPeople\.magic[\s\S]*box-shadow:none!important/);
+  assert.match(finalLayer, /\.playerScreen \.submittedPeople\.magic \.playerIdentityCard[\s\S]*outline:2px solid rgba\(181,150,255,.66\)/);
+
+  assert.match(viewer, /sub="De Jager lost nog één laatste schot\."/);
+  assert.doesNotMatch(viewer, /roleMark|hunterRoleMark|hunterBullseyeImpact|hunterBullseyeSummary/);
+  assert.ok(viewer.indexOf('hunterBullseye("hunterBullseyeSeal")') < viewer.indexOf('deathCardHtml(hunterDeath,"hunterPrimaryCard")'));
+  assert.match(host, /const hunterCard = sequence\.hunterDeath/);
+  assert.match(host, /class="hunterHostShotPair"/);
+  assert.doesNotMatch(host, /hunterRoleMark|hostHunterRoleMark/);
+  assert.match(finalLayer, /\.hostHunterDeathCard\.hunterShotVictim/);
+});
+
+test("v0.3.52 confirms wolf consensus, remembers Host roles and keeps touch choices smooth and scrollable", () => {
+  const server = read("server.js");
+  const host = read("public/host.js");
+  const player = read("public/player.js");
+  const css = read("public/style.css");
+  const finalLayer = css.slice(css.indexOf("v0.3.52 — monitorcompositie"));
+
+  assert.match(server, /if \(wolfLocked && lockedTarget\) \{[\s\S]*submitted: true,[\s\S]*targetCard: playerTargetOption\(p, lockedTarget\)[\s\S]*sleepMessage: "De Weerwolven gaan weer slapen\."/);
+  assert.match(player, /a\.sleepMessage \|\| `De \$\{sleepRole\} gaat weer slapen\.`/);
+  assert.match(player, /wolves:"Te doden"/);
+
+  assert.match(server, /p\.assignedRoleId = preassigned\.get\(p\.key\) \|\| null/);
+  assert.match(server, /steps\.push\(makeStep\("lovers_info", "Geliefden zien elkaar", \[\]/);
+  assert.match(server, /\["wolves", "lovers_info"\]\.includes\(step\.kind\)/);
+  assert.match(server, /existing\.actorKeys = lovers/);
+
+  assert.match(server, /const BOT_PERSONAS = \["voorzichtig", "avontuurlijk", "onvoorspelbaar"\]/);
+  assert.match(server, /case "infectious_wolf":[\s\S]*game\.night\.infectedKey = victim\.key/);
+  assert.match(server, /case "witch":[\s\S]*game\.night\.witchSaveKey = saveKey[\s\S]*game\.night\.witchPoisonKey = poisonTarget\.key/);
+  assert.match(server, /case "seer":[\s\S]*const unseen = targetOptions/);
+  assert.match(server, /case "fox":[\s\S]*const checkedKeys = new Set/);
+
+  assert.match(host, /function clearForceAdvance\(\)[\s\S]*nextButton\.disabled = false/);
+  assert.ok(
+    host.indexOf('if(forceAdvanceContext && forceAdvanceContext !== forceContext) clearForceAdvance();')
+      < host.indexOf('$("nextStepBtn").disabled=!!forceAdvanceTimer;'),
+    "Jager force context must clear before the button disabled state is applied",
+  );
+
+  assert.match(player, /function commitActionHtml\(box, markup\)/);
+  assert.match(player, /box\.querySelectorAll\("img"\)/);
+  assert.match(player, /nextImage\.replaceWith\(currentImage\)/);
+  assert.match(player, /box\.replaceChildren\(template\.content\)/);
+  assert.doesNotMatch(player, /box\.innerHTML\s*=/);
+
+  assert.ok(finalLayer.length > 0, "v0.3.52 responsive layer is missing");
+  assert.match(finalLayer, /body\.playerScreen\.inGame\{[\s\S]*height:auto!important[\s\S]*overflow-y:auto!important/);
+  assert.match(finalLayer, /\.playerCenter\.active\{[\s\S]*overflow:visible!important/);
+  assert.match(finalLayer, /height:clamp\(102px,var\(--choice-mobile-card-vh,17svh\),184px\)!important/);
+  assert.match(finalLayer, /#submitWitch\{[\s\S]*position:sticky!important/);
+  assert.match(finalLayer, /\.infoScreen \.infoContent,[\s\S]*text-align:center!important/);
+});
+
+test("social phases stay blocked until the Hunter sequence is completely finished", () => {
+  const server = read("server.js");
+  const host = read("public/host.js");
+  assert.match(server, /function openDayVoteAuto\(reason = ""\) \{[\s\S]*game\.phase === "hunter" \|\| game\.hunterSequence/);
+  assert.match(server, /function startNextNight\(\) \{[\s\S]*if \(game\.phase === "hunter" \|\| game\.hunterSequence\) return/);
+  assert.match(server, /socket\.on\("host_open_mayor"[\s\S]*game\.phase === "hunter" \|\| game\.hunterSequence/);
+  assert.match(server, /socket\.on\("host_open_day_vote"[\s\S]*game\.phase === "hunter" \|\| game\.hunterSequence/);
+  assert.match(server, /if \(sequence\.stage === "choosing"\)[\s\S]*randomChoice\(alivePlayers\(\)\.filter\(p => p\.key !== sequence\.hunterKey\)\)[\s\S]*applyHunterShot\(target\.key, \{ forced: true \}\)/);
+  assert.match(host, /const hunterFlowActive=inHunter \|\| !!state\.hunterSequence/);
+  assert.match(host, /showButton\("voteBtn", !hunterFlowActive/);
+  assert.match(host, /showButton\("mayorBtn", !hunterFlowActive/);
+  assert.match(host, /showButton\("nextNightBtn", !hunterFlowActive/);
 });
 
 test("live rendering is frame-coalesced and scrolling avoids the heaviest repaint effects", () => {

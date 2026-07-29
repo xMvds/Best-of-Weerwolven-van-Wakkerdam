@@ -124,18 +124,32 @@ test("Hunter choice waits for the Host, keeps the shot victim private and separa
   await waitUntil(() => hostState?.hunterSequence?.stage === "announcement", "Hunter announcement");
   assert.equal(hunter.latest.action.kind, "hunter_wait");
   assert.equal(hunter.latest.me.alive, true, "Hunter death must remain gated during the Info announcement");
+  assert.equal(hostState.hunterSequence.hunterDeath?.key, hunter.key, "Host must immediately receive the Hunter card");
+
+  host.emit("host_open_mayor");
+  host.emit("host_open_day_vote");
+  host.emit("host_start_next_night");
+  await new Promise(resolve => setTimeout(resolve, 120));
+  assert.equal(hostState.phase, "hunter", "Social phases must stay blocked during the Hunter announcement");
+  assert.equal(hostState.hunterSequence.stage, "announcement");
 
   await new Promise(resolve => setTimeout(resolve, 3400));
   assert.equal(hostState?.hunterSequence?.stage, "announcement", "Hunter choice must not auto-open after the old short Info timer");
   host.emit("host_next_step");
   await waitUntil(() => hostState?.hunterSequence?.stage === "choosing", "Hunter choice unlock");
   await waitUntil(() => hunter.latest?.action?.kind === "hunter_shot", "Hunter player choice");
+  host.emit("host_open_mayor");
+  host.emit("host_open_day_vote");
+  await new Promise(resolve => setTimeout(resolve, 120));
+  assert.equal(hostState.hunterSequence.stage, "choosing", "Voting commands must stay blocked while the Hunter chooses");
 
   const target = players.find(player => player.key !== hunter.key && player.key !== wolf.key);
   assert.ok(target);
   hunter.socket.emit("player_action", { kind: "hunter_shot", targetKey: target.key });
   await waitUntil(() => hostState?.hunterSequence?.stage === "shot_suspense", "shot suspense");
   assert.equal(target.latest.me.alive, true, "Shot victim must stay alive on Player until the Info reveal");
+  assert.equal(hostState.hunterSequence.hunterDeath?.key, hunter.key);
+  assert.deepEqual(hostState.hunterSequence.shotDeaths.map(death => death.key), [target.key], "Host must see the chosen shot immediately");
 
   const shotToken = viewerState.hunterSequence.shotToken;
   viewer.emit("viewer_reveal_ack", { kind: "hunter_shot", token: shotToken });
