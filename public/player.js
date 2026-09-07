@@ -1,10 +1,23 @@
-const screenTestMode = new URLSearchParams(location.search).has("screenTest");
-const screenTestSession = new URLSearchParams(location.search).get("screenTestSession") || "";
+const playerSearchParams = new URLSearchParams(location.search);
+const screenTestMode = playerSearchParams.has("screenTest");
+const screenTestSession = playerSearchParams.get("screenTestSession") || "";
+const devicePreviewMode = screenTestMode && playerSearchParams.has("devicePreview");
+let remoteScreenTestSession = "";
+let liveStateDuringScreenTest = null;
+let remoteScreenTestViewport = "auto";
+let remoteDeviceFrameReady = false;
+let remoteDeviceFitFrame = null;
+const remoteDeviceSpecs = Object.freeze({
+  phone:{width:390,height:844,label:"Smalle telefoon · 390 × 844"},
+  phoneWide:{width:430,height:932,label:"Grote telefoon · 430 × 932"},
+  tablet:{width:820,height:1080,label:"Tablet · 820 × 1080"},
+  monitor:{width:1280,height:720,label:"Monitor · 1280 × 720"},
+});
 const socket = io({autoConnect:!screenTestMode});
-if(screenTestMode){
-  const socketEmit=socket.emit.bind(socket);
-  socket.emit=(eventName,...args)=>{
-    if(["player_action","player_preview"].includes(eventName)){
+const socketEmit=socket.emit.bind(socket);
+socket.emit=(eventName,...args)=>{
+  if(["player_action","player_preview"].includes(eventName)){
+    if(screenTestMode){
       window.parent?.postMessage({
         type:"wakkerdam-screen-test-player-event",
         surface:"player",
@@ -14,9 +27,17 @@ if(screenTestMode){
       },"*");
       return socket;
     }
-    return socketEmit(eventName,...args);
-  };
-}
+    if(remoteScreenTestSession){
+      socketEmit("screen_test_player_event",{
+        sessionId:remoteScreenTestSession,
+        eventName,
+        payload:args[0]||{},
+      });
+      return socket;
+    }
+  }
+  return socketEmit(eventName,...args);
+};
 const $ = (id) => document.getElementById(id);
 let state = null;
 let playerKey = screenTestMode ? "" : (sessionStorage.getItem("wakkerdam_player_key") || "");
@@ -59,7 +80,8 @@ const ROLE_ART = {
   werewolf: [{ src: "/assets/cards/weerwolf.png", title: "Weerwolf" }],
   big_bad_wolf: [{ src: "/assets/cards/grote_boze_wolf.png", title: "Grote Boze Wolf" }],
   witch: [{ src: "/assets/cards/Heks.png", title: "Heks" }],
-  hunter: [{ src: "/assets/cards/jager.png", title: "Jager" }]
+  hunter: [{ src: "/assets/cards/jager.png", title: "Jager" }],
+  little_girl: [{ src: "/assets/cards/spiekende_meisje.png", title: "Het Spiekende Meisje" }]
 };
 
 const preloadedRoleArt = [];
@@ -129,10 +151,28 @@ function schedulePlayerRender(){
 
 function emitPeekInteraction(payload){
   if(screenTestMode){
+    if(devicePreviewMode){
+      window.parent?.postMessage({
+        type:"wakkerdam-screen-test-player-event",
+        surface:"player",
+        sessionId:screenTestSession,
+        eventName:"peek_interaction",
+        payload,
+      },"*");
+      return;
+    }
     if(state?.action?.kind !== "little_girl_peek" || !state.action.peek) return;
     state.action.peek = window.WakkerdamPeekUI?.debugReduce(state.action.peek, payload) || state.action.peek;
     renderAction();
     window.parent?.postMessage({type:"wakkerdam-peek-debug-state",sessionId:screenTestSession,peek:state.action.peek},"*");
+    return;
+  }
+  if(remoteScreenTestSession){
+    socketEmit("screen_test_player_event",{
+      sessionId:remoteScreenTestSession,
+      eventName:"peek_interaction",
+      payload,
+    });
     return;
   }
   socket.emit("peek_interaction", payload);
@@ -141,6 +181,14 @@ function emitPeekInteraction(payload){
 function acknowledgePeekInstruction(sessionId){
   if(screenTestMode){
     emitPeekInteraction({sessionId,kind:"ack_instruction"});
+    return;
+  }
+  if(remoteScreenTestSession){
+    socketEmit("screen_test_player_event",{
+      sessionId:remoteScreenTestSession,
+      eventName:"peek_instruction_ack",
+      payload:{sessionId},
+    });
     return;
   }
   socket.emit("peek_instruction_ack", {sessionId});
@@ -161,6 +209,9 @@ function mountPeek(action){
     peek:action.peek,
     acknowledge:acknowledgePeekInstruction,
     emit:emitPeekInteraction,
+    progress:screenTestMode
+      ? progress=>window.parent?.postMessage({type:"wakkerdam-peek-visual-progress",sessionId:screenTestSession,progress},"*")
+      :null,
   });
 }
 
@@ -376,6 +427,58 @@ $("roleInfoClose")?.addEventListener("click", ()=>{
 
 function join(){ socket.emit("join", { name: $("nameInput").value, playerKey }); }
 
+function fitRemoteDevicePreview(){
+  cancelAnimationFrame(remoteDeviceFitFrame);
+  remoteDeviceFitFrame=requestAnimationFrame(()=>{
+    remoteDeviceFitFrame=null;
+    const spec=remoteDeviceSpecs[remoteScreenTestViewport];
+    const viewport=$("remoteDeviceViewport");
+    const frame=$("remoteDeviceFrame");
+    if(!spec||!viewport||!frame)return;
+    const availableWidth=Math.max(180,window.innerWidth-24);
+    const availableHeight=Math.max(240,window.innerHeight-42);
+    const scale=Math.min(1,availableWidth/spec.width,availableHeight/spec.height);
+    viewport.style.width=`${Math.round(spec.width*scale)}px`;
+    viewport.style.height=`${Math.round(spec.height*scale)}px`;
+    viewport.style.setProperty("--remote-device-scale",String(scale));
+    frame.style.width=`${spec.width}px`;
+    frame.style.height=`${spec.height}px`;
+    frame.style.transform=`scale(${scale})`;
+  });
+}
+
+function postRemoteDeviceState(){
+  if(!remoteDeviceFrameReady||remoteScreenTestViewport==="auto"||!state)return;
+  $("remoteDeviceFrame")?.contentWindow?.postMessage({
+    type:"wakkerdam-screen-test",
+    surface:"player",
+    sessionId:remoteScreenTestSession,
+    state,
+  },"*");
+}
+
+function applyRemoteDevicePreview(mode="auto"){
+  remoteScreenTestViewport=Object.prototype.hasOwnProperty.call(remoteDeviceSpecs,mode)?mode:"auto";
+  const shell=$("remoteDevicePreview");
+  const frame=$("remoteDeviceFrame");
+  if(!shell||!frame)return;
+  const spec=remoteDeviceSpecs[remoteScreenTestViewport];
+  shell.classList.toggle("hidden",!spec);
+  document.body.classList.toggle("remoteDevicePreviewActive",!!spec);
+  if(!spec){
+    $("remoteDevicePreviewLabel").textContent="";
+    return;
+  }
+  $("remoteDevicePreviewLabel").textContent=spec.label;
+  if(frame.dataset.session!==remoteScreenTestSession){
+    remoteDeviceFrameReady=false;
+    frame.dataset.session=remoteScreenTestSession;
+    frame.src=`/player?screenTest=1&devicePreview=1&screenTestSession=${encodeURIComponent(remoteScreenTestSession)}`;
+  }
+  fitRemoteDevicePreview();
+  postRemoteDeviceState();
+}
+
 socket.on("connect", ()=>{
   if(screenTestMode) return;
   if(storedPlayerKey()) socket.emit("join", { playerKey:storedPlayerKey() });
@@ -400,25 +503,69 @@ socket.on("joined", data=>{
   $("joinCard").classList.add("hidden");
   $("gameUI").classList.remove("hidden");
 });
+socket.on("screen_test_mode",payload=>{
+  if(screenTestMode) return;
+  if(payload?.active){
+    remoteScreenTestSession=String(payload.sessionId||"");
+    if(!liveStateDuringScreenTest) liveStateDuringScreenTest=state;
+    return;
+  }
+  if(!remoteScreenTestSession || (payload?.sessionId && payload.sessionId!==remoteScreenTestSession)) return;
+  remoteScreenTestSession="";
+  applyRemoteDevicePreview("auto");
+  document.body.classList.remove("remoteScreenTestActive");
+  window.WakkerdamPeekUI?.clearWolfWarning();
+  destroyActivePeek();
+  if(liveStateDuringScreenTest){
+    state=liveStateDuringScreenTest;
+    liveStateDuringScreenTest=null;
+    schedulePlayerRender();
+  }else if(!storedPlayerKey()){
+    state=null;
+    document.body.classList.remove("inGame");
+    $("gameUI")?.classList.add("hidden");
+    $("joinCard")?.classList.remove("hidden");
+  }
+  requestForegroundSync("screen_test_closed");
+});
+socket.on("screen_test_preview",payload=>{
+  if(screenTestMode || payload?.surface!=="player") return;
+  if(!remoteScreenTestSession || payload.sessionId!==remoteScreenTestSession || !payload.state) return;
+  if(!liveStateDuringScreenTest) liveStateDuringScreenTest=state;
+  state=payload.state;
+  document.body.classList.add("inGame","remoteScreenTestActive");
+  $("joinCard")?.classList.add("hidden");
+  $("gameUI")?.classList.remove("hidden");
+  schedulePlayerRender();
+  applyRemoteDevicePreview(payload.viewport||"auto");
+  postRemoteDeviceState();
+});
 socket.on("player_state", s=>{
   lastPlayerStateAt = Date.now();
   clearTimeout(foregroundSyncTimer);
+  if(remoteScreenTestSession){
+    liveStateDuringScreenTest=s;
+    return;
+  }
   const prev=state;
   state=s;
   maybeVibrateForAction(prev,s);
   schedulePlayerRender();
 });
 socket.on("peek_state", peek=>{
+  if(remoteScreenTestSession) return;
   if(!peek || state?.action?.kind!=="little_girl_peek" || state.action.peek?.id!==peek.id) return;
   state.action.peek=peek;
   mountPeek(state.action);
 });
 socket.on("peek_warning_state", warning=>{
+  if(remoteScreenTestSession) return;
   if(state) state.peekWarning=warning || null;
   renderPeekWarning(warning || null);
 });
 socket.on("state", s=>{
   lastLobbyId = s.lobbyId || lastLobbyId;
+  if(remoteScreenTestSession) return;
   if(!state){
     const oldKey = (s.lobbyId && localStorage.getItem(lobbyKey(s.lobbyId))) || "";
     if(s.started && oldKey && !triedStartedReconnect && !playerKey){
@@ -584,7 +731,7 @@ function renderAction(){
   }
 
   const completeClass = a.kind === "witch" && !a.canSave && !a.canPoison ? " actionComplete" : "";
-  let html=`<div class="playerCenter active action-${esc(a.kind)}${completeClass}" data-action-key="${esc(a.id || a.kind)}:${esc(a.kind)}"><h1>${esc(a.title)}</h1>${!["wolves","lovers_info"].includes(a.kind) && a.text?`<p>${esc(a.text)}</p>`:""}`;
+  let html=`<div class="playerCenter active action-${esc(a.kind)}${completeClass}" data-action-key="${esc(a.id || a.kind)}:${esc(a.kind)}"><h1>${esc(a.title)}</h1>${!["wolves","lovers_info","enchantment_broken"].includes(a.kind) && a.text?`<p>${esc(a.text)}</p>`:""}`;
 
   if(a.kind === "wolves"){
     html += renderWolfAction(a);
@@ -977,7 +1124,7 @@ function renderEnchantedInfo(a){
 }
 
 function renderEnchantmentBroken(){
-  return `<div class="enchantmentBrokenNotice"><span class="brokenMagicMark" aria-hidden="true">◇</span><strong>De betovering is verbroken</strong><p>De Fluitspeler is dood. Je bent vanaf nu niet meer betoverd.</p><small>De Host gaat verder.</small></div>`;
+  return `<div class="enchantmentBrokenNotice"><div class="brokenPiperCard" aria-label="De overleden Fluitspeler"><img src="/assets/cards/fluitspeler.png" alt="Kaart van de overleden Fluitspeler" draggable="false"></div><p>De Fluitspeler is dood.<br>Je bent niet langer betoverd.</p></div>`;
 }
 
 function renderWitch(a){
@@ -1008,6 +1155,34 @@ function renderWitch(a){
   return html;
 }
 
+if(!screenTestMode){
+  $("remoteDeviceFrame")?.addEventListener("load",()=>{
+    remoteDeviceFrameReady=true;
+    fitRemoteDevicePreview();
+    postRemoteDeviceState();
+  });
+  window.addEventListener("message",event=>{
+    const frame=$("remoteDeviceFrame");
+    if(!frame||event.source!==frame.contentWindow)return;
+    if(event.data?.type==="wakkerdam-screen-test-ready"&&event.data.surface==="player"){
+      if(event.data.sessionId&&event.data.sessionId!==remoteScreenTestSession)return;
+      remoteDeviceFrameReady=true;
+      postRemoteDeviceState();
+      return;
+    }
+    if(event.data?.type==="wakkerdam-screen-test-player-event"){
+      if(event.data.sessionId&&event.data.sessionId!==remoteScreenTestSession)return;
+      socketEmit("screen_test_player_event",{
+        sessionId:remoteScreenTestSession,
+        eventName:event.data.eventName,
+        payload:event.data.payload||{},
+      });
+    }
+  });
+  window.addEventListener("resize",fitRemoteDevicePreview,{passive:true});
+  window.addEventListener("orientationchange",fitRemoteDevicePreview,{passive:true});
+}
+
 if(screenTestMode){
   document.body.classList.add("screenTestEmbedded");
   window.addEventListener("message",event=>{
@@ -1028,18 +1203,26 @@ if(screenTestMode){
     }
     if(event.data?.type!=="wakkerdam-screen-test" || event.data.surface!=="player") return;
     if(event.data.sessionId && event.data.sessionId!==screenTestSession) return;
-    destroyActivePeek();
-    window.WakkerdamPeekUI?.clearWolfWarning();
+    const previousActionIdentity=`${state?.action?.id||""}:${state?.action?.kind||""}:${state?.action?.peek?.id||""}`;
+    const nextState=event.data.state;
+    const nextActionIdentity=`${nextState?.action?.id||""}:${nextState?.action?.kind||""}:${nextState?.action?.peek?.id||""}`;
+    const actionChanged=previousActionIdentity!==nextActionIdentity;
+    if(actionChanged){
+      destroyActivePeek();
+      window.WakkerdamPeekUI?.clearWolfWarning();
+    }
     document.body.classList.toggle("forceReducedMotion",!!event.data.reducedMotion);
-    state=event.data.state;
+    state=nextState;
     playerKey=state?.me?.key || "screen_test_player";
-    lastActionKey="";
-    lastActionMarkup="";
-    selectedTargets.clear();
-    selectedSingle=null;
-    selectedWitchSave=null;
-    selectedWitchPoison=null;
-    selectionLimitHint="";
+    if(actionChanged){
+      lastActionKey="";
+      lastActionMarkup="";
+      selectedTargets.clear();
+      selectedSingle=null;
+      selectedWitchSave=null;
+      selectedWitchPoison=null;
+      selectionLimitHint="";
+    }
     render();
   });
   window.parent?.postMessage({type:"wakkerdam-screen-test-ready",surface:"player",sessionId:screenTestSession},"*");

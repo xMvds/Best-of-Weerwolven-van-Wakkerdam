@@ -11,6 +11,9 @@ let forceAdvanceContext = "";
 let forceAdvanceButtonId = "";
 let pendingKickKey = null;
 let pendingKickTimer = null;
+let kickAllArmed = false;
+let kickAllTimer = null;
+let screenTesterSessionId = "";
 let renderFrame = null;
 let playersMarkup = "";
 let rolesMarkup = "";
@@ -100,7 +103,39 @@ document.querySelectorAll("[data-preset]").forEach(b=>b.addEventListener("click"
 $("rolesCard")?.addEventListener("toggle", () => { if(!rolesDetailsProgrammatic) rolesDetailsTouched = true; });
 $("debugToggle").addEventListener("click",()=>$("debugPanel").classList.toggle("hidden"));
 $("addTestPlayerBtn").addEventListener("click",()=>socket.emit("host_add_test_player"));
-$("openScreenTestBtn").addEventListener("click",()=>window.open("/screen-test.html","_blank"));
+$("openScreenTestBtn").addEventListener("click",()=>{
+  const overlay=$("screenTestHostOverlay");
+  const testFrame=$("hostScreenTestFrame");
+  if(!testFrame.src) testFrame.src="/screen-test.html?embeddedHost=1";
+  screenTesterSessionId=`host_screen_test_${Math.random().toString(36).slice(2,9)}_${Date.now().toString(36).slice(-5)}`;
+  socket.emit("host_screen_test_open",{sessionId:screenTesterSessionId});
+  overlay.classList.remove("hidden");
+  document.body.classList.add("screenTestHostOpen");
+});
+$("closeScreenTestBtn").addEventListener("click",closeScreenTester);
+$("kickAllBtn").addEventListener("click",()=>{
+  const button=$("kickAllBtn");
+  if(kickAllArmed){
+    clearTimeout(kickAllTimer);
+    kickAllArmed=false;
+    button.textContent="Kick all";
+    button.classList.remove("pulseConfirm");
+    socket.emit("host_kick_all_players");
+    return;
+  }
+  kickAllArmed=true;
+  button.textContent="Zeker weten?";
+  button.classList.add("pulseConfirm");
+  clearTimeout(kickAllTimer);
+  kickAllTimer=setTimeout(()=>{
+    kickAllArmed=false;
+    button.textContent="Kick all";
+    button.classList.remove("pulseConfirm");
+  },5000);
+});
+window.addEventListener("keydown",event=>{
+  if(event.key==="Escape" && !$("screenTestHostOverlay")?.classList.contains("hidden")) closeScreenTester();
+});
 $("copyConsoleBtn").addEventListener("click",()=>copyText(JSON.stringify(window.__hostConsole||[], null, 2), "Console gekopieerd."));
 $("copyDebugBtn").addEventListener("click",()=>socket.emit("host_debug_snapshot"));
 socket.on("host_debug_snapshot", snap=>{
@@ -124,6 +159,33 @@ async function copyText(text, ok="Gekopieerd."){
     toast("Kopiëren mislukt; check browserrechten.");
   }
 }
+function closeScreenTester(){
+  if(screenTesterSessionId) socket.emit("host_screen_test_close",{sessionId:screenTesterSessionId});
+  screenTesterSessionId="";
+  $("screenTestHostOverlay")?.classList.add("hidden");
+  document.body.classList.remove("screenTestHostOpen");
+  $("hostScreenTestFrame")?.contentWindow?.postMessage({type:"wakkerdam-screen-test-host-close"},"*");
+}
+
+window.addEventListener("message",event=>{
+  if(event.source!==$("hostScreenTestFrame")?.contentWindow) return;
+  if(event.data?.type!=="wakkerdam-screen-test-broadcast" || !screenTesterSessionId) return;
+  socket.emit("host_screen_test_preview",{
+    sessionId:screenTesterSessionId,
+    surface:event.data.surface,
+    state:event.data.state,
+    viewport:event.data.viewport||"auto",
+  });
+});
+socket.on("screen_test_player_event",event=>{
+  if(!screenTesterSessionId || event?.sessionId!==screenTesterSessionId) return;
+  $("hostScreenTestFrame")?.contentWindow?.postMessage({
+    type:"wakkerdam-screen-test-external-player-event",
+    sessionId:screenTesterSessionId,
+    eventName:event.eventName,
+    payload:event.payload||{},
+  },"*");
+});
 function showButton(id, show){ $(id).classList.toggle("hidden", !show); }
 function hasRemainingNightStep(){ return (state.nightSteps||[]).some(x=>!x.done&&!x.skipped); }
 function missingCandidateResponses(){
@@ -366,15 +428,16 @@ function renderHostPeekStatus(){
   let label="Spiekfase actief";
   if(session.status==="instruction") label="Uitleg wordt bekeken";
   else if(session.status==="finished" || session.status==="cancelled") label="Spiekfase afgelopen";
-  else if(session.detectionLevel!=="none") label="Betrapt";
+  else if(session.detectionLevel==="major") label="Identiteit gezien";
+  else if(session.detectionLevel==="minor") label="Wolven zijn onrustig";
   else if(session.risk>=82) label="Bijna betrapt";
   else if(session.risk>=55) label="Risico loopt op";
   else label="Voorzichtig aan het spieken";
   const risk=Math.max(0,Math.min(100,Number(session.risk||0)));
-  return `<section class="hostPeekStatus risk-${session.detectionLevel!=="none"?"caught":risk>=82?"high":risk>=55?"mid":"safe"}">
+  return `<section class="hostPeekStatus risk-${session.detectionLevel==="major"?"caught":risk>=82?"high":risk>=55?"mid":"safe"}">
     <header><div><span>Spiekende Meisje · optie ${esc(session.modeNumber)}</span><strong>${esc(girl?.name||"Onbekend")} — ${esc(session.modeLabel)}</strong></div><b>${esc(label)}</b></header>
     <div class="hostPeekMeter"><i style="width:${risk}%"></i></div>
-    <small>${session.mode==="eyelids"?`${Math.max(0,Number(session.remainingPeekMs||0)/1000).toFixed(1)} s spiektijd over`:session.mode==="fog"?`${session.fogActionsRemaining} veegbewegingen over`:`Weerkaatsingsrisico ${Math.round(risk)}%`}</small>
+    <small>${session.mode==="eyelids"?`${Math.max(0,Number(session.remainingPeekMs||0)/1000).toFixed(1)} s spiektijd over`:session.mode==="fog"?`${Math.max(0,Number(session.remainingFogMs||0)/1000).toFixed(1)} s misttijd over`:`Weerkaatsingsrisico ${Math.round(risk)}%`}</small>
   </section>`;
 }
 
@@ -435,7 +498,8 @@ function roleCardPath(roleId, cardVariant=null){
     seer:"/assets/cards/Ziener.png",
     witch:"/assets/cards/Heks.png",
     hunter:"/assets/cards/jager.png",
-    piper:"/assets/cards/fluitspeler.png"
+    piper:"/assets/cards/fluitspeler.png",
+    little_girl:"/assets/cards/spiekende_meisje.png"
   })[roleId] || null;
 }
 

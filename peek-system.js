@@ -2,6 +2,33 @@
 
 const PEEK_MODES = Object.freeze(["eyelids", "mirror", "fog"]);
 
+const PEEK_MODE_CONFIG = Object.freeze({
+  eyelids: Object.freeze({
+    timeBudgetMs: 4000,
+    baseRiskPerSecond: 5.4,
+    continuousRiskMs: 3200,
+  }),
+  mirror: Object.freeze({
+    timeBudgetMs: 8000,
+    baseRiskPerSecond: 3.8,
+    continuousRiskMs: 6200,
+    moveRisk: 13,
+    speedRisk: 3.6,
+    wolfEyesRevealMs: 780,
+    wolfEyesFullFocusMs: 1800,
+    wolfEyesRiskPerSecond: 18,
+    wolfEyesRiskRampPerSecond: 14,
+  }),
+  fog: Object.freeze({
+    timeBudgetMs: 15000,
+    baseRiskPerSecond: 2.8,
+    continuousRiskMs: 9800,
+    moveRisk: 22,
+    speedRisk: 1.8,
+    wolfFocusRiskPerSecond: 5.5,
+  }),
+});
+
 const PEEK_MODE_META = Object.freeze({
   eyelids: {
     number: 1,
@@ -18,8 +45,8 @@ const PEEK_MODE_META = Object.freeze({
   fog: {
     number: 3,
     label: "De mist wegvegen",
-    shortInstruction: "Maak korte, precieze vegen bij één speler. Een grote veeg verstoort de mist.",
-    firstInstruction: "Veeg met een korte, precieze beweging een klein stuk mist bij één speler weg. Grote of wilde bewegingen kunnen door de wolven worden gezien.",
+    shortInstruction: "Duw de mist rustig opzij. Blijf langer bij één speler om die langzaam zichtbaar te maken.",
+    firstInstruction: "Je hebt vijftien seconden om de mist rustig weg te duwen. Sleep of blijf op één plek drukken: pas na langer poetsen wordt een speler echt zichtbaar. Wild heen en weer bewegen kan je verraden.",
   },
 });
 
@@ -88,7 +115,53 @@ function normalizePeekState(value, fallbackFeatures = peekFeaturesFromEnv()) {
     mirror: !!state.instructionSeen?.mirror,
     fog: !!state.instructionSeen?.fog,
   };
-  if (!state.session || typeof state.session !== "object") state.session = null;
+  if (!state.session || typeof state.session !== "object") {
+    state.session = null;
+  } else {
+    const config = PEEK_MODE_CONFIG[state.session.mode] || PEEK_MODE_CONFIG.eyelids;
+    const storedTestBudget = Number(state.session.testTimeBudgetMs);
+    const timeBudgetMs = Number.isFinite(storedTestBudget)
+      ? clampNumber(storedTestBudget, 100, 60000)
+      : config.timeBudgetMs;
+    const legacyRemainingFog = state.session.mode === "fog"
+      ? Number(state.session.remainingFogMs)
+      : NaN;
+    const storedRemaining = Number(state.session.remainingPeekMs);
+    const remainingPeekMs = Number.isFinite(legacyRemainingFog)
+      && (!Number.isFinite(storedRemaining) || legacyRemainingFog > storedRemaining)
+      ? legacyRemainingFog
+      : (Number.isFinite(storedRemaining) ? storedRemaining : timeBudgetMs);
+    state.session.remainingPeekMs = clampNumber(remainingPeekMs, 0, timeBudgetMs);
+    state.session.testTimeBudgetMs = Number.isFinite(storedTestBudget) ? timeBudgetMs : undefined;
+    state.session.testCautionStrength = Number.isFinite(Number(state.session.testCautionStrength))
+      ? clampNumber(state.session.testCautionStrength, 25, 400)
+      : undefined;
+    state.session.testRiskMultiplier = Number.isFinite(Number(state.session.testRiskMultiplier))
+      ? clampNumber(state.session.testRiskMultiplier, .1, 4)
+      : undefined;
+    state.session.timeExpiredAt = state.session.remainingPeekMs <= 0
+      ? Number(state.session.timeExpiredAt || Date.now())
+      : null;
+    state.session.remainingFogMs = state.session.mode === "fog"
+      ? state.session.remainingPeekMs
+      : clampNumber(state.session.remainingFogMs ?? PEEK_MODE_CONFIG.fog.timeBudgetMs, 0, PEEK_MODE_CONFIG.fog.timeBudgetMs);
+    state.session.risk = clampNumber(state.session.risk ?? 0, 0, 100);
+    state.session.lastRiskSyncAt = Number(state.session.lastRiskSyncAt ?? Date.now());
+    // Oudere builds konden hier een tijdelijke inputblokkade bewaren. Vanaf
+    // v0.3.65 is risico uitsluitend informatie/ontdekking en nooit een lock.
+    state.session.cooldownUntil = 0;
+    state.session.wolfKeys = Array.isArray(state.session.wolfKeys) ? [...new Set(state.session.wolfKeys.filter(Boolean))] : [];
+    state.session.wolfLookKey = state.session.wolfKeys.includes(state.session.wolfLookKey)
+      ? state.session.wolfLookKey
+      : (state.session.wolfKeys[0] || null);
+    state.session.fogExposure = state.session.fogExposure && typeof state.session.fogExposure === "object"
+      ? state.session.fogExposure
+      : {};
+    state.session.fogReveals = Array.isArray(state.session.fogReveals) ? state.session.fogReveals : [];
+    state.session.interaction = state.session.interaction && typeof state.session.interaction === "object"
+      ? state.session.interaction
+      : {};
+  }
   return state;
 }
 
@@ -172,11 +245,17 @@ function startPeekSession(stateValue, {
   }
   const firstTime = !state.instructionSeen[mode];
   const lookDelay = 2800 + Math.floor(random() * 3400);
+  const timeBudgetMs = PEEK_MODE_CONFIG[mode]?.timeBudgetMs || PEEK_MODE_CONFIG.eyelids.timeBudgetMs;
+  const normalizedWolfKeys = [...new Set(wolfKeys.filter(Boolean))];
+  const wolfLookKey = normalizedWolfKeys.length
+    ? normalizedWolfKeys[Math.floor(random() * normalizedWolfKeys.length)]
+    : null;
   state.session = {
     id: peekId("peek_session"),
     nightNumber,
     girlKey,
-    wolfKeys: [...new Set(wolfKeys.filter(Boolean))],
+    wolfKeys: normalizedWolfKeys,
+    wolfLookKey,
     mode,
     status: bot ? "active" : "instruction",
     instructionFirstTime: firstTime,
@@ -184,9 +263,11 @@ function startPeekSession(stateValue, {
     activeAt: bot ? now : null,
     finishedAt: null,
     finishReason: null,
-    remainingPeekMs: 4000,
-    fogActionsRemaining: 4,
+    remainingPeekMs: timeBudgetMs,
+    remainingFogMs: mode === "fog" ? timeBudgetMs : PEEK_MODE_CONFIG.fog.timeBudgetMs,
+    timeExpiredAt: null,
     risk: 0,
+    lastRiskSyncAt: now,
     detectionLevel: "none",
     warningToken: null,
     warningVersion: 0,
@@ -205,8 +286,11 @@ function startPeekSession(stateValue, {
       lastMoveAt: null,
       hoverKey: null,
       hoverStartedAt: null,
+      wolfExposureStartedAt: null,
+      lastFogBrushAt: null,
     },
     mirrorReveal: null,
+    fogExposure: {},
     fogReveals: [],
     botSeenWolfKeys: [],
   };
@@ -228,12 +312,21 @@ function clampNumber(value, min, max) {
   return Math.max(min, Math.min(max, Number(value) || 0));
 }
 
+function sessionRiskMultiplier(session) {
+  const value = Number(session?.testRiskMultiplier);
+  return Number.isFinite(value) ? clampNumber(value, .1, 4) : 1;
+}
+
 function detectionRank(level) {
   return ({ none: 0, minor: 1, major: 2 })[level] || 0;
 }
 
 function triggerDetection(session, level = "major", now = Date.now()) {
   if (!session || !["minor", "major"].includes(level)) return false;
+  // Een volledige betrapping mag nooit via een verborgen tijd- of
+  // focusdrempel ontstaan. De zichtbare risicobalk is de enige bron van
+  // waarheid: pas exact op 100% wordt de identiteit onthuld.
+  if (level === "major" && Number(session.risk || 0) < 100) return false;
   if (detectionRank(level) <= detectionRank(session.detectionLevel)) return false;
   session.detectionLevel = level;
   session.warningVersion += 1;
@@ -248,41 +341,229 @@ function isWolfLookActive(session, now = Date.now()) {
   return !!session && now >= Number(session.wolfLookAt || 0) && now <= Number(session.wolfLookUntil || 0);
 }
 
+function mirrorWolfEyeFocus(session, now = Date.now()) {
+  const config = PEEK_MODE_CONFIG.mirror;
+  const hoverKey = session?.interaction?.hoverKey || null;
+  if (
+    session?.mode !== "mirror"
+    || !session.interaction?.active
+    || !hoverKey
+    || !session.wolfKeys.includes(hoverKey)
+  ) {
+    return {
+      active: false,
+      key: null,
+      focusedMs: 0,
+      eyeContactMs: 0,
+      strength: 0,
+      riskPerSecond: 0,
+    };
+  }
+  const focusedMs = Math.max(0, now - Number(session.interaction.hoverStartedAt || now));
+  const eyeContactMs = Math.max(0, focusedMs - Number(config.wolfEyesRevealMs || 780));
+  const active = eyeContactMs > 0;
+  const strength = active
+    ? clampNumber(eyeContactMs / Number(config.wolfEyesFullFocusMs || 1800), 0, 1)
+    : 0;
+  return {
+    active,
+    key: hoverKey,
+    focusedMs,
+    eyeContactMs,
+    strength,
+    riskPerSecond: active
+      ? Number(config.wolfEyesRiskPerSecond || 0)
+        + strength * Number(config.wolfEyesRiskRampPerSecond || 0)
+      : 0,
+  };
+}
+
+function syncRiskCooling(session, now = Date.now()) {
+  if (!session) return;
+  const previous = Number(session.lastRiskSyncAt || now);
+  const elapsed = clampNumber(now - previous, 0, 1200);
+  session.lastRiskSyncAt = now;
+  if (!session.interaction?.active && elapsed > 0 && Number(session.risk || 0) > 0) {
+    session.risk = clampNumber(Number(session.risk || 0) - (elapsed / 1000) * 10, 0, 100);
+  }
+}
+
+function riskTrendPerSecond(session, now = Date.now()) {
+  if (!session || Number(session.risk || 0) <= 0 && !session.interaction?.active) return 0;
+  if (!session.interaction?.active) return -10;
+  const config = PEEK_MODE_CONFIG[session.mode] || PEEK_MODE_CONFIG.eyelids;
+  const continuous = Math.max(0, now - Number(session.interaction.startedAt || now));
+  const continuousSeconds = continuous / 1000;
+  const continuousRiskMs = Number(config.continuousRiskMs || 3200);
+  const normalized = clampNumber(continuous / continuousRiskMs, 0, 1);
+  const continuousCurveRate = normalized > 0
+    ? (100 * 1.35 / (continuousRiskMs / 1000)) * Math.pow(normalized, 0.35)
+    : 0;
+  const wolfLookRate = session.mode === "eyelids" && isWolfLookActive(session, now) ? 58 : 0;
+  const focusedWolfMs = session.mode === "fog"
+    && session.wolfKeys.includes(session.interaction?.hoverKey)
+    ? Math.max(0, now - Number(session.interaction?.hoverStartedAt || now))
+    : 0;
+  const focusedWolfRate = focusedWolfMs > 1000
+    ? Number(config.wolfFocusRiskPerSecond || 0)
+    : 0;
+  const mirrorEyeRate = session.mode === "mirror"
+    ? mirrorWolfEyeFocus(session, now).riskPerSecond
+    : 0;
+  return (Math.max(
+    Number(config.baseRiskPerSecond || 0)
+      + (session.mode === "eyelids" ? Math.max(0, continuous - 850) / 260 : 0),
+    continuousCurveRate
+  ) + wolfLookRate + focusedWolfRate + mirrorEyeRate + (session.mode === "eyelids" ? Math.min(5, continuousSeconds * 1.15) : 0)) * sessionRiskMultiplier(session);
+}
+
+function stopInteraction(session) {
+  if (!session?.interaction) return;
+  session.interaction.active = false;
+  session.interaction.startedAt = null;
+  session.interaction.accountedAt = null;
+  session.interaction.lastX = null;
+  session.interaction.lastY = null;
+  session.interaction.lastMoveAt = null;
+  session.interaction.hoverKey = null;
+  session.interaction.hoverStartedAt = null;
+  session.interaction.wolfExposureStartedAt = null;
+  session.interaction.lastFogBrushAt = null;
+}
+
+function consumePeekTime(session, elapsedMs) {
+  if (!session || elapsedMs <= 0) return;
+  session.remainingPeekMs = Math.max(0, Number(session.remainingPeekMs || 0) - elapsedMs);
+  if (session.mode === "fog") session.remainingFogMs = session.remainingPeekMs;
+}
+
+function finishRiskStep(session, now = Date.now()) {
+  if (!session) return;
+  if (Number(session.risk || 0) >= 100) {
+    session.risk = 100;
+    triggerDetection(session, "major", now);
+  }
+}
+
 function syncPeekSession(stateValue, now = Date.now()) {
   const state = normalizePeekState(stateValue);
   const session = state.session;
   if (!session || session.status !== "active") return session;
+  syncRiskCooling(session, now);
 
   if (session.mode === "eyelids" && session.interaction?.active) {
+    const config = PEEK_MODE_CONFIG.eyelids;
+    const riskMultiplier = sessionRiskMultiplier(session);
     const from = Math.max(
       Number(session.interaction.accountedAt || session.interaction.startedAt || now),
       Number(session.activeAt || session.startedAt || now)
     );
     const elapsed = clampNumber(now - from, 0, 1200);
+    const continuous = Math.max(0, now - Number(session.interaction.startedAt || now));
+    const wolfLooking = isWolfLookActive(session, now);
     if (elapsed > 0) {
-      const continuous = Math.max(0, now - Number(session.interaction.startedAt || now));
-      session.remainingPeekMs = Math.max(0, Number(session.remainingPeekMs || 0) - elapsed);
+      consumePeekTime(session, elapsed);
       session.risk = clampNumber(
-        Number(session.risk || 0) + elapsed / 1000 * (7 + Math.max(0, continuous - 900) / 260),
+        Number(session.risk || 0) + elapsed / 1000 * riskMultiplier * (
+          config.baseRiskPerSecond
+          + Math.max(0, continuous - 850) / 260
+          + (wolfLooking ? 58 : 0)
+        ),
         0,
         100
       );
+      const continuousRisk = 100 * riskMultiplier * Math.pow(clampNumber(continuous / config.continuousRiskMs, 0, 1), 1.35);
+      session.risk = Math.max(session.risk, continuousRisk);
       session.interaction.accountedAt = now;
     }
-    if (isWolfLookActive(session, now) && now - Number(session.interaction.startedAt || now) > 180) {
-      session.risk = Math.max(session.risk, 100);
-      triggerDetection(session, "major", now);
-    } else if (session.risk >= 100) {
-      triggerDetection(session, "major", now);
+    if (wolfLooking) {
+      if (!session.interaction.wolfExposureStartedAt) session.interaction.wolfExposureStartedAt = now;
+    } else {
+      session.interaction.wolfExposureStartedAt = null;
     }
+    if (session.risk >= 58 || continuous >= 1650) {
+      triggerDetection(session, "minor", now);
+    }
+    finishRiskStep(session, now);
     if (session.remainingPeekMs <= 0) {
-      session.interaction.active = false;
-      session.interaction.startedAt = null;
-      session.interaction.accountedAt = null;
+      stopInteraction(session);
     }
   }
 
-  session.fogReveals = (session.fogReveals || []).filter(reveal => Number(reveal.expiresAt || 0) > now);
+  if (session.mode === "mirror" && session.interaction?.active) {
+    const config = PEEK_MODE_CONFIG.mirror;
+    const riskMultiplier = sessionRiskMultiplier(session);
+    const from = Math.max(
+      Number(session.interaction.accountedAt || session.interaction.startedAt || now),
+      Number(session.activeAt || session.startedAt || now)
+    );
+    const elapsed = clampNumber(now - from, 0, 1200);
+    const continuous = Math.max(0, now - Number(session.interaction.startedAt || now));
+    const eyeFocus = mirrorWolfEyeFocus(session, now);
+    if (elapsed > 0) {
+      consumePeekTime(session, elapsed);
+      session.risk = clampNumber(
+        Number(session.risk || 0) + elapsed / 1000 * riskMultiplier * (config.baseRiskPerSecond + eyeFocus.riskPerSecond),
+        0,
+        100
+      );
+      session.risk = Math.max(
+        session.risk,
+        100 * riskMultiplier * Math.pow(clampNumber(continuous / config.continuousRiskMs, 0, 1), 1.35)
+      );
+      session.interaction.accountedAt = now;
+    }
+    if (session.remainingPeekMs <= 0) {
+      stopInteraction(session);
+    }
+    if (session.risk >= 58 || continuous >= config.continuousRiskMs * .58) {
+      triggerDetection(session, "minor", now);
+    }
+    finishRiskStep(session, now);
+  }
+
+  if (session.mode === "fog" && session.interaction?.active) {
+    const config = PEEK_MODE_CONFIG.fog;
+    const riskMultiplier = sessionRiskMultiplier(session);
+    const from = Math.max(
+      Number(session.interaction.accountedAt || session.interaction.startedAt || now),
+      Number(session.activeAt || session.startedAt || now)
+    );
+    const elapsed = clampNumber(now - from, 0, 1200);
+    const continuous = Math.max(0, now - Number(session.interaction.startedAt || now));
+    const focusedWolfMs = session.wolfKeys.includes(session.interaction.hoverKey)
+      ? Math.max(0, now - Number(session.interaction.hoverStartedAt || now))
+      : 0;
+    const focusedWolfRate = focusedWolfMs > 1000 ? Number(config.wolfFocusRiskPerSecond || 0) : 0;
+    if (elapsed > 0) {
+      consumePeekTime(session, elapsed);
+      session.risk = clampNumber(
+        Number(session.risk || 0) + elapsed / 1000 * riskMultiplier * (config.baseRiskPerSecond + focusedWolfRate),
+        0,
+        100
+      );
+      session.risk = Math.max(
+        session.risk,
+        100 * riskMultiplier * Math.pow(clampNumber(continuous / config.continuousRiskMs, 0, 1), 1.35)
+      );
+      session.interaction.accountedAt = now;
+    }
+    if (session.risk >= 58 || continuous >= config.continuousRiskMs * .58) {
+      triggerDetection(session, "minor", now);
+    }
+    finishRiskStep(session, now);
+    if (session.remainingPeekMs <= 0) {
+      stopInteraction(session);
+    }
+  }
+
+  if (Number(session.remainingPeekMs || 0) <= 0) {
+    session.remainingPeekMs = 0;
+    if (session.mode === "fog") session.remainingFogMs = 0;
+    if (!session.timeExpiredAt) session.timeExpiredAt = now;
+    stopInteraction(session);
+  }
+
   if (session.mirrorReveal && Number(session.mirrorReveal.expiresAt || 0) <= now) session.mirrorReveal = null;
   return session;
 }
@@ -294,8 +575,8 @@ function canonicalPositions(players = []) {
     const angle = -Math.PI / 2 + (index / total) * Math.PI * 2;
     return {
       key: player.key,
-      x: 0.5 + Math.cos(angle) * 0.36,
-      y: 0.5 + Math.sin(angle) * 0.36,
+      x: 0.5 + Math.cos(angle) * 0.3,
+      y: 0.5 + Math.sin(angle) * 0.3,
     };
   });
 }
@@ -336,20 +617,26 @@ function applyPeekInteraction(stateValue, payload = {}, {
   session.lastInteractionAt = now;
 
   if (session.mode === "eyelids") {
-    if (kind === "hold_start" && session.remainingPeekMs > 0 && !session.interaction.active) {
+    if (
+      kind === "hold_start"
+      && session.remainingPeekMs > 0
+      && !session.interaction.active
+    ) {
       session.interaction.active = true;
       session.interaction.startedAt = now;
       session.interaction.accountedAt = now;
+      session.interaction.wolfExposureStartedAt = null;
+      return { ok: true };
+    }
+    if (kind === "hold_start" && session.remainingPeekMs > 0 && session.interaction.active) {
       return { ok: true };
     }
     if (kind === "hold_stop") {
       syncPeekSession(state, now);
       const continuous = Math.max(0, now - Number(session.interaction.startedAt || now));
-      if (continuous > 1750) session.risk = clampNumber(session.risk + (continuous - 1750) / 75, 0, 100);
-      if (session.risk >= 100) triggerDetection(session, "major", now);
-      session.interaction.active = false;
-      session.interaction.startedAt = null;
-      session.interaction.accountedAt = null;
+      if (session.risk >= 58 || continuous >= 1650) triggerDetection(session, "minor", now);
+      stopInteraction(session);
+      finishRiskStep(session, now);
       return { ok: true };
     }
     return { ok: false, reason: "wrong_interaction" };
@@ -360,7 +647,29 @@ function applyPeekInteraction(stateValue, payload = {}, {
   const positions = canonicalPositions(players);
   const interaction = session.interaction;
 
+  if (session.mode === "mirror" && kind === "mirror_start") {
+    if (Number(session.remainingPeekMs || 0) <= 0) return { ok: false, reason: "resource_empty" };
+    interaction.active = true;
+    interaction.startedAt = now;
+    interaction.accountedAt = now;
+    interaction.lastX = x;
+    interaction.lastY = y;
+    interaction.lastMoveAt = now;
+    interaction.hoverKey = null;
+    interaction.hoverStartedAt = now;
+    return { ok: true };
+  }
+
   if (session.mode === "mirror" && kind === "mirror_move") {
+    if (Number(session.remainingPeekMs || 0) <= 0) {
+      stopInteraction(session);
+      return { ok: false, reason: "resource_empty" };
+    }
+    if (!interaction.active) {
+      interaction.active = true;
+      interaction.startedAt = now;
+      interaction.accountedAt = now;
+    }
     const previousAt = Number(interaction.lastMoveAt || now);
     const elapsedMs = clampNumber(now - previousAt, 35, 650);
     const distance = interaction.lastX === null ? 0 : Math.hypot(x - interaction.lastX, y - interaction.lastY);
@@ -372,11 +681,14 @@ function applyPeekInteraction(stateValue, payload = {}, {
     }
     const hoverMs = target ? Math.max(0, now - Number(interaction.hoverStartedAt || now)) : 0;
     const wolfHover = target && isWolfKey(target.key);
+    const config = PEEK_MODE_CONFIG.mirror;
+    const riskMultiplier = sessionRiskMultiplier(session);
     session.risk = clampNumber(
       session.risk
-        + distance * 18
-        + Math.max(0, speed - 0.62) * 4.8
-        + (wolfHover && hoverMs > 900 ? (elapsedMs / 1000) * 11 : 0),
+        + riskMultiplier * (
+          distance * config.moveRisk
+          + Math.max(0, speed - 0.72) * config.speedRisk
+        ),
       0,
       100
     );
@@ -384,50 +696,109 @@ function applyPeekInteraction(stateValue, payload = {}, {
     interaction.lastY = y;
     interaction.lastMoveAt = now;
     if (target) {
+      const strength = clampNumber(hoverMs / 1150, 0.05, 1);
       session.mirrorReveal = {
         key: target.key,
-        awakeWolf: !!isWolfKey(target.key) && hoverMs >= 480,
-        expiresAt: now + 720,
+        strength,
+        awakeWolf: !!isWolfKey(target.key) && strength >= 0.68,
+        expiresAt: now + 850,
       };
     }
-    if (session.risk >= 100) triggerDetection(session, "major", now);
-    else if (session.risk >= 76) triggerDetection(session, "minor", now);
+    if (session.risk >= 58) triggerDetection(session, "minor", now);
+    finishRiskStep(session, now);
     return { ok: true, revealKey: target?.key || null };
   }
 
-  if (session.mode === "fog" && kind === "fog_swipe") {
-    const start = {
-      x: clampNumber(payload.startX, 0, 1),
-      y: clampNumber(payload.startY, 0, 1),
-    };
-    const end = { x, y };
-    const distance = Math.hypot(end.x - start.x, end.y - start.y);
-    const durationMs = clampNumber(payload.durationMs, 80, 1800);
-    if (distance < 0.055 || session.fogActionsRemaining <= 0) return { ok: false, reason: "too_small" };
-    const speed = distance / (durationMs / 1000);
-    const revealed = positions
-      .filter(position => distanceToSegment(position, start, end) <= 0.1)
-      .slice(0, 2);
-    session.fogActionsRemaining = Math.max(0, session.fogActionsRemaining - 1);
-    session.fogReveals = revealed.map(position => ({
-      key: position.key,
-      awakeWolf: !!isWolfKey(position.key),
-      expiresAt: now + 1650,
-    }));
-    session.risk = clampNumber(
-      session.risk
-        + distance * 52
-        + Math.max(0, speed - 0.72) * 7
-        + Math.max(0, revealed.length - 1) * 9,
-      0,
-      100
-    );
+  if (session.mode === "mirror" && kind === "mirror_stop") {
+    syncPeekSession(state, now);
+    stopInteraction(session);
+    finishRiskStep(session, now);
+    return { ok: true };
+  }
+
+  if (session.mode === "fog" && kind === "fog_brush_start") {
+    if (Number(session.remainingPeekMs || 0) <= 0) return { ok: false, reason: "resource_empty" };
+    session.interaction.active = true;
+    session.interaction.startedAt = now;
+    session.interaction.accountedAt = now;
+    session.interaction.lastFogBrushAt = now;
     interaction.lastX = x;
     interaction.lastY = y;
     interaction.lastMoveAt = now;
-    if (session.risk >= 100) triggerDetection(session, "major", now);
-    else if (session.risk >= 82) triggerDetection(session, "minor", now);
-    return { ok: true, revealKeys: revealed.map(position => position.key) };
+    return { ok: true };
+  }
+
+  if (session.mode === "fog" && kind === "fog_brush") {
+    if (Number(session.remainingPeekMs || 0) <= 0) return { ok: false, reason: "resource_empty" };
+    if (!interaction.active) {
+      interaction.active = true;
+      interaction.startedAt = now;
+      interaction.accountedAt = now;
+      interaction.lastFogBrushAt = now;
+      interaction.lastX = x;
+      interaction.lastY = y;
+      interaction.lastMoveAt = now;
+    }
+    const previousAt = Number(interaction.lastFogBrushAt || interaction.lastMoveAt || now - 80);
+    const elapsedMs = clampNumber(now - previousAt, 28, 260);
+    const distance = interaction.lastX === null ? 0 : Math.hypot(x - interaction.lastX, y - interaction.lastY);
+    const speed = distance / Math.max(0.028, elapsedMs / 1000);
+    const brushRadius = 0.16;
+    const touched = positions
+      .map(position => ({ ...position, distance: Math.hypot(position.x - x, position.y - y) }))
+      .filter(position => position.distance <= brushRadius)
+      .sort((a, b) => a.distance - b.distance);
+    const focusTarget = touched[0] || null;
+    if (focusTarget?.key !== interaction.hoverKey) {
+      interaction.hoverKey = focusTarget?.key || null;
+      interaction.hoverStartedAt = now;
+    }
+    const focusMs = focusTarget ? Math.max(0, now - Number(interaction.hoverStartedAt || now)) : 0;
+    session.fogExposure = session.fogExposure && typeof session.fogExposure === "object"
+      ? session.fogExposure
+      : {};
+    for (const position of touched) {
+      const falloff = clampNumber(1 - position.distance / brushRadius, 0.08, 1);
+      const previous = Number(session.fogExposure[position.key] || 0);
+      session.fogExposure[position.key] = clampNumber(previous + (elapsedMs / 3500) * falloff, 0, 1);
+    }
+    session.fogReveals = Object.entries(session.fogExposure)
+      .filter(([, strength]) => Number(strength) > 0.015)
+      .map(([key, strength]) => ({
+        key,
+        strength: clampNumber(strength, 0, 1),
+        awakeWolf: !!isWolfKey(key) && Number(strength) >= 0.68,
+      }));
+    const config = PEEK_MODE_CONFIG.fog;
+    const riskMultiplier = sessionRiskMultiplier(session);
+    session.risk = clampNumber(
+      Number(session.risk || 0)
+        + riskMultiplier * (
+          distance * config.moveRisk
+          + Math.max(0, speed - 0.68) * config.speedRisk
+          + Math.max(0, touched.length - 1) * 0.25
+        ),
+      0,
+      100
+    );
+    interaction.lastFogBrushAt = now;
+    interaction.lastX = x;
+    interaction.lastY = y;
+    interaction.lastMoveAt = now;
+    if (session.risk >= 58) triggerDetection(session, "minor", now);
+    finishRiskStep(session, now);
+    return {
+      ok: true,
+      revealKeys: touched.map(position => position.key),
+      remainingFogMs: Math.round(session.remainingPeekMs),
+    };
+  }
+
+  if (session.mode === "fog" && kind === "fog_brush_stop") {
+    syncPeekSession(state, now);
+    stopInteraction(session);
+    finishRiskStep(session, now);
+    return { ok: true };
   }
   return { ok: false, reason: "wrong_interaction" };
 }
@@ -439,11 +810,8 @@ function finishPeekSession(stateValue, reason = "wolves_finished", now = Date.no
   session.status = reason === "cancelled" || reason === "girl_dead" ? "cancelled" : "finished";
   session.finishedAt = now;
   session.finishReason = reason;
-  session.interaction.active = false;
-  session.interaction.startedAt = null;
-  session.interaction.accountedAt = null;
+  stopInteraction(session);
   session.mirrorReveal = null;
-  session.fogReveals = [];
   return session;
 }
 
@@ -460,6 +828,7 @@ function girlView(stateValue, { players = [], isWolfKey = () => false, now = Dat
   const session = syncPeekSession(state, now);
   if (!session) return null;
   const meta = PEEK_MODE_META[session.mode];
+  const mirrorEyeFocus = mirrorWolfEyeFocus(session, now);
   const playerCircle = players
     .slice()
     .sort((a, b) => Number(a.seat || 0) - Number(b.seat || 0))
@@ -479,11 +848,23 @@ function girlView(stateValue, { players = [], isWolfKey = () => false, now = Dat
     instruction: instructionForSession(state),
     firstInstruction: !!session.instructionFirstTime,
     remainingPeekMs: Math.round(session.remainingPeekMs),
-    fogActionsRemaining: session.fogActionsRemaining,
+    remainingFogMs: Math.round(session.mode === "fog" ? session.remainingPeekMs : session.remainingFogMs ?? PEEK_MODE_CONFIG.fog.timeBudgetMs),
+    timeBudgetMs: Number(session.testTimeBudgetMs || PEEK_MODE_CONFIG[session.mode]?.timeBudgetMs || PEEK_MODE_CONFIG.eyelids.timeBudgetMs),
+    testTimeBudgetMs: session.testTimeBudgetMs || undefined,
+    testCautionStrength: session.testCautionStrength || undefined,
+    testRiskMultiplier: session.testRiskMultiplier || undefined,
     risk: Math.round(session.risk),
+    riskTrendPerSecond: riskTrendPerSecond(session, now),
+    timeExpired: Number(session.remainingPeekMs || 0) <= 0,
+    timeExpiredAt: session.timeExpiredAt || null,
     detectionLevel: session.detectionLevel,
-    caught: session.detectionLevel !== "none",
+    caught: session.detectionLevel === "major",
+    noticed: session.detectionLevel === "minor",
+    cooling: false,
     wolfLookActive: session.mode === "eyelids" && isWolfLookActive(session, now),
+    mirrorEyeContactActive: mirrorEyeFocus.active,
+    mirrorEyeContactStrength: mirrorEyeFocus.strength,
+    mirrorEyeContactKey: mirrorEyeFocus.key,
     holding: !!session.interaction?.active,
     holdStartedAt: session.interaction?.startedAt || null,
     mirrorReveal: session.mirrorReveal ? { ...session.mirrorReveal } : null,
@@ -509,22 +890,61 @@ function silhouetteHint(girl, players = []) {
   };
 }
 
-function wolfWarningView(stateValue, wolfKey, { girl = null, players = [] } = {}) {
+function wolfWarningView(stateValue, wolfKey, { girl = null, players = [], now = Date.now() } = {}) {
   const state = normalizePeekState(stateValue);
-  const session = state.session;
-  if (!session || session.detectionLevel === "none" || !session.warningToken || session.warningCleared) return null;
-  if (!session.wolfKeys.includes(wolfKey) || session.warningAckedBy.includes(wolfKey)) return null;
-  const copy = {
-    eyelids: "Jullie zagen iemand tussen de bomen gluren…",
-    mirror: "Er weerkaatste iets tussen de slapende dorpelingen…",
-    fog: "Iemand bewoog zich door de mist…",
-  };
+  const session = syncPeekSession(state, now);
+  if (!session || !session.wolfKeys.includes(wolfKey) || !["active", "finished"].includes(session.status)) return null;
+  const fullyCaught = session.detectionLevel === "major";
+  const mirrorEyeFocus = mirrorWolfEyeFocus(session, now);
+  const activelyObserved = !!session.interaction?.active && (
+    session.mode === "eyelids"
+      ? session.wolfLookKey === wolfKey
+      : session.interaction.hoverKey === wolfKey
+  );
+  if (!fullyCaught && !activelyObserved) return null;
+  const continuousMs = session.interaction?.active
+    ? Math.max(0, now - Number(session.interaction.startedAt || now))
+    : 0;
+  const eyeContact = !fullyCaught
+    && session.mode === "mirror"
+    && mirrorEyeFocus.active
+    && mirrorEyeFocus.key === wolfKey;
+  const baseAwareness = fullyCaught
+    ? 1
+    : clampNumber(
+        Number(session.risk || 0) / 150
+        + Math.min(0.13, continuousMs / 10500)
+        + (session.detectionLevel === "minor" ? 0.1 : 0),
+        0,
+        eyeContact ? 0.72 : 0.62
+      );
+  const awareness = fullyCaught
+    ? 1
+    : clampNumber(
+        baseAwareness + (eyeContact ? 0.16 + mirrorEyeFocus.strength * 0.24 : 0),
+        0,
+        eyeContact ? 0.88 : 0.62
+      );
+  if (!fullyCaught && awareness < 0.025) return null;
   return {
-    token: session.warningToken,
+    token: `${session.id}_${fullyCaught ? "caught" : "presence"}`,
     mode: session.mode,
-    level: session.detectionLevel,
-    text: copy[session.mode],
+    level: fullyCaught ? "major" : "presence",
+    awareness,
+    eyeContact,
+    eyeContactStrength: eyeContact ? mirrorEyeFocus.strength : 0,
+    text: fullyCaught
+      ? `${girl?.name || "Het Spiekende Meisje"} is betrapt!`
+      : "",
     hint: silhouetteHint(girl, players),
+    nameHint: !fullyCaught ? String(girl?.name || "") : "",
+    identity: fullyCaught && girl ? {
+      key: girl.key,
+      name: girl.name,
+      roleName: "Het Spiekende Meisje",
+      roleCardSrc: "/assets/cards/spiekende_meisje.png",
+      cardVariant: girl.cardVariant || 1,
+    } : null,
   };
 }
 
@@ -559,7 +979,10 @@ function hostPeekView(stateValue, now = Date.now()) {
       risk: Math.round(session.risk),
       detectionLevel: session.detectionLevel,
       remainingPeekMs: Math.round(session.remainingPeekMs),
-      fogActionsRemaining: session.fogActionsRemaining,
+      remainingFogMs: Math.round(session.mode === "fog" ? session.remainingPeekMs : session.remainingFogMs ?? PEEK_MODE_CONFIG.fog.timeBudgetMs),
+      timeBudgetMs: Number(session.testTimeBudgetMs || PEEK_MODE_CONFIG[session.mode]?.timeBudgetMs || PEEK_MODE_CONFIG.eyelids.timeBudgetMs),
+      timeExpired: Number(session.remainingPeekMs || 0) <= 0,
+      cooling: false,
       wolfLookActive: isWolfLookActive(session, now),
       finishReason: session.finishReason || null,
     } : null,
@@ -597,6 +1020,7 @@ function validateRotation(sequence, features = peekFeaturesFromEnv()) {
 
 const PEEK_API = {
   PEEK_MODES,
+  PEEK_MODE_CONFIG,
   PEEK_MODE_META,
   peekFeaturesFromEnv,
   activeModes,
@@ -609,6 +1033,7 @@ const PEEK_API = {
   syncPeekSession,
   finishPeekSession,
   triggerDetection,
+  mirrorWolfEyeFocus,
   girlView,
   wolfWarningView,
   acknowledgeWolfWarning,

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Wakkerdam — Paginatester</title>
-  <link rel="stylesheet" href="/style.css?v=0.3.57" />
+  <link rel="stylesheet" href="/style.css?v=0.3.72" />
 </head>
 <body class="screenTestStudio">
   <div class="bg"></div>
@@ -51,64 +51,82 @@
       </div>
       <p id="screenTestDescription"></p>
       <div class="screenTestFlowControls">
-        <span id="screenTestScaleLabel" class="screenTestScaleLabel">Voorbeeld wordt passend gemaakt</span>
         <button id="screenTestReplay" class="btn ghost" type="button">↻ Opnieuw</button>
         <button id="screenTestPlayNext" class="btn gold" type="button">Speel vervolg ▶</button>
       </div>
     </section>
 
-    <section id="peekTestPanel" class="peekTestPanel hidden" aria-label="Spiekende Meisje testbediening">
-      <div class="peekTestToolbar">
-        <label><span>Mechanic</span><select id="peekTestMode"><option value="auto">Automatische rotatie</option><option value="eyelids">Optie 1 · Oogleden</option><option value="mirror">Optie 2 · Spiegelscherf</option><option value="fog">Optie 3 · Mist</option></select></label>
-        <label><span>Spelers</span><input id="peekTestPlayers" type="number" min="3" max="24" value="12"></label>
-        <label><span>Weerwolven</span><input id="peekTestWolves" type="number" min="1" max="8" value="2"></label>
-        <label><span>Risico</span><input id="peekTestRisk" type="range" min="0" max="100" value="0"></label>
-        <label><span>Spiektijd</span><input id="peekTestTime" type="range" min="0" max="4000" step="100" value="4000"></label>
-        <label><span>Veegacties</span><input id="peekTestWipes" type="number" min="0" max="4" value="4"></label>
-        <label class="peekTestCheck"><input id="peekTestReducedMotion" type="checkbox"><span>Verminderde beweging</span></label>
-      </div>
-      <div class="peekTestActions">
-        <button class="btn gold" id="peekTestRestart" type="button">Mechanic opnieuw starten</button>
-        <button class="btn ghost" id="peekTestInstruction" type="button">Uitleg opnieuw tonen</button>
-        <button class="btn ghost" id="peekTestWolfLook" type="button">Wolf kijkt om</button>
-        <button class="btn ghost" id="peekTestMinor" type="button">Kleine waarschuwing</button>
-        <button class="btn danger" id="peekTestMajor" type="button">Zware betrapping</button>
-        <button class="btn ghost" id="peekTestReconnect" type="button">Simuleer reconnect</button>
-        <button class="btn ghost" id="peekTestRefresh" type="button">Simuleer refresh</button>
-        <button class="btn blue" id="peekTestForce" type="button">Force-next</button>
-        <button class="btn danger" id="peekTestGirlDeath" type="button">Meisje overlijdt</button>
-        <button class="btn ghost" id="peekTestWolfDeath" type="button">Wolf overlijdt</button>
-        <button class="btn ghost" id="peekTestCleanup" type="button">Test onverwachte afsluiting</button>
-      </div>
-      <div class="peekTestDetails">
-        <article>
-          <h3>Live state-inspector</h3>
-          <pre id="peekStateInspector"></pre>
-        </article>
-        <article>
-          <h3>Rotatietest</h3>
-          <div class="peekFeatureToggles">
-            <label><input type="checkbox" data-peek-feature="eyelids" checked> Optie 1</label>
-            <label><input type="checkbox" data-peek-feature="mirror" checked> Optie 2</label>
-            <label><input type="checkbox" data-peek-feature="fog" checked> Optie 3</label>
-          </div>
-          <div class="btnrow">
-            <button class="btn ghost" id="peekSimulateNight" type="button">Simuleer volgende nacht</button>
-            <button class="btn gold" id="peekSimulateHundred" type="button">Simuleer 100 cycli</button>
-          </div>
-          <p id="peekRotationSequence" class="peekRotationSequence">Nog geen nachten gesimuleerd.</p>
-          <p id="peekRotationResult" class="muted"></p>
-        </article>
-      </div>
-    </section>
+    <p id="screenTestBroadcastNote" class="screenTestBroadcastNote">
+      Deze test wordt live getoond op de werkelijk geopende Player- of Infopagina’s.
+    </p>
 
-    <section class="screenTestStage">
-      <section id="screenTestViewport" class="screenTestViewport auto">
-        <iframe id="screenTestFrame" title="Live testpagina" allow="fullscreen"></iframe>
+    <section id="screenTestWorkspace" class="screenTestWorkspace">
+      <aside id="peekTestPanel" class="peekTestPanel hidden" aria-label="Spiekende Meisje testbediening">
+        <header class="peekTestPanelHeader">
+          <span>Mechanic testen</span>
+          <small>De echte spieksituatie blijft volledig in beeld.</small>
+        </header>
+        <div class="peekTestToolbar">
+          <label><span>Mechanic</span><select id="peekTestMode"><option value="auto">Automatische spelrotatie</option><option value="eyelids">Optie 1 · Oogleden</option><option value="mirror">Optie 2 · Spiegelscherf</option><option value="fog">Optie 3 · Mist</option></select></label>
+          <label><span>Spelers</span><input id="peekTestPlayers" type="number" min="3" max="24" value="12"></label>
+          <label><span>Weerwolven</span><input id="peekTestWolves" type="number" min="1" max="8" value="2"></label>
+        </div>
+        <div class="peekTestActions">
+          <button class="btn gold" id="peekTestRestart" type="button">Opnieuw starten</button>
+          <button class="btn ghost" id="peekTestInstruction" type="button">Uitleg tonen</button>
+        </div>
+        <section class="peekBalanceControls" aria-label="Spelbalansinstellingen">
+          <header>
+            <strong>Spelbalans afstellen</strong>
+            <small>Deze waarden gelden alleen in de tester. Een hogere voorzichtigheid laat de risicobalk langzamer vullen.</small>
+          </header>
+          <label>
+            <span>Voorzichtigheid <output id="peekCautionOutput">100%</output></span>
+            <input id="peekCautionStrength" type="range" min="25" max="400" step="5" value="100">
+          </label>
+          <label>
+            <span>Spiektijd <output id="peekSecondsOutput">4,0 s</output></span>
+            <input id="peekSeconds" type="range" min="0.1" max="60" step="0.1" value="4">
+          </label>
+        </section>
+        <section id="peekFogControls" class="peekFogControls hidden" aria-label="Mistinstellingen">
+          <header>
+            <strong>Mist afstellen</strong>
+            <small>Verlaag vooral terugdruk en terugvullen als het kijkgat te snel sluit.</small>
+          </header>
+          <label><span>Mistdichtheid <output data-fog-output="density">600%</output></span><input data-fog-setting="density" type="range" min="0" max="600" value="600"></label>
+          <label><span>Willekeurige beweging <output data-fog-output="motion">110%</output></span><input data-fog-setting="motion" type="range" min="0" max="200" value="110"></label>
+          <label><span>Bewegingsvariatie <output data-fog-output="turbulence">600%</output></span><input data-fog-setting="turbulence" type="range" min="0" max="600" value="600"></label>
+          <label><span>Duwvlakhoogte <output data-fog-output="pushHeight">53%</output></span><input data-fog-setting="pushHeight" type="range" min="10" max="100" value="53"></label>
+          <label><span>Handbeweging <output data-fog-output="handMotion">100%</output></span><input data-fog-setting="handMotion" type="range" min="10" max="200" value="100"></label>
+          <label><span>Handgrootte <output data-fog-output="handSize">76%</output></span><input data-fog-setting="handSize" type="range" min="20" max="150" value="76"></label>
+          <label><span>Fysieke duwkracht <output data-fog-output="pushForce">45%</output></span><input data-fog-setting="pushForce" type="range" min="0" max="100" value="45"></label>
+          <label><span>Mist-terugdruk <output data-fog-output="returnPush">600%</output></span><input data-fog-setting="returnPush" type="range" min="0" max="600" value="600"></label>
+          <label><span>Algemeen terugvullen <output data-fog-output="refill">600%</output></span><input data-fog-setting="refill" type="range" min="0" max="600" value="600"></label>
+          <label><span>Misttraagheid <output data-fog-output="inertia">66%</output></span><input data-fog-setting="inertia" type="range" min="10" max="150" value="66"></label>
+        </section>
+        <div class="peekSettingsActions">
+          <button class="btn gold" id="peekSettingsExport" type="button">Exporteer alle instellingen</button>
+          <button class="btn ghost" id="peekSettingsReset" type="button">Herstel teststandaard</button>
+        </div>
+        <textarea id="peekSettingsExportOutput" class="peekSettingsExportOutput hidden" readonly aria-label="Geëxporteerde Spiekende-Meisje-instellingen"></textarea>
+        <small id="peekSettingsExportStatus" class="peekSettingsExportStatus" aria-live="polite"></small>
+      </aside>
+      <section id="peekWolfMonitor" class="peekWolfMonitor hidden" aria-label="Live wolvenperspectief">
+        <header>
+          <div>
+            <strong>Wat de wolven zien</strong>
+            <small>Deze Playerweergave volgt de mechanic en de voorzichtigheidsbalk live.</small>
+          </div>
+          <span id="peekWolfMonitorFormat">Grote telefoon</span>
+        </header>
+        <div id="peekWolfMonitorViewport" class="peekWolfMonitorViewport">
+          <iframe id="peekWolfMonitorFrame" title="Live Playerweergave van een weerwolf"></iframe>
+        </div>
       </section>
     </section>
   </main>
-  <script src="/peek-system.js?v=0.3.57"></script>
-  <script src="/screen-test.js?v=0.3.57"></script>
+  <script src="/peek-system.js?v=0.3.72"></script>
+  <script src="/screen-test.js?v=0.3.72"></script>
 </body>
 </html>

@@ -1,0 +1,275 @@
+/* Wakkerdam Storm Effect + de goedgekeurde Onweer Kaarten Reveal (vloeiend). */
+.wd-storm-root{
+  --wd-storm-darkness:.52;
+  --wd-storm-fog:.28;
+  --wd-storm-flash-rgb:190,220,255;
+  --wd-storm-flash-alpha:.68;
+  position:absolute;
+  inset:0;
+  overflow:hidden;
+  pointer-events:none;
+}
+.wd-storm-root[hidden]{display:none!important}
+.wd-storm-root>*{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+.wd-storm-clouds{
+  z-index:1;
+  inset:-12%;
+  width:124%;
+  height:124%;
+  opacity:.82;
+  background:
+    radial-gradient(ellipse at 12% 13%,rgba(97,112,134,.30) 0 16%,transparent 50%),
+    radial-gradient(ellipse at 45% 5%,rgba(83,97,119,.34) 0 20%,transparent 55%),
+    radial-gradient(ellipse at 79% 16%,rgba(94,107,128,.27) 0 18%,transparent 52%);
+  filter:blur(24px);
+  animation:wdStormCloudMove 17s ease-in-out infinite alternate;
+  will-change:transform;
+}
+.wd-storm-horizon{
+  z-index:2;
+  top:auto;
+  bottom:0;
+  height:42%;
+  opacity:.95;
+  background:
+    linear-gradient(156deg,transparent 0 47%,#090d12 47.3% 100%) left bottom/58% 86% no-repeat,
+    linear-gradient(205deg,transparent 0 46%,#070a0e 46.3% 100%) right bottom/60% 72% no-repeat;
+}
+.wd-storm-horizon::before{
+  content:"";
+  position:absolute;
+  left:48%;
+  bottom:16%;
+  width:12%;
+  height:35%;
+  background:#06090d;
+  clip-path:polygon(11% 100%,11% 28%,28% 28%,28% 9%,42% 9%,50% 0,58% 9%,72% 9%,72% 28%,89% 28%,89% 100%);
+  filter:drop-shadow(0 0 7px rgba(0,0,0,.7));
+}
+.wd-storm-canvas{z-index:4;display:block}
+.wd-storm-fog{
+  z-index:5;
+  opacity:var(--wd-storm-fog);
+  background:
+    linear-gradient(180deg,transparent 45%,rgba(190,205,220,.12) 75%,rgba(205,218,232,.18)),
+    radial-gradient(ellipse at 25% 100%,rgba(220,230,238,.18),transparent 55%),
+    radial-gradient(ellipse at 75% 110%,rgba(220,230,238,.13),transparent 52%);
+  filter:blur(10px);
+  animation:wdStormFogMove 9s ease-in-out infinite alternate;
+}
+.wd-storm-darkness{
+  z-index:6;
+  background:rgba(0,0,0,var(--wd-storm-darkness));
+  transition:background .15s linear,opacity .7s ease;
+}
+.wd-storm-global-shadow{
+  z-index:11;
+  inset:-20%;
+  width:140%;
+  height:140%;
+  opacity:0;
+  background:linear-gradient(116deg,transparent 25%,rgba(0,0,0,.88) 42%,rgba(0,0,0,.98) 49%,rgba(10,18,27,.72) 57%,transparent 73%);
+  transform:translate3d(90%,-12%,0) skewX(-12deg);
+  mix-blend-mode:multiply;
+  will-change:transform,opacity;
+}
+.wd-storm-vignette{
+  z-index:20;
+  box-shadow:inset 0 0 110px 35px rgba(0,0,0,.74),inset 0 -130px 160px rgba(0,0,0,.43);
+}
+.wd-storm-reveal-black{
+  z-index:30;
+  background:#000;
+  opacity:0;
+  transform:translateZ(0);
+  will-change:opacity;
+}
+.wd-storm-root.is-card-reveal-prepared .wd-storm-reveal-black{opacity:1}
+.wd-storm-root.is-revealed .wd-storm-reveal-black{opacity:0;visibility:hidden}
+.wd-storm-flash{
+  z-index:40;
+  visibility:hidden;
+  opacity:0;
+  mix-blend-mode:screen;
+  transform:translateZ(0);
+  will-change:opacity;
+}
+.wd-storm-flash-main{
+  background:
+    radial-gradient(circle at 68% 12%,rgba(255,255,255,.98),rgba(var(--wd-storm-flash-rgb),.72) 13%,transparent 48%),
+    linear-gradient(115deg,transparent 23%,rgba(var(--wd-storm-flash-rgb),.82) 48%,transparent 78%);
+}
+.wd-storm-flash-echo{
+  z-index:39;
+  background:rgba(var(--wd-storm-flash-rgb),.55);
+}
+.wd-storm-flash.is-active{
+  visibility:visible;
+  animation:wdStormFlash .56s ease-out both;
+}
+.wd-storm-flash-main.is-reveal-main{
+  visibility:visible;
+  animation:wdCardLightningMain 920ms linear 980ms both;
+}
+.wd-storm-flash-echo.is-reveal-echo{
+  visibility:visible;
+  animation:wdCardLightningEcho 540ms ease-out 1610ms both;
+}
+
+/* De bestaande winnaar-layout blijft volledig intact en boven de atmosfeer staan. */
+.viewerHero>.infoContent,
+.viewerHero>.wd-storm-content-layer{
+  position:relative!important;
+  z-index:10!important;
+}
+.viewerHero.wd-storm-content-hidden>.infoContent{opacity:0!important}
+.viewerHero.ended.winner-wolves:not(.wd-storm-content-hidden):not(.wd-storm-content-card-reveal):not(.wd-storm-content-visible)>.infoContent{opacity:0!important}
+.viewerHero.wd-storm-content-card-reveal>.infoContent,
+.viewerHero.wd-storm-content-visible>.infoContent{
+  opacity:1!important;
+  transform:none!important;
+}
+
+/* Exacte tijdlijn van Wakkerdam-Onweer-Kaarten-Reveal-Vloeiend. */
+.wd-storm-root.is-card-revealing .wd-storm-reveal-black{
+  animation:wdCardBlackoutReveal 2300ms cubic-bezier(.45,.02,.18,1) 820ms both;
+}
+.wd-storm-root.is-card-revealing .wd-storm-global-shadow{
+  animation:wdCardGlobalShadow 1900ms cubic-bezier(.22,.08,.18,1) 1900ms both;
+}
+.viewerHero.wd-card-reveal-playing .winnerPlayerCard{
+  --reveal-final-opacity:1;
+  position:relative!important;
+  overflow:hidden!important;
+  opacity:.48;
+  transform:translate3d(0,12px,0) scale(.982);
+  transform-origin:50% 65%;
+  backface-visibility:hidden;
+  will-change:opacity,transform;
+  animation:wdCardMovement 3000ms cubic-bezier(.16,.72,.14,1) calc(2600ms + var(--card-index,0) * 120ms) both!important;
+}
+.viewerHero.wd-card-reveal-playing .winnerPlayerCard.dead{--reveal-final-opacity:.48}
+.viewerHero.wd-card-reveal-playing .winnerPlayerCard::before{
+  content:"";
+  position:absolute;
+  z-index:18;
+  inset:0;
+  opacity:.985;
+  background:radial-gradient(circle at 50% 28%,rgba(5,7,10,.88),#000 72%),#000;
+  pointer-events:none;
+  transform:translateZ(0);
+  backface-visibility:hidden;
+  will-change:opacity;
+  animation:wdCardLight 3150ms cubic-bezier(.2,.62,.12,1) calc(2630ms + var(--card-index,0) * 120ms) both;
+}
+.viewerHero.wd-card-reveal-playing .winnerPlayerCard::after{
+  content:"";
+  position:absolute;
+  z-index:19;
+  inset:-18%;
+  opacity:0;
+  background:linear-gradient(118deg,transparent 24%,rgba(0,0,0,.97) 42%,rgba(8,15,23,.82) 53%,transparent 72%);
+  transform:translate3d(118%,-10%,0) skewX(-13deg);
+  mix-blend-mode:multiply;
+  pointer-events:none;
+  will-change:transform,opacity;
+  animation:wdCardShadowPass 1950ms cubic-bezier(.22,.08,.18,1) calc(2020ms + var(--card-index,0) * 70ms) both;
+}
+.viewerHero.wd-card-reveal-playing .winnerPlayerCard h3{
+  position:relative;
+  z-index:22;
+  opacity:0;
+  transform:translate3d(0,8px,0);
+  will-change:opacity,transform;
+  animation:wdCardCopyReveal 1450ms cubic-bezier(.18,.68,.18,1) calc(4420ms + var(--card-index,0) * 120ms) both!important;
+}
+.viewerHero.wd-card-reveal-playing .infoHeadline,
+.viewerHero.wd-card-reveal-playing .winnerStage>h3,
+.viewerHero.wd-card-reveal-playing .winnerGroupTitle{
+  opacity:0;
+  transform:translate3d(0,14px,0);
+  will-change:opacity,transform;
+  animation:wdCardHeadingReveal 1650ms cubic-bezier(.18,.68,.18,1) 4380ms both!important;
+}
+.viewerHero.wd-card-reveal-complete .winnerPlayerCard::before,
+.viewerHero.wd-card-reveal-complete .winnerPlayerCard::after{content:none!important}
+
+@keyframes wdCardBlackoutReveal{
+  0%,14%{opacity:1}
+  21%{opacity:.18}
+  31%{opacity:.86}
+  42%{opacity:.36}
+  57%{opacity:.58}
+  100%{opacity:0;visibility:hidden}
+}
+@keyframes wdCardLightningMain{
+  0%,6%{opacity:0}
+  8%{opacity:.92}
+  13%{opacity:.07}
+  20%{opacity:.78}
+  29%{opacity:.04}
+  41%{opacity:.38}
+  58%,100%{opacity:0;visibility:hidden}
+}
+@keyframes wdCardLightningEcho{
+  0%,4%{opacity:0}
+  10%{opacity:.44}
+  22%{opacity:.03}
+  35%{opacity:.24}
+  100%{opacity:0;visibility:hidden}
+}
+@keyframes wdCardGlobalShadow{
+  0%{opacity:0;transform:translate3d(88%,-10%,0) skewX(-12deg)}
+  15%{opacity:.84}
+  76%{opacity:.48}
+  100%{opacity:0;transform:translate3d(-88%,14%,0) skewX(-12deg)}
+}
+@keyframes wdCardShadowPass{
+  0%{opacity:0;transform:translate3d(118%,-10%,0) skewX(-13deg)}
+  12%{opacity:.98}
+  68%{opacity:.84}
+  100%{opacity:0;transform:translate3d(-122%,16%,0) skewX(-13deg)}
+}
+@keyframes wdCardMovement{
+  0%{opacity:.48;transform:translate3d(0,12px,0) scale(.982)}
+  35%{opacity:.70}
+  72%{opacity:.94}
+  100%{opacity:var(--reveal-final-opacity,1);transform:translate3d(0,0,0) scale(1)}
+}
+@keyframes wdCardLight{
+  0%{opacity:.985}
+  18%{opacity:.94}
+  48%{opacity:.70}
+  76%{opacity:.28}
+  100%{opacity:0;visibility:hidden}
+}
+@keyframes wdCardCopyReveal{
+  0%{opacity:0;transform:translate3d(0,8px,0)}
+  100%{opacity:1;transform:translate3d(0,0,0)}
+}
+@keyframes wdCardHeadingReveal{
+  0%{opacity:0;transform:translate3d(0,14px,0)}
+  100%{opacity:1;transform:translate3d(0,0,0)}
+}
+@keyframes wdStormCloudMove{
+  from{transform:translate3d(-3%,0,0) scale(1.08)}
+  to{transform:translate3d(3%,1%,0) scale(1.12)}
+}
+@keyframes wdStormFogMove{
+  from{transform:translateX(-2%) translateY(1%)}
+  to{transform:translateX(3%) translateY(-1%)}
+}
+@keyframes wdStormFlash{
+  0%{opacity:0}
+  7%{opacity:1}
+  14%{opacity:.08}
+  24%{opacity:.72}
+  39%{opacity:.05}
+  52%{opacity:.38}
+  100%{opacity:0}
+}
+
+@media(prefers-reduced-motion:reduce){
+  .wd-storm-clouds,.wd-storm-fog{animation:none}
+  .wd-storm-flash.is-active{animation-duration:.25s}
+}

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Wakkerdam Online Helper — Host</title>
-  <link rel="stylesheet" href="/style.css?v=0.3.57" />
+  <link rel="stylesheet" href="/style.css?v=0.3.72" />
 </head>
 <body class="hostScreen">
   <div class="bg"></div>
@@ -42,7 +42,10 @@
       </div>
 
       <div id="playersCard" class="card span5">
-        <h2>Spelers</h2>
+        <div class="playersCardHeader">
+          <h2>Spelers</h2>
+          <button id="kickAllBtn" class="btn danger smallBtn" type="button">Kick all</button>
+        </div>
         <div id="players" class="list"></div>
       </div>
 
@@ -67,6 +70,13 @@
 
     </section>
   </main>
+  <section id="screenTestHostOverlay" class="screenTestHostOverlay hidden" aria-label="Test alle pagina’s">
+    <header>
+      <div><span>Debug / test</span><strong>Test alle pagina’s</strong></div>
+      <button id="closeScreenTestBtn" class="btn danger" type="button">Sluit tester</button>
+    </header>
+    <iframe id="hostScreenTestFrame" title="Paginatester"></iframe>
+  </section>
   <div class="debugFab">
     <button id="debugToggle" class="btn ghost">Debug</button>
     <div id="debugPanel" class="debugPanel hidden">
@@ -79,6 +89,6 @@
   </div>
   <div id="toast" class="toast hidden"></div>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/host.js?v=0.3.57"></script>
+  <script src="/host.js?v=0.3.72"></script>
 </body>
 </html>

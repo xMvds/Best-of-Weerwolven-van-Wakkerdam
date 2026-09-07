@@ -1,4 +1,165 @@
-# Wakkerdam Online Helper — v0.3.57
+# Wakkerdam Online Helper — v0.3.72
+
+## Nieuw in v0.3.72
+
+- De Host-paginatester gebruikt één compacte, responsieve eindlayout zonder uitgerekte lege gridrijen.
+- Het wolvenperspectief staat tijdens iedere Spiekende-Meisje-test standaard naast de bediening; de losse wisselknop is verwijderd.
+- Alle tien mistfaders sturen de reeds actieve mist-engine live aan, zonder mechanic-reset of verlies van de huidige mistposities.
+- De mistfaders staan op brede schermen compact in twee kolommen zodat de complete afstelling zonder paginascroll zichtbaar blijft.
+- De drie mechanics behouden hun pointerstate bij live testupdates en reageren betrouwbaar op touch, pointer capture, resize en oriëntatiewissels.
+- De apparaatknoppen sturen nu zowel het echte Player-scherm als het echte Infoscherm aan.
+- De geliefdenfinale toont de twee winnaars prominent bovenaan en schaalt alle overige kaarten volledig zichtbaar, horizontaal gecentreerd onderaan.
+- De testtekst **“Het dorp blijft achter in een rode, dreigende nacht.”** is verwijderd.
+
+## Nieuw in v0.3.71
+
+- De ingebouwde Player-/Info-iframe is opnieuw uit **Test alle pagina’s** verwijderd; de tester is alleen nog de afstandsbediening voor werkelijk geopende schermen.
+- Eigen scherm, smalle telefoon, grote telefoon, tablet en monitor sturen nu het echte Player-scherm aan. Een gekozen apparaat gebruikt zijn volledige logische resolutie, gecentreerd en passend geschaald.
+- **Wat de weerwolf ziet** wisselt hetzelfde echte Player-scherm tussen het Spiekende Meisje en het wolvenperspectief; er verschijnt geen tweede halve preview.
+- Oogleden, Spiegelscherf en Mist hebben ieder een testslider voor voorzichtigheid en spiektijd. Meer voorzichtigheid laat de risicobalk langzamer vullen.
+- Eén JSON-export bevat de waarden van alle drie mechanics en de tien fysieke mistinstellingen. Deze waarden zijn uitsluitend testdata en wijzigen de echte spelstandaarden niet.
+- Het wolvenwinst-Infoscherm gebruikt de volledige timing van **Wakkerdam-Onweer-Kaarten-Reveal-Vloeiend**: zwartbeeld, dubbele flits, globale slagschaduw, slagschaduw per kaart, donkere kaarten die langzaam oplichten en titel/namen als laatste.
+- De bestaande wolvenwinnaar-layout en kaartopbouw zijn daarbij niet gewijzigd. Herhaalde socketupdates starten de reveal niet opnieuw en beide flitslagen houden de WebKit-resetbeveiliging.
+
+## Nieuw in v0.3.70
+
+- Mistinstellingen staan live in de Spiekende-Meisje-paginatester en zijn als JSON te exporteren.
+- De middelste cursorhand verdwijnt zodra de twee duwhanden de mist opzij schuiven.
+- Alle testformaten sturen nu de ingebouwde Player- en Infoschermpreview echt aan.
+- Wolvenwinst begint gegarandeerd zwart, toont eerst kaartschaduwen en bouwt daarna vloeiend licht op.
+- Geliefden staan bovenaan centraal; Dorp en Wolven blijven responsief binnen ieder scherm.
+- De rode-ogenmelding op het wolvenscherm is verwijderd en de naamhint is sterker vervormd.
+- Betovering verbroken toont de grijze kaart van de overleden Fluitspeler met kortere tekst.
+- Panelen en keuzevakken gebruiken nu consequent hoekige Wakkerdam-hoeken.
+
+## Nieuw in v0.3.69
+
+- Het wolven-winnaarsscherm gebruikt nu de goedgekeurde Wakkerdam Storm Effect-module met de `wolf`-/wolvennachtpreset in plaats van de oude losse regenlaag.
+- De bestaande winnaarstitel, spelersnamen, kaarten en gecentreerde winnaar-layout blijven ongewijzigd leidend; de module voegt uitsluitend regen, wolken, mist, duisternis en vertakte bliksem toe.
+- De reveal begint volledig zwart. De eerste donderflits toont donkere kaartschaduwen, de tweede laat kaarten, namen en uitslag langzaam infaden en de derde verwijdert het resterende zwart.
+- De reveal wordt één keer per unieke `winnerRevealToken` gestart. Herhaalde socketupdates en een mobiele resize bouwen de storm of reveal niet opnieuw op.
+- Alleen een wolvenwinst activeert de storm. Reset, nieuw spel en andere winnaarstypes ruimen alle tijdelijke stormklassen en overlays op.
+- De witte-flitsbeveiliging verwijdert na iedere flits de animatieklasse en eventuele inline `opacity`/`visibility`, via `animationend`, `animationcancel` en een extra WebKit-timeoutvangnet.
+
+## Nieuw in v0.3.68
+
+- De mistvariant van het Spiekende Meisje gebruikt nu de goedgekeurde interactieve mistmodule met de instellingen 600 / 110 / 600 / 53 / 100 / 76 / 45 / 600 / 600 / 66.
+- Alleen zichtbare mistobjecten bedekken het speelveld. Het oude donkere canvas, de alpha-gumcirkel en de transparante brushpulse zijn uit de mechanic verwijderd.
+- Tijdens indrukken bewegen twee handen vanuit het contactpunt naar buiten en geven zij de mistobjecten echte zijwaartse snelheid. Na loslaten stroomt de mist plaatselijk en geleidelijk terug.
+- Dezelfde bestaande spiekstate blijft leidend voor resterende tijd, live risico, bekeken spelers en de waarschuwing op uitsluitend het scherm van de bekeken wolf.
+- De mistinstantie blijft tijdens herhaalde state-updates bestaan, behoudt haar objectposities bij mobiele resizes en wordt alleen opnieuw gemaakt wanneer het volledige mechanicscherm werkelijk wisselt.
+
+## Nieuw in v0.3.67
+
+- Langdurig kijken naar de rode ogen van een wolf in de Spiegelscherf versnelt de bestaande zichtbare spiekbalk geleidelijk. Ook hierbij volgt betrapping uitsluitend wanneer de balk werkelijk 100% bereikt.
+- Alleen de wolf die op dat moment door de scherf wordt bekeken, ziet een duidelijker live oogcontactsignaal met rode ogen, versterkte schim en de bestaande zachte spelersnaam.
+- De laatste 0,1 seconde spiektijd sluit de interactie lokaal direct af naar **Je spiektijd is voorbij**, zonder op een afgeronde serverupdate te wachten.
+- De verlopen-tijdstatus blijft binnen dezelfde sessie definitief. Een oudere of vertraagde update kan het uitgeschakelde speelveld daardoor niet opnieuw openen.
+
+## Nieuw in v0.3.66
+
+- De zichtbare spiekbalk is nu de enige bron van waarheid voor betrapping: pas bij exact 100% wordt de identiteit van het Spiekende Meisje aan de wolven onthuld.
+- Verborgen risicosprongen bij loslaten en vaste focusdrempels zijn verwijderd. Lang naar één wolf kijken versnelt de live balk, maar kan de onthulling niet vóór het einde van de balk starten.
+- De melding **Pas op** heeft een eigen gereserveerde, gecentreerde statusstrook buiten het speelveld en bedekt daardoor geen mechanic of bedieningsknop.
+- De vroege schim op het wolvenscherm is groter, minder donker en beter herkenbaar, terwijl hij zacht blijft in- en uitfaden en uitsluitend zichtbaar is voor de wolf die werkelijk bekeken wordt.
+
+## Nieuw in v0.3.65
+
+- Alle tijdelijke spiekblokkades en verplichte rust-timeouts zijn verwijderd uit Oogleden, Spiegelscherf en Mist.
+- Een volle risicobalk verraadt het Spiekende Meisje aan de wolven, maar beëindigt of vergrendelt haar lopende interactie niet.
+- Na betrapping kan de speler blijven spieken zolang er nog spiektijd over is; de resterende timer blijft de enige harde limiet.
+- Stoppen laat de risicobalk direct en live teruglopen. De speler mag op ieder risiconiveau opnieuw beginnen zonder op een verborgen drempel te wachten.
+- De vaste vijfseconden-timeout van de Spiegelscherf en de server-timeout bij lang stilhouden zijn verwijderd.
+- Oogleden-, scherf- en mistinput blijven actief wanneer de server precies tijdens de wolfonthulling of een hoge risicowaarde een state-update verstuurt.
+- Dubbele startberichten en een gemiste eerste mist-start herstellen idempotent zonder een vastzittende Playerpagina.
+
+## Nieuw in v0.3.64
+
+- De Fluitspelerwinnaars tonen alle betoverde kaarten zonder scrollbar in een gecentreerde, horizontaal overlappende kaartenwaaier; de kaartformaten blijven gelijk.
+- Bij een overwinning van de Geliefden staan hun twee kaarten groot en prominent in het midden. Het Dorp staat symmetrisch linksonder en de Weerwolven rechtsonder.
+- Alle scoreonthullingen gebruiken een rustige, niet-directionele zwartfade. Het winnaarsbeeld verschijnt al bij de eerste zachte lichtflits; de wolvenbliksem is verspreid en minder dominant.
+- Wolvenregen beweegt van rechtsboven naar linksonder en iedere druppel helt mee met zijn eigen valrichting.
+- De oogledeninteractie herstelt automatisch wanneer pointer- of serverstate achterblijft en gebruikt een grotere opening met een volledig zwarte, zachte faderand.
+- De spelerscirkel staat compacter, waardoor spelers langs de buitenrand binnen het zichtvlak blijven.
+- Burger- en wolvenschimmen vloeien met schaal, vervaging en helderheid in elkaar in plaats van abrupt van afbeelding te wisselen.
+- De waarschuwing voor te lang spieken staat boven het speelveld en bedekt de spiekknop niet meer.
+- Uitleg-, verlopen-tijd- en vergelijkbare schermen van het Spiekende Meisje zijn als geheel gecentreerd.
+- De risicobalk stijgt in alle drie mechanics continu tijdens vasthouden en loopt na loslaten live in tien seconden terug; opgeraakte spiektijd veroorzaakt geen betrapping.
+- In de mistvariant wrijven twee subtiele handen rond het contactpunt meerdere mistflarden opzij. Na loslaten schuiven de flarden rustig terug naar de laatst bewaarde onthulling.
+
+## Nieuw in v0.3.63
+
+- De ontdekkingsbalk reageert direct en vloeiend tijdens het spieken en loopt na loslaten zichtbaar terug. Vanaf volledig rood duurt leegkoelen tien seconden.
+- Lang onafgebroken kijken bouwt het risico geleidelijk op in plaats van vlak voor betrapping plotseling naar honderd te springen. Alleen een volle risicobalk onthult het meisje; opgeraakte spiektijd doet dat niet.
+- De oogleden hebben een zachte koude bloom langs de ovale opening in plaats van een harde zwarte snijrand.
+- Burger- en wolvenschimmen staan vooraf gedecodeerd in dezelfde renderlaag en faden naar elkaar. Daardoor ontstaat bij het herkennen van een wolf geen zware beeldwissel of vastlopende Playerpagina.
+- De naam van de bekeken speler staat bij de Spiegelscherf subtiel maar leesbaar in het glas. De losse namenring rond het speelveld is verwijderd.
+- Een wolf ziet de vroege schim alleen wanneer het meisje daadwerkelijk naar die specifieke wolf kijkt. Andere wolven krijgen op dat moment geen schim.
+- De schim van het meisje verschijnt en verdwijnt rustig aan de rand van het wolvenscherm, samen met haar nog zacht vervaagde spelersnaam.
+- Bij volledige betrapping verdwijnt de schim uit het eindbeeld. Alleen het compacte vak met haar kaart, naam en rol blijft staan; de extra zinnen zijn verwijderd.
+- Zodra de spiektijd 0,0 seconde bereikt, verschijnt een apart afsluitscherm met **Je spiektijd is voorbij** en **Probeer het de volgende nacht opnieuw.**
+
+## Nieuw in v0.3.62
+
+- Iedere spelernaam blijft bij de Spiegelscherf zichtbaar, ook wanneer scherf, schaduw of reflectie over het personage bewegen.
+- De aangeleverde wolvenschim vervangt in de drie mechanics de generieke wolfvorm en verschijnt bewust zacht en schimmig.
+- **Wat de weerwolf ziet** schaalt als één volledig Playerbeeld binnen de beschikbare testerhoogte; er wordt geen halve of afgesneden preview meer getoond.
+- De resterende spiektijd staat bij alle drie varianten als live timer rechtsboven. Opraken stopt alleen het spieken en verraadt het meisje niet.
+- **Voorzichtig – Wacht even** is voortaan uitsluitend de betrappingsbalk. Die loopt van geel naar rood en koelt zonder spieken vanaf maximaal risico in tien seconden helemaal af.
+- Oogleden, Spiegelscherf en Mist hebben ieder een eigen risicozwaarte, terwijl dezelfde herstel- en afkoelregels overal gelden.
+- Bij hoog risico worden lopende pointer- en veeginteracties zowel lokaal als op de server beëindigd, zodat het Player-scherm niet kan vastlopen.
+- De Spiekende-Meisje-tester staat onder **Nachtrollen**; de drie spelvarianten worden alleen via **Mechanic** gekozen.
+- Eindtitels gebruiken de juiste enkelvoud/meervoudsvorm en plaatsen **heeft/hebben Gewonnen** op een tweede regel.
+- De regen op het wolveneindscherm valt in de bewegingsrichting omlaag in plaats van als horizontale strepen.
+
+## Nieuw in v0.3.61
+
+- De dubbele hoofdpreview is uit **Test alle pagina’s** verwijderd. De werkelijk geopende Player- en Infoschermen blijven de teststate live tonen.
+- Binnen de Spiekende-Meisje-groep verschijnt een aparte tab **Wat de weerwolf ziet** met één volwaardig, schaalbaar wolvenperspectief.
+- De Spiegelscherf wordt bij vensterverlies, tabwissel, verbindingsverlies, een ontbrekend pointer-einde of na vijf seconden onafgebroken vasthouden altijd veilig losgelaten.
+- Ook de server ruimt een achtergebleven spiegelscherfinteractie automatisch op, zodat afkoeling en bediening nooit permanent vast kunnen blijven staan.
+- De vier aangeleverde Burger-schimmen vervangen de generieke figuren in oogleden, spiegelscherf en mist en worden subtiel, zacht en gelijkmatig zichtbaar.
+- De aangeleverde nieuwe schim van het Spiekende Meisje vervangt de eerdere wolvenwaarschuwing.
+- De Spiegelscherf toont nu ook de passende aangeleverde karakterschim in de reflectie.
+
+## Nieuw in v0.3.60
+
+- Opraken van de resterende spiektijd betekent alleen dat het meisje niet verder kan spieken; dit veroorzaakt nooit automatisch een betrapping.
+- Te lang onafgebroken kijken, te lang op één wolf focussen of extreem roekeloos bewegen kan haar identiteit wel prijsgeven.
+- De risicobalk koelt af wanneer zij stopt. Bij een rode balk wordt de interactie kort geblokkeerd en verschijnt een duidelijke waarschuwing.
+- Wolven krijgen geen opeenvolgende tekstmeldingen meer. Tijdens het spieken verschijnt één zeer subtiele schim die geleidelijk duidelijker wordt; alleen bij echte betrapping toont die haar volledige gedaante, naam en kaart.
+- De meegeleverde donkere dame wordt als transparante schimasset gebruikt en blijft vóór betrapping bewust sterk vervaagd en nauwelijks zichtbaar.
+- De spiegelscherf is kleiner, wordt exact in het midden vastgehouden en laat het doel met een natuurlijke verschuiving door de scherf bewegen, als een echte loep.
+- Mist verdwijnt pas na aanhoudend plaatselijk drukken of vegen; een korte tik maakt niet langer misleidend meteen een leeg kijkgat.
+- Wanneer de paginatester in de Host openstaat, volgen werkelijk geopende Player- en Infoschermen de gekozen testpagina. Interacties op een echt Player-scherm lopen terug naar de tester zonder de echte spelstate te wijzigen.
+- Het aparte wolvenperspectief van het Spiekende Meisje blijft als tweede Playerframe binnen het testscherm beschikbaar.
+
+## Nieuw in v0.3.59
+
+- De meegeleverde kaart van **Het Spiekende Meisje** is aan Player, Host en Infoscherm toegevoegd.
+- De paginatester opent voortaan schermvullend boven de Host en sluit terug naar exact dezelfde Hostpagina.
+- De kleine wolvenpreview kan worden aangeklikt; daarna delen twee echte geïsoleerde Playerframes het testvlak.
+- De Host heeft naast **Spelers** een beschermde **Kick all**-knop met een tweede bevestigingsklik.
+- Kleine onrust van het Spiekende Meisje verschijnt tijdens de wolvenkeuze als speelse waarschuwing. Bij zware roekeloosheid zien de wolven haar naam en rolkaart.
+- De Spiegelscherf gebruikt een scherfvormig aanraakgebied, een levende reflectie, lichtinval en een geleidelijke persoon-/wolfonthulling.
+- De mist gebruikt geen vier beurten meer. Het meisje heeft vijftien seconden poetstijd, kan slepen én blijven drukken en maakt spelers alleen na langer plaatselijk poetsen geleidelijk zichtbaar.
+- Alle drie mechanics zijn opnieuw gecentreerd en gebruiken de gewone Player-GUI als basis, met de koude sterrennacht voornamelijk in het kijkvak.
+- Ieder score-eindscherm gebruikt **[winnende groep] heeft gewonnen**.
+- De wolvenwinst heeft een donkerblauwe GUI-nachtgradient met een dichte voorgrondregen en een korte periodieke donderflits.
+
+## Nieuw in v0.3.58
+
+- De Mechanic-pagina van **Test alle pagina’s** gebruikt een compacte zijbalk en houdt het volledige telefoon-, tablet- of monitorbeeld zichtbaar.
+- De Spiekende-Meisje-groepen zijn samengevoegd tot één groep; de variant wordt gekozen via de aparte Mechanic-keuzelijst.
+- Risico, spiektijd, veegacties, verminderde beweging, state-inspector, rotatietest en losse waarschuwingknoppen zijn uit het gewone testpaneel verwijderd.
+- De echte spiektijd telt tijdens het vasthouden vloeiend live af.
+- Het oog opent als een echte ovale opening in plaats van als een rechte horizontale uitsnede.
+- De spiegelscherf heeft geen vierkante alphalaag meer: beeldvorm, zichtbare glasscherf en aanraakgebied gebruiken exact dezelfde veelhoek.
+- Spelers worden vloeiend scherper rond het actieve kijkgebied; omliggende spelers blijven gedeeltelijk wazig.
+- Een compact wolvenperspectief toont live wat een wolf bij onrust, te lang kijken of betrapping zou zien.
+- De gewone Spiekende-Meisje-interface blijft herkenbaar; alleen het kijkveld heeft de koude blauwe sterrennachtstijl.
+- Wolvenwinst gaat via volledig zwart en een dubbele bliksemflits naar een blijvend scorebeeld met regen en incidentele bliksem.
+- Dorpswinst gebruikt dezelfde zwarte hoofdstukovergang, maar opent met zonneshine naar een volledig helder eindbeeld met levende lichtstralen.
 
 ## Nieuw in v0.3.57
 

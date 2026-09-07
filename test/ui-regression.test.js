@@ -10,16 +10,15 @@ const read = (relativePath) => fs.readFileSync(path.join(root, relativePath), "u
 
 test("release version is coherent in server, package and browser cache keys", () => {
   const pkg = JSON.parse(read("package.json"));
-  assert.equal(pkg.version, "0.3.57");
-  assert.match(read("server.js"), /const VERSION = "0\.3\.57";/);
+  assert.equal(pkg.version, "0.3.72");
+  assert.match(read("server.js"), /const VERSION = "0\.3\.72";/);
   for (const file of ["public/host.html", "public/index.html", "public/viewer.html", "public/screen-test.html"]) {
-    assert.match(read(file), /\?v=0\.3\.57/);
-    assert.doesNotMatch(read(file), /\?v=0\.3\.56/);
+    assert.match(read(file), /\?v=0\.3\.72/);
   }
 });
 
 test("browser scripts remain syntactically valid", () => {
-  for (const file of ["server.js", "peek-system.js", "public/host.js", "public/player.js", "public/viewer.js", "public/screen-test.js", "public/peek-mechanics.js"]) {
+  for (const file of ["server.js", "peek-system.js", "public/host.js", "public/player.js", "public/viewer.js", "public/screen-test.js", "public/fog-effect.js", "public/peek-mechanics.js", "public/wakkerdam-storm-effect.js"]) {
     const result = spawnSync(process.execPath, ["--check", path.join(root, file)], { encoding: "utf8" });
     assert.equal(result.status, 0, result.stderr);
   }
@@ -55,14 +54,16 @@ test("v0.3.55 integrates all three Spiekende Meisje mechanics and an isolated ce
   assert.match(peekUi, /bindFog/);
   assert.match(peekUi, /function cleanupAll/);
   assert.match(host, /function renderHostPeekStatus/);
-  assert.match(studioHtml, /Live state-inspector/);
-  assert.match(studioHtml, /Simuleer 100 cycli/);
-  assert.match(studioHtml, /<section class="screenTestStage">[\s\S]*?<section id="screenTestViewport"/);
-  assert.match(studio, /screenTestSession/);
-  assert.match(studio, /loadFrame\(\{preserveState=false\}=\{\}\)/);
-  assert.match(studio, /frame\.addEventListener\("load",\(\)=>\{[\s\S]*?postScenario\(\)/);
-  assert.match(studio, /simulateHundredCycles/);
-  assert.match(studio, /wakkerdam-screen-test-cleanup/);
+  assert.doesNotMatch(studioHtml, /Live state-inspector/);
+  assert.doesNotMatch(studioHtml, /Simuleer 100 cycli/);
+  assert.doesNotMatch(studioHtml, /id="screenTestPrimaryPane"|id="screenTestFrame"/);
+  assert.match(studioHtml, /id="peekWolfMonitor"[\s\S]*id="peekWolfMonitorFrame"/);
+  assert.doesNotMatch(studioHtml, /id="screenTestWolfTab"/);
+  assert.doesNotMatch(studioHtml, /id="screenTestWolfPane"|id="screenTestWolfFrame"/);
+  assert.match(studio, /viewport:activeViewport/);
+  assert.match(studio, /publishScenario\(\{preserveState=false\}=\{\}\)/);
+  assert.doesNotMatch(studio, /simulateHundredCycles/);
+  assert.match(player, /id="remoteDeviceFrame"|remoteDeviceFrame/);
   assert.match(css, /\.screenTestStage\{[\s\S]*?align-items:center;[\s\S]*?justify-content:center;/);
   for (const viewport of [
     /\.screenTestViewport\.phone\{width:390px;height:844px\}/,
@@ -84,9 +85,8 @@ test("Player and Info previews stay socket-free and accept only their current is
   assert.match(player, /if\(screenTestMode\) return;[\s\S]*?socket\.emit\("player_sync"/);
   assert.match(player, /event\.data\.sessionId && event\.data\.sessionId!==screenTestSession/);
   assert.match(viewer, /event\.data\.sessionId&&event\.data\.sessionId!==screenTestSession/);
-  assert.match(studio, /screenTestSession=\$\{encodeURIComponent\(previewSessionId\)\}/);
-  assert.match(studio, /loadFrame\(\{preserveState:true\}\)/);
-  assert.doesNotMatch(studio, /frame\.addEventListener\("load"[\s\S]{0,240}showScenario\(\)/);
+  assert.match(studio, /publishScenario\(\{preserveState:true\}\)/);
+  assert.doesNotMatch(studio, /const frame=document\.getElementById\("screenTestFrame"\)/);
 });
 
 test("every page-tester select stays readable without a white native fallback", () => {
@@ -114,13 +114,13 @@ test("v0.3.57 fits every device preview and lets isolated Player actions drive t
   const css = read("public/style.css");
   const layer = css.slice(css.indexOf("v0.3.57 · volledig passende interactieve paginatester"));
 
-  assert.match(studioHtml, /id="screenTestScaleLabel"/);
+  assert.doesNotMatch(studioHtml, /id="screenTestScaleLabel"/);
   assert.match(studioHtml, /id="screenTestReplay"/);
   assert.match(studioHtml, /id="screenTestPlayNext"/);
   assert.match(studio, /const viewportSpecs=\{[\s\S]*phone:\{width:390,height:844[\s\S]*phoneWide:\{width:430,height:932[\s\S]*tablet:\{width:820,height:1080[\s\S]*monitor:\{width:1280,height:720/);
-  assert.match(studio, /const scale=Math\.min\(1,availableWidth\/spec\.width,availableHeight\/spec\.height\)/);
-  assert.match(studio, /frame\.style\.transform=`scale\(\$\{scale\}\)`/);
-  assert.match(studio, /new ResizeObserver\(fitViewport\)\.observe\(stage\)/);
+  assert.match(player, /const scale=Math\.min\(1,availableWidth\/spec\.width,availableHeight\/spec\.height\)/);
+  assert.match(player, /frame\.style\.transform=`scale\(\$\{scale\}\)`/);
+  assert.match(player, /function applyRemoteDevicePreview\(mode="auto"\)/);
   assert.match(player, /wakkerdam-screen-test-player-event/);
   assert.match(studio, /function simulatePlayerEvent\(eventName,payload=\{\}\)/);
   assert.match(studio, /function runHunterFlow\(target\)/);
@@ -135,9 +135,466 @@ test("v0.3.57 fits every device preview and lets isolated Player actions drive t
   assert.match(layer, /url\("\/assets\/peek\/cold-night-clearing\.png"\)/);
   assert.match(layer, /@keyframes peekStarsBreathe/);
   assert.match(peekUi, /open > 0\.14/);
-  assert.match(rules, /awakeWolf: !!isWolfKey\(target\.key\) && hoverMs >= 480/);
-  assert.match(rules, /distanceToSegment\(position, start, end\) <= 0\.1/);
-  assert.match(rules, /\.slice\(0, 2\)/);
+  assert.match(rules, /strength = clampNumber\(hoverMs \/ 1150/);
+  assert.match(rules, /kind === "fog_brush"/);
+  assert.match(rules, /fog: Object\.freeze\(\{[\s\S]*timeBudgetMs: 15000/);
+});
+
+test("v0.3.58 keeps the mechanic preview compact and adds natural peek focus plus themed winner reveals", () => {
+  const studioHtml = read("public/screen-test.html");
+  const studio = read("public/screen-test.js");
+  const player = read("public/player.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  const layer = css.slice(css.indexOf("v0.3.58 · compacte mechanic-zijbalk"));
+
+  assert.match(studioHtml, /id="screenTestWorkspace"/);
+  assert.match(studioHtml, /id="peekWolfMonitor"/);
+  assert.doesNotMatch(studioHtml, /id="screenTestWolfTab"/);
+  assert.match(studioHtml, /id="peekTestMode"/);
+  assert.match(studioHtml, /id="peekTestPlayers"/);
+  assert.match(studioHtml, /id="peekTestWolves"/);
+  for (const removed of [
+    "peekTestRisk",
+    "peekTestTime",
+    "peekTestWipes",
+    "peekTestReducedMotion",
+    "peekStateInspector",
+    "peekSimulateHundred",
+    "peekTestWolfLook",
+    "peekTestMinor",
+    "peekTestMajor",
+  ]) assert.doesNotMatch(studioHtml, new RegExp(`id="${removed}"`));
+  assert.match(studio, /group:"Nachtrollen",label:"Spiekende Meisje testen"/);
+  assert.doesNotMatch(studio, /group:"Spiekende Meisje/);
+  assert.doesNotMatch(studio, /Math\.round\(scale\*100\)/);
+  assert.match(studio, /function updateWolfPreview/);
+  assert.doesNotMatch(studio, /wakkerdam-peek-visual-progress/);
+  assert.match(player, /wakkerdam-peek-visual-progress/);
+
+  assert.match(peekUi, /class="peekEyeMask"/);
+  assert.match(peekUi, /data-peek-eye-mask/);
+  assert.match(peekUi, /displayRemaining = Math\.max\(0, this\.timeSnapshotMs - localPeekElapsed\)/);
+  assert.match(peekUi, /node\.style\.setProperty\("--peek-focus"/);
+  assert.match(peekUi, /<svg class="peekShard"/);
+  assert.match(peekUi, /this\.listen\(shard, "pointerdown", start\)/);
+  assert.match(layer, /\.screenTestWorkspace\.peek-active\{[\s\S]*grid-template-columns:minmax\(0,1fr\) minmax\(230px,270px\)/);
+  assert.match(layer, /\.peekCirclePlayer\{[\s\S]*--peek-focus:0;[\s\S]*blur\(calc\(\(1 - var\(--peek-focus\)\) \* 5px\)\)/);
+  assert.match(layer, /\.peekShard\{[\s\S]*pointer-events:visiblePainted/);
+  assert.match(layer, /\.peekEyeMask\{/);
+
+  assert.match(viewer, /winnerTransitionEndTimer=setTimeout\(\(\)=>document\.body\.classList\.remove\("winnerTransitionBlack",winnerTone\),3450\)/);
+  assert.match(layer, /@keyframes winnerFullBlackReveal/);
+  assert.match(layer, /@keyframes winnerThunderReveal/);
+  assert.match(layer, /@keyframes wolfWinnerRain/);
+  assert.match(layer, /@keyframes wolfWinnerLightning/);
+  assert.match(layer, /@keyframes winnerSunReveal/);
+  assert.match(layer, /@keyframes villageWinnerRays/);
+});
+
+test("v0.3.59 integrates the real card, live dual Player view, gradual fog, safe Kick all and dense wolf rain", () => {
+  const rules = read("peek-system.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const studio = read("public/screen-test.js");
+  const studioHtml = read("public/screen-test.html");
+  const host = read("public/host.js");
+  const hostHtml = read("public/host.html");
+  const server = read("server.js");
+  const player = read("public/player.js");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  const layer = css.slice(css.indexOf("v0.3.59 · echte dubbele Playerpreview"));
+
+  assert.ok(fs.existsSync(path.join(root, "public/assets/cards/spiekende_meisje.png")));
+  assert.match(player, /little_girl: \[\{ src: "\/assets\/cards\/spiekende_meisje\.png"/);
+  assert.match(host, /little_girl:"\/assets\/cards\/spiekende_meisje\.png"/);
+  assert.match(viewer, /"Het Spiekende Meisje": \["\/assets\/cards\/spiekende_meisje\.png"\]/);
+
+  assert.match(rules, /fog: Object\.freeze\(\{[\s\S]*timeBudgetMs: 15000/);
+  assert.match(rules, /kind === "fog_brush_start"/);
+  assert.match(rules, /kind === "fog_brush"/);
+  assert.match(rules, /kind === "fog_brush_stop"/);
+  assert.match(rules, /identity: fullyCaught && girl/);
+  assert.match(rules, /roleCardSrc: "\/assets\/cards\/spiekende_meisje\.png"/);
+  assert.doesNotMatch(rules, /fogActionsRemaining/);
+  assert.doesNotMatch(peekUi, /fog_swipe|data-wipe-pip/);
+  assert.match(peekUi, /class="peekShardReflection"/);
+  assert.match(read("public/fog-effect.js"), /pushPuffsFromHand/);
+
+  assert.doesNotMatch(studioHtml, /id="screenTestWolfFrame"|id="screenTestWolfViewport"|id="screenTestWolfTab"/);
+  assert.match(studioHtml, /id="peekWolfMonitor"[\s\S]*Wat de wolven zien[\s\S]*id="peekWolfMonitorFrame"/);
+  assert.match(studio, /function postWolfMonitor\(\)/);
+  assert.match(studio, /function wolfPreviewState\(\)/);
+  assert.match(studio, /state:currentScenarioState[\s\S]*viewport:activeViewport/);
+  assert.match(player, /remoteDeviceSpecs = Object\.freeze/);
+
+  assert.match(hostHtml, /id="kickAllBtn"/);
+  assert.match(hostHtml, /id="screenTestHostOverlay"/);
+  assert.match(host, /button\.textContent="Zeker weten\?"/);
+  assert.match(host, /socket\.emit\("host_kick_all_players"\)/);
+  assert.match(host, /testFrame\.src="\/screen-test\.html\?embeddedHost=1"/);
+  assert.doesNotMatch(host, /window\.open\("\/screen-test\.html"/);
+  assert.match(server, /socket\.on\("host_kick_all_players"/);
+
+  assert.match(viewer, /function winnerScoreTitle\(winner\)/);
+  assert.match(viewer, /const verb = \["wolves", "lovers"\]\.includes\(winner\?\.team\) \? "hebben" : "heeft"/);
+  assert.doesNotMatch(viewer, /function winnerRainMarkup|syncWinnerWeather/);
+  assert.match(viewer, /storm\.usePreset\("wolf"\)/);
+  assert.match(layer, /linear-gradient\(180deg,#08152c 0%,#030817 55%,#000 100%\)/);
+  assert.match(layer, /@keyframes winnerRainDrop/);
+  assert.match(layer, /animation:winnerThunderFlash 10s linear 5s infinite/);
+});
+
+test("v0.3.60 separates safe time exhaustion from detection and mirrors the tester to real screens", () => {
+  const rules = read("peek-system.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const player = read("public/player.js");
+  const viewer = read("public/viewer.js");
+  const host = read("public/host.js");
+  const server = read("server.js");
+  const studio = read("public/screen-test.js");
+  const css = read("public/style.css");
+
+  assert.doesNotMatch(rules, /remainingPeekMs <= 0\) \{\s*session\.risk = 100/);
+  assert.match(rules, /continuousRiskMs: 3200/);
+  assert.doesNotMatch(rules, /wolfHover && hoverMs >= 2350/);
+  assert.doesNotMatch(rules, /isWolfKey\(focusTarget\.key\) && focusMs >= 3000/);
+  assert.match(rules, /function syncRiskCooling/);
+  assert.match(rules, /cooling: false/);
+
+  assert.ok(fs.existsSync(path.join(root, "public/assets/peek/spiekende-meisje-schim.png")));
+  assert.match(peekUi, /spiekende-meisje-schim\.png/);
+  assert.match(peekUi, /level-\$\{esc\(warning\.level\)\}/);
+  assert.match(peekUi, /mirror_start/);
+  assert.match(peekUi, /mirror_stop/);
+  assert.match(peekUi, /data-peek-danger/);
+  assert.match(css, /\.peekWolfWarning\.level-presence/);
+  assert.match(css, /\.peekDangerHint\.visible/);
+
+  assert.match(server, /host_screen_test_open/);
+  assert.match(server, /host_screen_test_preview/);
+  assert.match(server, /screen_test_player_event/);
+  assert.match(host, /wakkerdam-screen-test-broadcast/);
+  assert.match(studio, /wakkerdam-screen-test-broadcast/);
+  assert.match(studio, /wakkerdam-screen-test-external-player-event/);
+  assert.match(player, /socket\.on\("screen_test_preview"/);
+  assert.match(viewer, /socket\.on\("screen_test_preview"/);
+});
+
+test("v0.3.61 keeps mirror input and supplied shadows while the current tester restores a device preview", () => {
+  const rules = read("peek-system.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const studio = read("public/screen-test.js");
+  const studioHtml = read("public/screen-test.html");
+  const server = read("server.js");
+  const css = read("public/style.css");
+
+  assert.doesNotMatch(studioHtml, /id="screenTestPrimaryPane"|id="screenTestFrame"/);
+  assert.doesNotMatch(studioHtml, /id="peekWolfPreview"|id="screenTestWolfTab"/);
+  assert.match(studioHtml, /id="peekWolfMonitor"[\s\S]*Wat de wolven zien/);
+  assert.match(studioHtml, /werkelijk geopende Player- of Infopagina’s/);
+  assert.match(studio, /function publishScenario/);
+  assert.match(studio, /function postWolfMonitor/);
+  assert.match(studio, /wakkerdam-screen-test-broadcast/);
+  assert.match(css, /\.remoteDevicePreview\{/);
+
+  assert.match(peekUi, /const characterShadowSources = Object\.freeze/);
+  for (let index = 1; index <= 4; index += 1) {
+    assert.ok(fs.existsSync(path.join(root, `public/assets/peek/burger-${index}-schim.png`)));
+    assert.match(peekUi, new RegExp(`burger-${index}-schim\\.png`));
+  }
+  assert.match(peekUi, /data-shard-character/);
+  assert.match(peekUi, /this\.peek\?\.mode === "mirror"\) this\.endMirrorPointer/);
+  assert.doesNotMatch(peekUi, /mirrorSafetyTimer/);
+  assert.doesNotMatch(rules, /lastMirrorSignalAt/);
+  assert.match(server, /mirror: "mirror_stop"/);
+  assert.match(css, /\.peekCharacterShadow img\{/);
+
+  const suppliedGirl = fs.readFileSync(path.join(root, "public/assets/peek/spiekende-meisje-schim.png"));
+  assert.ok(suppliedGirl.length > 100000, "the supplied Spiekende Meisje shadow is packaged");
+});
+
+test("v0.3.62 unifies peek timing, keeps shard names readable and fully fits the wolf view", () => {
+  const rules = read("peek-system.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const studio = read("public/screen-test.js");
+  const viewer = read("public/viewer.js");
+  const css = read("public/style.css");
+  const layer = css.slice(css.indexOf("v0.3.62 · één spiektimer"));
+
+  assert.match(rules, /const PEEK_MODE_CONFIG = Object\.freeze/);
+  assert.match(rules, /eyelids: Object\.freeze\(\{[\s\S]*timeBudgetMs: 4000/);
+  assert.match(rules, /mirror: Object\.freeze\(\{[\s\S]*timeBudgetMs: 8000/);
+  assert.match(rules, /fog: Object\.freeze\(\{[\s\S]*timeBudgetMs: 15000/);
+  assert.match(rules, /elapsed \/ 1000\) \* 10/);
+  assert.match(rules, /function finishRiskStep/);
+  assert.match(rules, /stopInteraction\(session\)/);
+
+  assert.match(peekUi, /<small>Spiektijd<\/small><strong data-peek-time>/);
+  assert.match(peekUi, /class="peekShardNameplate"/);
+  assert.match(peekUi, /data-shard-name/);
+  assert.doesNotMatch(peekUi, /function mirrorNamesMarkup|class="peekMirrorNames"/);
+  assert.match(peekUi, /releasePointerCapture/);
+  assert.match(peekUi, /const wolfShadowSource = "\/assets\/peek\/wolf-schim\.png"/);
+  assert.ok(fs.existsSync(path.join(root, "public/assets/peek/wolf-schim.png")));
+
+  assert.match(studio, /group:"Nachtrollen",label:"Spiekende Meisje testen"[\s\S]*peekMechanic:true/);
+  assert.match(studio, /activeScenario\(\)\?\.peekMechanic===true/);
+  assert.match(studio, /wolfMonitor\?\.classList\.toggle\("hidden",!peekActive\)/);
+  assert.match(layer, /grid-template-rows:auto auto auto minmax\(0,1fr\)!important/);
+
+  assert.match(viewer, /return `\$\{group\}\\n\$\{verb\} Gewonnen`/);
+  assert.match(layer, /from\{transform:translate3d\(-18px,-130px,0\) rotate\(8deg\)\}/);
+  assert.match(layer, /\.viewerHero\.ended #bigStatus,[\s\S]*white-space:pre-line/);
+});
+
+test("v0.3.63 keeps peek risk live, scopes the wolf shadow and closes exhausted time cleanly", () => {
+  const rules = read("peek-system.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const css = read("public/style.css");
+  const layer = css.slice(css.indexOf("v0.3.63 · vloeiende spiekstate"));
+
+  assert.match(rules, /function riskTrendPerSecond/);
+  assert.match(rules, /continuousRiskMs: 3200/);
+  assert.match(rules, /riskTrendPerSecond: riskTrendPerSecond\(session, now\)/);
+  assert.match(rules, /const activelyObserved = !!session\.interaction\?\.active/);
+  assert.match(rules, /session\.interaction\.hoverKey === wolfKey/);
+  assert.match(rules, /nameHint: !fullyCaught/);
+
+  assert.match(peekUi, /class="peekEyeBloom"/);
+  assert.match(peekUi, /class="peekCharacterWolf"/);
+  assert.match(peekUi, /class="peekShardWolfPerson"/);
+  assert.match(peekUi, /class="peekShardNameplate"/);
+  assert.match(peekUi, /displayRisk\(\)/);
+  assert.match(peekUi, /ensureRiskAnimation\(\)/);
+  assert.match(peekUi, /Je spiektijd is voorbij/);
+  assert.match(peekUi, /Probeer het de volgende nacht opnieuw/);
+  assert.doesNotMatch(peekUi, /Ze keek te lang/);
+
+  assert.match(layer, /\.peekEyeBloom\{/);
+  assert.match(layer, /\.peekCharacterShadow \.peekCharacterWolf\{/);
+  assert.match(layer, /\.peekShardNameplate text\{/);
+  assert.match(layer, /\.peekWarningName\{/);
+  assert.match(layer, /\.peekWolfWarning\.level-major \.peekWarningSilhouette,[\s\S]*display:none!important/);
+  assert.match(layer, /\.peekTimeExpired\{/);
+});
+
+test("v0.3.64 centers winner groups and keeps every peek mechanic fluid and recoverable", () => {
+  const rules = read("peek-system.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const viewer = read("public/viewer.js");
+  const studio = read("public/screen-test.js");
+  const css = read("public/style.css");
+  const layer = css.slice(css.indexOf("v0.3.64 · rustige winnaarsreveal"));
+
+  assert.match(viewer, /class="piperEnchantedCards" style="\$\{enchantedStyle\}"/);
+  assert.match(viewer, /--piper-stack-index:\$\{index \+ 1\}/);
+  assert.match(viewer, /class="winnerStage loverWinnerStage"/);
+  assert.match(viewer, /loverVillageGroup/);
+  assert.match(viewer, /loverWolfGroup/);
+  assert.match(studio, /alive:team==="lovers" \? index<2/);
+
+  assert.match(layer, /\.piperEnchantedScroller\{[\s\S]*overflow:hidden!important/);
+  assert.match(layer, /\.loverWinnerLayout\{[\s\S]*grid-template-columns:minmax\(170px,1fr\) minmax\(300px,1\.4fr\) minmax\(170px,1fr\)/);
+  assert.match(layer, /@keyframes winnerSoftCurtain/);
+  assert.match(layer, /background:rgba\(0,0,0,var\(--winner-curtain-alpha\)\)!important/);
+  assert.match(layer, /from\{transform:translate3d\(72px,-150px,0\) rotate\(10deg\)\}/);
+  assert.doesNotMatch(layer, /winnerDiagonalCurtain/);
+
+  assert.match(rules, /mirror:[\s\S]*continuousRiskMs: 6200/);
+  assert.match(rules, /fog:[\s\S]*continuousRiskMs: 9800/);
+  assert.match(rules, /const config = PEEK_MODE_CONFIG\[session\.mode\]/);
+  assert.doesNotMatch(peekUi, /serverEndedInteraction/);
+  assert.match(peekUi, /--wolf-morph/);
+  assert.match(peekUi, /window\.WakkerdamFog\.create/);
+  assert.doesNotMatch(peekUi, /class="peekFogHands"|class="peekFogPushLayers"/);
+  assert.match(layer, /\.peekEyeBloom\{[\s\S]*stroke:rgba\(0,0,0/);
+  assert.match(layer, /\.peekExperience\.peekInstruction\{[\s\S]*justify-content:center!important/);
+  assert.match(layer, /\.peekDangerHint\{[\s\S]*top:clamp/);
+  assert.match(read("public/fog-effect.css"), /\.wf-pushing \.wf-push-hands/);
+});
+
+test("v0.3.65 never turns peek risk into an input timeout or blockade", () => {
+  const rules = read("peek-system.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const css = read("public/style.css");
+
+  assert.doesNotMatch(rules, /cooldownAt|resumeBelow|requestCooldown|function isCooling/);
+  assert.doesNotMatch(rules, /reason: "cooling"/);
+  assert.doesNotMatch(rules, /detectionLevel === "major"\) \{\s*stopInteraction/);
+  assert.doesNotMatch(rules, /now - lastMirrorSignalAt/);
+  assert.match(rules, /cooling: false/);
+
+  assert.doesNotMatch(peekUi, /mirrorSafetyTimer|serverEndedInteraction/);
+  assert.doesNotMatch(peekUi, /peek\.cooling/);
+  assert.match(peekUi, /De wolven hebben je gezien\. Je kunt blijven spieken zolang je nog spiektijd hebt\./);
+  assert.doesNotMatch(css, /\.peek-cooling/);
+});
+
+test("v0.3.66 catches only at a full visible bar and keeps warning UI outside the playfield", () => {
+  const rules = read("peek-system.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const css = read("public/style.css");
+  const layer = css.slice(css.indexOf("v0.3.66 · de zichtbare balk"));
+
+  assert.match(rules, /level === "major" && Number\(session\.risk \|\| 0\) < 100/);
+  assert.doesNotMatch(rules, /continuous > 1750\) session\.risk/);
+  assert.doesNotMatch(rules, /hoverMs >= 2350[\s\S]*session\.risk = 100/);
+  assert.doesNotMatch(rules, /focusMs >= 3000[\s\S]*session\.risk = 100/);
+  assert.match(rules, /focusedWolfRate/);
+
+  assert.match(peekUi, /class="peekDangerLane"[\s\S]*data-peek-danger/);
+  assert.match(layer, /\.peekDangerLane\{[\s\S]*place-items:center/);
+  assert.match(layer, /\.peekDangerHint\{[\s\S]*position:relative!important/);
+  assert.match(layer, /\.peekScene\{[\s\S]*min-height:0!important/);
+  assert.match(layer, /\.peekWolfWarning\.level-presence \.peekWarningSilhouette\{[\s\S]*opacity:calc\(\.08 \+ var\(--wolf-awareness\) \* \.62\)/);
+});
+
+test("v0.3.67 makes mirror eye contact explicit and closes locally exhausted tenths immediately", () => {
+  const rules = read("peek-system.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const css = read("public/style.css");
+  const layer = css.slice(css.indexOf("v0.3.67 · langdurig oogcontact"));
+
+  assert.match(rules, /wolfEyesRevealMs: 780/);
+  assert.match(rules, /function mirrorWolfEyeFocus/);
+  assert.match(rules, /mirrorEyeContactActive: mirrorEyeFocus\.active/);
+  assert.match(rules, /eyeContactStrength: eyeContact \? mirrorEyeFocus\.strength : 0/);
+  assert.match(rules, /timeExpired: Number\(session\.remainingPeekMs \|\| 0\) <= 0/);
+  const eyeFocusHelper = rules.match(/function mirrorWolfEyeFocus[\s\S]*?\n}/)?.[0] || "";
+  assert.doesNotMatch(eyeFocusHelper, /session\.risk\s*=\s*100/);
+
+  assert.match(peekUi, /expireTimeLocally\(\)/);
+  assert.match(peekUi, /if \(sessionChanged\) this\.localTimeExhausted = false/);
+  assert.match(peekUi, /timeExpired: true/);
+  assert.doesNotMatch(peekUi, /Ze kijkt recht in je rode ogen/);
+  assert.match(peekUi, /--wolf-eye-contact/);
+  assert.match(layer, /\.peekWolfWarning\.level-presence\.eye-contact/);
+  assert.match(layer, /\.peekWarningEyeContact\{/);
+  assert.match(layer, /\.peekShard\.eye-contact \.peekShardWolf/);
+});
+
+test("v0.3.68 uses physical fog objects without an alpha erase layer", () => {
+  const playerHtml = read("public/index.html");
+  const peekUi = read("public/peek-mechanics.js");
+  const fog = read("public/fog-effect.js");
+  const fogCss = read("public/fog-effect.css");
+  const css = read("public/style.css");
+
+  assert.ok(fs.existsSync(path.join(root, "public/fog-effect.js")));
+  assert.ok(fs.existsSync(path.join(root, "public/fog-effect.css")));
+  assert.match(playerHtml, /fog-effect\.css\?v=0\.3\.72/);
+  assert.match(playerHtml, /fog-effect\.js\?v=0\.3\.72[\s\S]*peek-mechanics\.js\?v=0\.3\.72/);
+  assert.match(peekUi, /const approvedFogSettings = Object\.freeze/);
+  assert.match(peekUi, /density: 600[\s\S]*motion: 110[\s\S]*turbulence: 600/);
+  assert.match(peekUi, /window\.WakkerdamFog\.create/);
+  assert.match(peekUi, /this\.fogEffect\?\.destroy\(\)/);
+  assert.match(peekUi, /this\.listen\(fogInput, "pointercancel", stop\)/);
+  assert.doesNotMatch(peekUi, /destination-out|setupFogCanvas|eraseFog|data-peek-fog|data-fog-pulse/);
+
+  assert.match(fog, /class InteractiveFog/);
+  assert.match(fog, /ResizeObserver/);
+  assert.match(fog, /resizePreservingMist/);
+  assert.match(fog, /pushPuffsFromHand/);
+  assert.match(fog, /applyReturnPressure/);
+  assert.match(fog, /setInteractive\(interactive\)/);
+  assert.doesNotMatch(fog, /destination-out|globalCompositeOperation|clearRect\([^)]*\)[\s\S]{0,120}arc\(/);
+  assert.match(fogCss, /\.wakkerdam-fog-layer/);
+  assert.match(fogCss, /touch-action: none/);
+  assert.match(css, /v0\.3\.68 · fysieke mistobjecten/);
+});
+
+test("v0.3.72 keeps the wolf storm once and copies the approved smooth card-reveal timeline", () => {
+  const viewerHtml = read("public/viewer.html");
+  const viewer = read("public/viewer.js");
+  const storm = read("public/wakkerdam-storm-effect.js");
+  const stormCss = read("public/wakkerdam-storm-effect.css");
+  const studio = read("public/screen-test.js");
+
+  assert.ok(fs.existsSync(path.join(root, "public/wakkerdam-storm-effect.js")));
+  assert.ok(fs.existsSync(path.join(root, "public/wakkerdam-storm-effect.css")));
+  assert.match(viewerHtml, /style\.css\?v=0\.3\.72[\s\S]*wakkerdam-storm-effect\.css\?v=0\.3\.72/);
+  assert.match(viewerHtml, /wakkerdam-storm-effect\.js\?v=0\.3\.72[\s\S]*viewer\.js\?v=0\.3\.72/);
+
+  assert.match(viewer, /s\?\.winner\?\.team!=="wolves"/);
+  assert.match(viewer, /const token=String\(s\?\.winnerRevealToken\|\|""\)/);
+  assert.match(viewer, /if\(winnerKey===lastStormWinnerKey\)return/);
+  assert.match(viewer, /storm\.usePreset\("wolf"\)/);
+  assert.match(viewer, /storm\.prepareReveal\(content\)/);
+  assert.match(viewer, /storm\.revealWinner\(content\)\.then\(completed=>/);
+  assert.match(viewer, /acknowledgeReveal\("winner",s\.winnerRevealToken\)/);
+  assert.match(viewer, /applyHeroPhaseClasses\(hero,infoClass\)/);
+  assert.doesNotMatch(viewer, /hero\.className=`viewerHero|winnerRainMarkup|syncWinnerWeather/);
+
+  assert.match(storm, /wolf:\{density:210,speed:660,wind:210/);
+  assert.match(storm, /const vx=-wind\*drop\.drift; \/\/ rechtsboven -> linksonder/);
+  assert.match(storm, /const branchCount=Math\.max\(0,Math\.round\(this\._number\('branches'\)\)\)/);
+  assert.match(storm, /this\.flash\.addEventListener\('animationend'/);
+  assert.match(storm, /this\.flash\.addEventListener\('animationcancel'/);
+  assert.match(storm, /element\.classList\.remove\('is-active','is-reveal-main','is-reveal-echo'\)/);
+  assert.match(storm, /element\.style\.removeProperty\('opacity'\)/);
+  assert.match(storm, /element\.style\.removeProperty\('visibility'\)/);
+  assert.match(storm, /this\.flashResetTimer=setTimeout\(\(\)=>this\._resetFlash\(\),650\)/);
+  assert.match(storm, /this\._setContentStage\('card-reveal',contentElement\)/);
+  assert.match(storm, /this\._activateRevealFlashes\(\)/);
+  assert.match(storm, /const alreadyPrepared=this\.revealPrepared/);
+  assert.match(storm, /if\(!alreadyPrepared\)this\.prepareReveal\(contentElement\)/);
+  assert.match(stormCss, /wdCardBlackoutReveal 2300ms[\s\S]*820ms both/);
+  assert.match(stormCss, /wdCardGlobalShadow 1900ms[\s\S]*1900ms both/);
+  assert.match(stormCss, /wdCardShadowPass 1950ms[\s\S]*2020ms \+ var\(--card-index,0\) \* 70ms/);
+  assert.match(stormCss, /wdCardLight 3150ms[\s\S]*2630ms \+ var\(--card-index,0\) \* 120ms/);
+  assert.match(stormCss, /wdCardHeadingReveal 1650ms[\s\S]*4380ms both/);
+  assert.match(studio, /state\.winnerPublicRevealed=team!=="wolves"/);
+});
+
+test("v0.3.72 aligns the tester, shows wolves by default and tunes both real screens", () => {
+  const studioHtml = read("public/screen-test.html");
+  const studio = read("public/screen-test.js");
+  const player = read("public/player.js");
+  const viewer = read("public/viewer.js");
+  const peekUi = read("public/peek-mechanics.js");
+  const fogCss = read("public/fog-effect.css");
+  const css = read("public/style.css");
+  const finalLayer = css.slice(css.indexOf("v0.3.70 FINAL CASCADE LOCK"));
+
+  assert.match(studioHtml, /data-test-viewport="auto"[\s\S]*data-test-viewport="phone"[\s\S]*data-test-viewport="phoneWide"[\s\S]*data-test-viewport="tablet"[\s\S]*data-test-viewport="monitor"/);
+  assert.doesNotMatch(studioHtml, /id="screenTestFrame"|id="screenTestWolfFrame"/);
+  assert.doesNotMatch(studioHtml, /Wat de weerwolf ziet/);
+  assert.match(studioHtml, /id="peekWolfMonitor"[\s\S]*id="peekWolfMonitorFrame"/);
+  assert.match(player, /id="remoteDeviceFrame"|remoteDeviceFrame/);
+  assert.match(read("public/viewer.html"), /id="remoteDevicePreview"[\s\S]*id="remoteDeviceFrame"/);
+  assert.match(player, /phone:\{width:390,height:844[\s\S]*phoneWide:\{width:430,height:932[\s\S]*tablet:\{width:820,height:1080[\s\S]*monitor:\{width:1280,height:720/);
+  assert.match(viewer, /phone:\{width:390,height:844[\s\S]*phoneWide:\{width:430,height:932[\s\S]*tablet:\{width:820,height:1080[\s\S]*monitor:\{width:1280,height:720/);
+  assert.match(studio, /viewport:activeViewport/);
+  assert.match(studio, /function postWolfMonitor\(\)/);
+
+  const fogSliders = [...studioHtml.matchAll(/data-fog-setting="([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual(fogSliders, ["density","motion","turbulence","pushHeight","handMotion","handSize","pushForce","returnPush","refill","inertia"]);
+  assert.match(studioHtml, /id="peekCautionStrength"[\s\S]*id="peekSeconds"/);
+  assert.match(studioHtml, /id="peekSettingsExport"[\s\S]*Exporteer alle instellingen/);
+  assert.match(studio, /async function exportPeekSettings\(\)/);
+  assert.match(studio, /link\.download="wakkerdam-spiekende-meisje-testinstellingen\.json"/);
+  assert.match(studio, /testOnly:true[\s\S]*mechanics,[\s\S]*fog:\{\.\.\.fogTestSettings\}/);
+  assert.match(peekUi, /settings: \{\.\.\.approvedFogSettings,\.\.\.\(this\.peek\?\.fogSettings\|\|\{\}\)\}/);
+  assert.match(peekUi, /this\.fogEffect\.updateSettings\(\{/);
+  assert.match(fogCss, /\.wf-pushing \.wf-cursor-hand \{[\s\S]*opacity: 0;/);
+
+  assert.doesNotMatch(peekUi, /Ze kijkt recht in je rode ogen|peekWarningEyeContact/);
+  assert.match(finalLayer, /\.peekWarningName\{[\s\S]*blur\(calc\(18px - var\(--wolf-awareness\) \* 8px\)\)[\s\S]*peekWarningNameMorph/);
+
+  assert.match(player, /class="brokenPiperCard"[\s\S]*assets\/cards\/fluitspeler\.png/);
+  assert.doesNotMatch(player.match(/function renderEnchantmentBroken[\s\S]*?\n}/)?.[0] || "", /Host gaat verder|brokenMagicMark/);
+  assert.match(css, /\.brokenPiperCard img\{[\s\S]*grayscale\(1\)/);
+  assert.match(finalLayer, /\.enchantmentBrokenNotice\{border-radius:0!important\}/);
+
+  assert.match(viewer, /class="loverWinnerLead"[\s\S]*class="loverSupportRow/);
+  assert.match(viewer, /loverVillageGroup[\s\S]*loverWolfGroup/);
+  assert.match(finalLayer, /v0\.3\.72 · compacte tester/);
+  assert.match(finalLayer, /\.infoScreen \.loverWinnerLead\{[\s\S]*grid-column:1!important;[\s\S]*grid-row:1!important/);
+  assert.match(finalLayer, /\.screenTestStudio \.screenTestMeta\{[\s\S]*grid-template-areas:"summary actions" "description actions"/);
+  assert.match(finalLayer, /\.screenTestStudio \.peekFogControls\{[\s\S]*grid-template-columns:repeat\(2,minmax\(0,1fr\)\)/);
+  assert.match(finalLayer, /\.card,\.btn,input,select,textarea[\s\S]*border-radius:0!important/);
 });
 
 test("v0.3.54 adds stable selection updates, universal force controls and the screen tester", () => {
@@ -156,7 +613,7 @@ test("v0.3.54 adds stable selection updates, universal force controls and the sc
   assert.match(player, /Maximaal \$\{max\} gekozen — deselecteer eerst iemand\./);
   assert.match(player, /Je hebt je geliefden gezien/);
   assert.match(player, /function renderEnchantmentBroken/);
-  assert.match(player, /const screenTestMode = new URLSearchParams/);
+  assert.match(player, /const playerSearchParams = new URLSearchParams/);
   assert.match(server, /function emitPreviewUpdate\(p\)/);
   assert.match(server, /function emitWolfStepUpdate\(step = game\.currentStep\)/);
   assert.match(server, /io\.to\("host"\)\.emit\("host_state", hostState\(\)\)/);
@@ -191,7 +648,8 @@ test("v0.3.54 adds stable selection updates, universal force controls and the sc
   assert.match(finalLayer, /\.viewerHero\.ended\.winner-wolves/);
 
   assert.match(hostHtml, /id="openScreenTestBtn"/);
-  assert.match(studioHtml, /id="screenTestFrame"/);
+  assert.doesNotMatch(studioHtml, /id="screenTestFrame"|id="screenTestWolfFrame"/);
+  assert.match(read("public/index.html"), /id="remoteDeviceFrame"/);
   assert.match(studio, /const scenarios=\[/);
   assert.match(studio, /surface:"player"/);
   assert.match(studio, /surface:"info"/);
@@ -293,7 +751,7 @@ test("winner page swaps behind a team-specific diagonal cinematic transition", (
   const css = read("public/style.css");
   assert.match(viewer, /const winnerTone = s\.winner\?\.team === "village"[\s\S]*"winnerTransitionVillage"[\s\S]*"winnerTransitionWolves"/);
   assert.match(viewer, /document\.body\.classList\.add\("winnerTransitionBlack", winnerTone\)/);
-  assert.match(viewer, /setTimeout\(\(\)=>\{[\s\S]*displayedState=s;[\s\S]*scheduleViewerRender\(s\);[\s\S]*acknowledgeReveal\("winner", s\.winnerRevealToken\);[\s\S]*\},1120\)/);
+  assert.match(viewer, /setTimeout\(\(\)=>\{[\s\S]*displayedState=s;[\s\S]*scheduleViewerRender\(s\);[\s\S]*acknowledgeReveal\("winner", s\.winnerRevealToken\);[\s\S]*\},960\)/);
   assert.match(css, /\.infoScreen\.winnerTransitionVillage::after[\s\S]*radial-gradient/);
   assert.match(css, /\.infoScreen\.winnerTransitionWolves::after[\s\S]*radial-gradient/);
   assert.match(css, /@keyframes winnerDiagonalCurtain\{[\s\S]*clip-path:polygon/);
@@ -725,7 +1183,7 @@ test("v0.3.53 keeps combined Witch choices, resumes mobile sessions and finishes
   assert.match(viewer, /s\.winner\?\.team === "piper"/);
   assert.match(viewer, /players\.filter\(p=>p\.enchanted && p\.key !== piper\?\.key\)/);
   assert.match(viewer, /winnerPlayerCard\(piper,false,"piperLeadCard"\)/);
-  assert.match(viewer, /winnerPlayerCard\(p,false,"piperEnchantedCard"\)/);
+  assert.match(viewer, /winnerPlayerCard\(p,false,"piperEnchantedCard"(?:,[^)]+)?\)/);
   assert.match(viewer, /winnerPlayerCard[\s\S]*p\.alive\?'alive':'dead'/);
   assert.match(viewer, /winnerTransitionPiper/);
   assert.match(css, /\.infoScreen\.winnerTransitionPiper::after/);
@@ -885,7 +1343,7 @@ test("clean server exposes Host, Speler, Infoscherm and paginatester routes", as
 
   const base = `http://127.0.0.1:${port}`;
   await waitForServer(`${base}/host`);
-  for (const route of ["/host", "/player", "/info", "/screen-test.html", "/style.css", "/host.js", "/player.js", "/viewer.js", "/screen-test.js", "/assets/cards/Heks.png", "/assets/cards/Ziener.png"]) {
+  for (const route of ["/host", "/player", "/info", "/screen-test.html", "/style.css", "/fog-effect.css", "/fog-effect.js", "/host.js", "/player.js", "/viewer.js", "/screen-test.js", "/assets/cards/Heks.png", "/assets/cards/Ziener.png"]) {
     const response = await fetch(`${base}${route}`);
     assert.equal(response.status, 200, route);
   }

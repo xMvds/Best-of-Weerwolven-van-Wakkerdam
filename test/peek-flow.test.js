@@ -45,9 +45,10 @@ function connectSocket(url) {
 
 async function joinPlayer(url, name) {
   const socket = await connectSocket(url);
-  const player = { socket, key: null, latest: null, peek: null };
+  const player = { socket, key: null, latest: null, peek: null, peekWarning: null };
   socket.on("player_state", state => { player.latest = state; });
   socket.on("peek_state", peek => { player.peek = peek; });
+  socket.on("peek_warning_state", warning => { player.peekWarning = warning; });
   socket.emit("join", { name });
   const joined = await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Join timeout for ${name}`)), 5000);
@@ -142,6 +143,9 @@ test("Spiekende Meisje runs only during wolves, survives reconnect and never lea
   await waitUntil(() => girl.latest?.action?.peek?.status === "active", "instruction acknowledged");
   girl.socket.emit("peek_interaction", { sessionId, kind: "hold_start" });
   await waitUntil(() => girl.peek?.holding === true, "eyelids holding");
+  await waitUntil(() => wolf.peekWarning?.level === "presence", "ambient wolf shadow");
+  assert.equal(wolf.peekWarning.identity, null);
+  assert.equal(wolf.peekWarning.text, "");
   await new Promise(resolve => setTimeout(resolve, 420));
 
   const replacement = await connectSocket(url);
@@ -154,6 +158,18 @@ test("Spiekende Meisje runs only during wolves, survives reconnect and never lea
   await waitUntil(() => resumed?.me?.key === girl.key && resumedPeek?.id === sessionId, "resumed peek session");
   assert.equal(resumed.action.peek.id, sessionId);
   assert.ok(resumedPeek.remainingPeekMs < 4000, `Expected used time, received ${resumedPeek.remainingPeekMs}`);
+
+  await waitUntil(
+    () => wolf.peekWarning?.level === "major" && wolf.peekWarning?.identity && resumedPeek?.holding === true,
+    "live wolf catch without ending the eyelid interaction",
+    6500,
+  );
+  assert.equal(wolf.peekWarning.identity.name, "Meisje");
+  assert.equal(wolf.peekWarning.identity.roleName, "Het Spiekende Meisje");
+  assert.equal(wolf.peekWarning.identity.roleCardSrc, "/assets/cards/spiekende_meisje.png");
+  assert.ok(resumedPeek?.remainingPeekMs < 4000);
+  assert.ok(resumedPeek?.remainingPeekMs > 0, "betrapping preserves the remaining peek time");
+  assert.equal(resumedPeek?.cooling, false);
 
   replacement.emit("peek_interaction", { sessionId, kind: "hold_stop" });
   await waitUntil(() => resumedPeek?.holding === false, "hold stopped after reconnect");

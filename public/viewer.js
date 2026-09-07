@@ -7,6 +7,17 @@ let lastMayorResultKey="";
 let lastDayResultKey="";
 let lastWinnerKey="";
 let displayedState=null;
+let remoteScreenTestSession="";
+let liveViewerStateDuringTest=null;
+let remoteScreenTestViewport="auto";
+let remoteDeviceFrameReady=false;
+let remoteDeviceFitFrame=null;
+const remoteDeviceSpecs=Object.freeze({
+  phone:{width:390,height:844,label:"Smalle telefoon · 390 × 844"},
+  phoneWide:{width:430,height:932,label:"Grote telefoon · 430 × 932"},
+  tablet:{width:820,height:1080,label:"Tablet · 820 × 1080"},
+  monitor:{width:1280,height:720,label:"Monitor · 1280 × 720"},
+});
 let winnerTransitionTimer=null;
 let hunterTransitionTimer=null;
 let hunterTransitionEndTimer=null;
@@ -15,6 +26,9 @@ let viewerRenderFrame=null;
 let queuedRenderState=null;
 let viewerPlayersKey="";
 let centralSceneKey="";
+let winnerStorm=null;
+let lastStormWinnerKey="";
+let winnerTransitionEndTimer=null;
 const acknowledgedRevealTokens=new Set();
 const revealMemoryKey="wakkerdam_seen_reveals_v0351";
 function loadSeenRevealTokens(){
@@ -29,6 +43,106 @@ function loadSeenRevealTokens(){
 const seenRevealTokens=loadSeenRevealTokens();
 let resizeTimer=null;
 function esc(s){return String(s??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[m]));}
+function fitRemoteDevicePreview(){
+  cancelAnimationFrame(remoteDeviceFitFrame);
+  remoteDeviceFitFrame=requestAnimationFrame(()=>{
+    remoteDeviceFitFrame=null;
+    const spec=remoteDeviceSpecs[remoteScreenTestViewport];
+    const viewport=$("remoteDeviceViewport");
+    const frame=$("remoteDeviceFrame");
+    if(!spec||!viewport||!frame)return;
+    const availableWidth=Math.max(180,window.innerWidth-24);
+    const availableHeight=Math.max(240,window.innerHeight-42);
+    const scale=Math.min(1,availableWidth/spec.width,availableHeight/spec.height);
+    viewport.style.width=`${Math.round(spec.width*scale)}px`;
+    viewport.style.height=`${Math.round(spec.height*scale)}px`;
+    frame.style.width=`${spec.width}px`;
+    frame.style.height=`${spec.height}px`;
+    frame.style.transform=`scale(${scale})`;
+  });
+}
+function postRemoteDeviceState(){
+  if(!remoteDeviceFrameReady||remoteScreenTestViewport==="auto"||!displayedState)return;
+  $("remoteDeviceFrame")?.contentWindow?.postMessage({
+    type:"wakkerdam-screen-test",
+    surface:"info",
+    sessionId:remoteScreenTestSession,
+    state:displayedState,
+  },"*");
+}
+function applyRemoteDevicePreview(mode="auto"){
+  remoteScreenTestViewport=Object.prototype.hasOwnProperty.call(remoteDeviceSpecs,mode)?mode:"auto";
+  const shell=$("remoteDevicePreview");
+  const frame=$("remoteDeviceFrame");
+  if(!shell||!frame)return;
+  const spec=remoteDeviceSpecs[remoteScreenTestViewport];
+  shell.classList.toggle("hidden",!spec);
+  document.body.classList.toggle("remoteDevicePreviewActive",!!spec);
+  if(!spec){
+    $("remoteDevicePreviewLabel").textContent="";
+    return;
+  }
+  $("remoteDevicePreviewLabel").textContent=spec.label;
+  if(frame.dataset.session!==remoteScreenTestSession){
+    remoteDeviceFrameReady=false;
+    frame.dataset.session=remoteScreenTestSession;
+    frame.src=`/info?screenTest=1&devicePreview=1&screenTestSession=${encodeURIComponent(remoteScreenTestSession)}`;
+  }
+  fitRemoteDevicePreview();
+  postRemoteDeviceState();
+}
+function getWinnerStorm(){
+  if(winnerStorm)return winnerStorm;
+  const hero=$("hero");
+  if(!hero||!window.WakkerdamStorm)return null;
+  winnerStorm=window.WakkerdamStorm.mount(hero,{
+    ...window.WakkerdamStorm.PRESETS.wolf,
+    autoLightning:true,
+  });
+  winnerStorm.hide();
+  return winnerStorm;
+}
+function winnerStormStateKey(s){
+  const token=String(s?.winnerRevealToken||"");
+  if(token)return `${s?.lobbyId||""}:${token}`;
+  const wolves=(s?.players||[]).filter(player=>player.wolfLike).map(player=>`${player.key}:${player.alive?1:0}`).join("|");
+  return `${s?.lobbyId||""}:${s?.round||""}:${s?.winner?.team||""}:${s?.winner?.title||""}:${wolves}`;
+}
+function syncWinnerStorm(s){
+  if(s?.winner?.team!=="wolves"){
+    winnerStorm?.hide();
+    lastStormWinnerKey="";
+    return;
+  }
+  const storm=getWinnerStorm();
+  if(!storm)return;
+
+  const winnerKey=winnerStormStateKey(s);
+  storm.show();
+  if(winnerKey===lastStormWinnerKey)return;
+  lastStormWinnerKey=winnerKey;
+  storm.usePreset("wolf");
+  const content=document.querySelector("#hero .infoContent");
+  const shouldAnimate=s.winnerPublicRevealed===false||screenTestMode||!!remoteScreenTestSession;
+  if(!shouldAnimate){
+    storm.revealImmediately(content);
+    return;
+  }
+
+  storm.prepareReveal(content);
+  requestAnimationFrame(()=>{
+    if(lastStormWinnerKey!==winnerKey||displayedState?.winner?.team!=="wolves")return;
+    storm.revealWinner(content).then(completed=>{
+      if(!completed||lastStormWinnerKey!==winnerKey||displayedState?.winner?.team!=="wolves")return;
+      acknowledgeReveal("winner",s.winnerRevealToken);
+    });
+  });
+}
+function applyHeroPhaseClasses(hero,infoClass){
+  hero.classList.remove("lobby","night","day","mayor","voting","hunter","ended","piperWinner");
+  [...hero.classList].filter(className=>className.startsWith("winner-")).forEach(className=>hero.classList.remove(className));
+  infoClass.split(/\s+/).filter(Boolean).forEach(className=>hero.classList.add(className));
+}
 function hunterBullseye(className=""){
   return `<span class="hunterBullseyeIcon ${className}" aria-hidden="true"></span>`;
 }
@@ -62,6 +176,7 @@ function runHunterBlackTransition(s){
 }
 function hasSeenReveal(token){ return !!token && seenRevealTokens.has(token); }
 function acknowledgeReveal(kind, token){
+  if(screenTestMode || remoteScreenTestSession) return;
   if(!token || acknowledgedRevealTokens.has(token)) return;
   acknowledgedRevealTokens.add(token);
   seenRevealTokens.add(token);
@@ -76,7 +191,8 @@ const ROLE_ART = {
   "Ziener": ["/assets/cards/Ziener.png"],
   "Fluitspeler": ["/assets/cards/fluitspeler.png"],
   "Heks": ["/assets/cards/Heks.png"],
-  "Jager": ["/assets/cards/jager.png"]
+  "Jager": ["/assets/cards/jager.png"],
+  "Het Spiekende Meisje": ["/assets/cards/spiekende_meisje.png"]
 };
 const preloadedViewerArt=[];
 for(const src of [...new Set(Object.values(ROLE_ART).flat())]){
@@ -151,9 +267,64 @@ function centralKeyForState(s, mayorActive, voteActive, mayorStage){
   }
   return `deaths:${s.phase}:${(s.lastDeaths||[]).map(d=>`${d.key}:${d.cause}:${d.linkedToKey||""}`).join("|")}`;
 }
-if(!screenTestMode) socket.emit("register_viewer");
+if(!screenTestMode){
+  $("remoteDeviceFrame")?.addEventListener("load",()=>{
+    remoteDeviceFrameReady=true;
+    fitRemoteDevicePreview();
+    postRemoteDeviceState();
+  });
+  window.addEventListener("message",event=>{
+    const frame=$("remoteDeviceFrame");
+    if(!frame||event.source!==frame.contentWindow)return;
+    if(event.data?.type!=="wakkerdam-screen-test-ready"||event.data.surface!=="info")return;
+    if(event.data.sessionId&&event.data.sessionId!==remoteScreenTestSession)return;
+    remoteDeviceFrameReady=true;
+    postRemoteDeviceState();
+  });
+  window.addEventListener("orientationchange",fitRemoteDevicePreview,{passive:true});
+  socket.emit("register_viewer");
+}
 socket.on("connect",()=>{if(!screenTestMode) socket.emit("register_viewer");});
+socket.on("screen_test_mode",payload=>{
+  if(screenTestMode) return;
+  if(payload?.active){
+    remoteScreenTestSession=String(payload.sessionId||"");
+    if(!liveViewerStateDuringTest) liveViewerStateDuringTest=displayedState;
+    return;
+  }
+  if(!remoteScreenTestSession || (payload?.sessionId && payload.sessionId!==remoteScreenTestSession)) return;
+  remoteScreenTestSession="";
+  applyRemoteDevicePreview("auto");
+  document.body.classList.remove("remoteScreenTestActive","forceReducedMotion");
+  clearTimeout(winnerTransitionTimer);
+  clearTimeout(winnerTransitionEndTimer);
+  clearTimeout(hunterTransitionTimer);
+  clearTimeout(hunterTransitionEndTimer);
+  centralSceneKey="";
+  viewerPlayersKey="";
+  if(liveViewerStateDuringTest){
+    displayedState=liveViewerStateDuringTest;
+    liveViewerStateDuringTest=null;
+    scheduleViewerRender(displayedState);
+  }
+  socket.emit("register_viewer");
+});
+socket.on("screen_test_preview",payload=>{
+  if(screenTestMode || payload?.surface!=="info") return;
+  if(!remoteScreenTestSession || payload.sessionId!==remoteScreenTestSession || !payload.state) return;
+  if(!liveViewerStateDuringTest) liveViewerStateDuringTest=displayedState;
+  displayedState=payload.state;
+  document.body.classList.add("remoteScreenTestActive");
+  centralSceneKey="";
+  viewerPlayersKey="";
+  lastMayorResultKey="";
+  lastDayResultKey="";
+  render(displayedState);
+  applyRemoteDevicePreview(payload.viewport||"auto");
+  postRemoteDeviceState();
+});
 window.addEventListener("resize",()=>{
+  fitRemoteDevicePreview();
   clearTimeout(resizeTimer);
   resizeTimer=setTimeout(()=>{
     if(!displayedState?.winner) return;
@@ -162,6 +333,10 @@ window.addEventListener("resize",()=>{
   },120);
 });
 socket.on("state",s=>{
+  if(remoteScreenTestSession){
+    liveViewerStateDuringTest=s;
+    return;
+  }
   const startsWinner = !!s?.winner && !s?.winnerPublicRevealed && (!displayedState || !displayedState.winner);
   const startsHunterEvent = !startsWinner
     && displayedState?.phase === "hunter"
@@ -180,13 +355,27 @@ socket.on("state",s=>{
     runHunterBlackTransition(s);
     return;
   }
+  if(startsWinner&&s?.winner?.team==="wolves"){
+    clearTimeout(winnerTransitionTimer);
+    clearTimeout(winnerTransitionEndTimer);
+    document.body.classList.remove("winnerTransitionBlack","winnerTransitionVillage","winnerTransitionWolves","winnerTransitionPiper","winnerTransitionLovers","winnerTransitionOther");
+    const storm=getWinnerStorm();
+    if(storm){
+      storm.usePreset("wolf");
+      storm.prepareReveal(document.querySelector("#hero .infoContent"));
+      displayedState=s;
+      scheduleViewerRender(s);
+      return;
+    }
+  }
   if(!startsWinner){
     displayedState=s;
     scheduleViewerRender(s);
     return;
   }
   clearTimeout(winnerTransitionTimer);
-  document.body.classList.remove("winnerTransitionBlack","winnerTransitionVillage","winnerTransitionWolves","winnerTransitionPiper","winnerTransitionOther");
+  clearTimeout(winnerTransitionEndTimer);
+  document.body.classList.remove("winnerTransitionBlack","winnerTransitionVillage","winnerTransitionWolves","winnerTransitionPiper","winnerTransitionLovers","winnerTransitionOther");
   void document.body.offsetWidth;
   const winnerTone = s.winner?.team === "village"
     ? "winnerTransitionVillage"
@@ -194,21 +383,23 @@ socket.on("state",s=>{
       ? "winnerTransitionWolves"
       : s.winner?.team === "piper"
         ? "winnerTransitionPiper"
+        : s.winner?.team === "lovers"
+          ? "winnerTransitionLovers"
       : "winnerTransitionOther";
   document.body.classList.add("winnerTransitionBlack", winnerTone);
   winnerTransitionTimer=setTimeout(()=>{
     displayedState=s;
     scheduleViewerRender(s);
     acknowledgeReveal("winner", s.winnerRevealToken);
-  },1120);
-  setTimeout(()=>document.body.classList.remove("winnerTransitionBlack",winnerTone),2700);
+  },960);
+  winnerTransitionEndTimer=setTimeout(()=>document.body.classList.remove("winnerTransitionBlack",winnerTone),3450);
 });
 function render(s){
   if($("version")) $("version").textContent=`v${s.version}`;
   const hero=$("hero");
   const infoClass = getInfoPhaseClass(s);
   const transientHeroClasses=["deathPulse","hunterImpact"].filter(className=>hero.classList.contains(className));
-  hero.className=`viewerHero ${infoClass}`;
+  applyHeroPhaseClasses(hero,infoClass);
   if(s.winner?.team === "piper") hero.classList.add("piperWinner");
   transientHeroClasses.forEach(className=>hero.classList.add(className));
   const mayorActive = s.phase === "mayor" && !!s.mayorElection?.open;
@@ -219,7 +410,7 @@ function render(s){
   if(!mayorActive && !hunterShotBuilding && deathIds && deathIds!==lastDeathIds){ hero.classList.add('deathPulse'); setTimeout(()=>hero.classList.remove('deathPulse'),1200); }
   lastDeathIds=deathIds;
   let title="Lobby", sub="Wacht op spelers.";
-  if(s.winner){ title=s.winner.title; sub=s.winner.text; lastWinnerKey = `${s.winner.team || ""}:${s.winner.title || ""}`; }
+  if(s.winner){ title=winnerScoreTitle(s.winner); sub=s.winner.text; lastWinnerKey = `${s.winner.team || ""}:${s.winner.title || ""}`; }
   else if(s.phase==="night"){ title="Nacht"; sub="Iedereen slaapt."; }
   else if(s.phase==="day"){
     title="Dag";
@@ -246,7 +437,7 @@ function render(s){
       sub="Dit zijn de gevolgen van het laatste schot.";
     }
   }
-  else if(s.phase==="ended"){ title=s.winner?.title||"Einde"; sub=s.winner?.text||"Het spel is afgelopen."; }
+  else if(s.phase==="ended"){ title=s.winner?winnerScoreTitle(s.winner):"Einde"; sub=s.winner?.text||"Het spel is afgelopen."; }
   $("bigStatus").textContent=title;
   $("subStatus").textContent=sub || "";
   $("subStatus").classList.toggle("hidden", !sub);
@@ -303,6 +494,7 @@ function render(s){
   $("dayVoteInfoCard").classList.add("hidden");
   $("mayorBars").innerHTML = "";
   $("voteBars").innerHTML = "";
+  syncWinnerStorm(s);
 }
 
 function renderHunterCentral(id, s){
@@ -500,10 +692,25 @@ function roleArtForName(roleName, seed, cardVariant=null){
   if(roleName === "Burger" && Number(cardVariant) >= 1 && Number(cardVariant) <= artList.length) return artList[Number(cardVariant)-1];
   return artList[stableHash(seed||roleName)%artList.length];
 }
-function winnerPlayerCard(p, defeated=false, extraClass=""){
+function winnerPlayerCard(p, defeated=false, extraClass="", inlineStyle=""){
   const src = roleArtForName(p.roleName, p.key || p.name, p.cardVariant);
   const visual = src ? `<img class="winnerRoleCard" src="${esc(src)}" alt="${esc(p.roleName || '')}">` : `<span class="emoji winnerEmoji">${esc(p.roleEmoji || '🃏')}</span><p class="muted">${esc(p.roleName || '')}</p>`;
-  return `<div class="winnerPlayerCard ${p.alive?'alive':'dead'} ${defeated?'defeated':''} ${extraClass}"><h3>${esc(p.name)}</h3>${visual}</div>`;
+  const style = inlineStyle ? ` style="${esc(inlineStyle)}"` : "";
+  return `<div class="winnerPlayerCard ${p.alive?'alive':'dead'} ${defeated?'defeated':''} ${extraClass}"${style}><h3>${esc(p.name)}</h3>${visual}</div>`;
+}
+function winnerGroupLabel(team){
+  return ({
+    village:"Het Dorp",
+    wolves:"De Weerwolven",
+    piper:"De Fluitspeler",
+    lovers:"De Geliefden",
+    angel:"De Engel",
+  })[team] || "De winnende groep";
+}
+function winnerScoreTitle(winner){
+  const group = winnerGroupLabel(winner?.team);
+  const verb = ["wolves", "lovers"].includes(winner?.team) ? "hebben" : "heeft";
+  return `${group}\n${verb} Gewonnen`;
 }
 function renderWinnerCentral(id, s){
   const players = s.players || [];
@@ -511,12 +718,37 @@ function renderWinnerCentral(id, s){
     const piper = players.find(p=>p.roleName === "Fluitspeler") || players.find(p=>p.team === "solo_piper") || null;
     const enchanted = players.filter(p=>p.enchanted && p.key !== piper?.key);
     const viewportWidth = Math.max(320, window.innerWidth || 1280);
-    const availableWidth = Math.min(1540, viewportWidth * .9);
-    const enchantedCardWidth = Math.max(72, Math.min(156, Math.floor(availableWidth / Math.max(1, enchanted.length))));
-    const overflowWidth = Math.max(0, enchantedCardWidth * enchanted.length - availableWidth);
-    const piperOverlap = enchanted.length > 1 ? Math.min(20, Math.ceil(overflowWidth / (enchanted.length - 1))) : 0;
-    const enchantedStyle = `--piper-enchanted-count:${Math.max(1,enchanted.length)};--piper-enchanted-card-width:${enchantedCardWidth}px;--piper-overlap:${piperOverlap}px`;
-    $(id).innerHTML = `<div class="winnerStage piperWinnerStage"><h3>${esc(s.winner?.title || "De Fluitspeler wint!")}</h3><section class="piperWinnerLead">${piper?winnerPlayerCard(piper,false,"piperLeadCard"):""}</section><section class="piperEnchantedGroup"><h3 class="winnerGroupTitle">De Betoverden</h3><div class="piperEnchantedScroller"><div class="piperEnchantedCards" style="${enchantedStyle}">${enchanted.map(p=>winnerPlayerCard(p,false,"piperEnchantedCard")).join("")}</div></div></section></div>`;
+    const availableWidth = Math.max(280, Math.min(1540, viewportWidth * .9));
+    const enchantedCardWidth = viewportWidth <= 600 ? 108 : viewportWidth <= 900 ? 122 : 144;
+    const relaxedStep = enchantedCardWidth - Math.max(20, Math.round(enchantedCardWidth * .17));
+    const fittedStep = enchanted.length > 1 ? Math.max(4, (availableWidth - enchantedCardWidth) / (enchanted.length - 1)) : enchantedCardWidth;
+    const piperStep = Math.min(relaxedStep, fittedStep);
+    const piperOverlap = enchanted.length > 1 ? Math.max(0, enchantedCardWidth - piperStep) : 0;
+    const piperStackWidth = enchanted.length ? enchantedCardWidth + piperStep * (enchanted.length - 1) : 0;
+    const enchantedStyle = `--piper-enchanted-count:${Math.max(1,enchanted.length)};--piper-enchanted-card-width:${enchantedCardWidth}px;--piper-overlap:${piperOverlap.toFixed(2)}px;--piper-stack-width:${Math.ceil(piperStackWidth)}px`;
+    const enchantedCards = enchanted.map((p,index)=>winnerPlayerCard(p,false,"piperEnchantedCard",`--piper-stack-index:${index + 1}`)).join("");
+    $(id).innerHTML = `<div class="winnerStage piperWinnerStage"><h3>${esc(winnerScoreTitle(s.winner))}</h3><section class="piperWinnerLead">${piper?winnerPlayerCard(piper,false,"piperLeadCard"):""}</section><section class="piperEnchantedGroup"><h3 class="winnerGroupTitle">De Betoverden</h3><div class="piperEnchantedScroller"><div class="piperEnchantedCards" style="${enchantedStyle}">${enchantedCards}</div></div></section></div>`;
+    return;
+  }
+  if(s.winner?.team === "lovers"){
+    const lovers = players.filter(p=>p.alive).slice(0,2);
+    const loverKeys = new Set(lovers.map(p=>p.key));
+    const villagers = players.filter(p=>!loverKeys.has(p.key) && !p.wolfLike);
+    const wolves = players.filter(p=>!loverKeys.has(p.key) && p.wolfLike);
+    const viewportWidth=Math.max(320,window.innerWidth||1280);
+    const viewportHeight=Math.max(480,window.innerHeight||720);
+    const supportCount=Math.max(1,villagers.length+wolves.length);
+    const supportGap=viewportWidth<=600?3:viewportWidth<=900?5:7;
+    const supportAvailable=Math.max(250,viewportWidth*(viewportWidth<=600?.9:.84));
+    const supportCardWidth=Math.max(31,Math.min(viewportWidth<=600?70:viewportWidth<=900?84:104,(supportAvailable-supportGap*Math.max(0,supportCount-1))/supportCount));
+    const supportCardHeight=Math.max(42,Math.min(supportCardWidth*1.38,viewportHeight*.15));
+    const leadCardWidth=Math.max(92,Math.min(viewportWidth<=600?142:188,viewportWidth*.27,viewportHeight*.2));
+    const leadCardHeight=Math.max(118,Math.min(leadCardWidth*1.38,viewportHeight*.27));
+    const loverSizing=`--lover-support-count:${supportCount};--lover-support-gap:${supportGap}px;--lover-support-card-width:${supportCardWidth.toFixed(2)}px;--lover-support-card-height:${supportCardHeight.toFixed(2)}px;--lover-lead-card-width:${leadCardWidth.toFixed(2)}px;--lover-lead-card-height:${leadCardHeight.toFixed(2)}px`;
+    const sideGroup = (title, cards, extraClass) => cards.length
+      ? `<aside class="loverSideGroup ${extraClass}"><h3 class="winnerGroupTitle">${esc(title)}</h3><div class="loverSideCards">${cards.map(p=>winnerPlayerCard(p,false,"loverSideCard")).join("")}</div></aside>`
+      : "";
+    $(id).innerHTML = `<div class="winnerStage loverWinnerStage" style="${loverSizing}"><h3 class="loverWinnerTitle">${esc(winnerScoreTitle(s.winner))}</h3><div class="loverWinnerLayout"><section class="loverWinnerLead"><div class="loverLeadCards">${lovers.map(p=>winnerPlayerCard(p,false,"loverLeadCard")).join("")}</div></section><div class="loverSupportRow ${wolves.length?"hasWolves":"villageOnly"}">${sideGroup("Het Dorp",villagers,"loverVillageGroup")}${sideGroup("De Weerwolven",wolves,"loverWolfGroup")}</div></div></div>`;
     return;
   }
   let main = [];
@@ -540,7 +772,7 @@ function renderWinnerCentral(id, s){
   const defeatedWidth = Math.min(500, Math.max(210, 90 + defeated.length * 135));
   const defeatedHtml = defeated.length?`<aside class="defeatedWolves" style="--defeated-count:${defeated.length};--defeated-panel-width:${defeatedWidth}px"><h4>Verslagen wolven</h4><div class="winnerCards small">${defeated.map(p=>winnerPlayerCard(p,true)).join('')}</div></aside>`:'';
   const groupTitle = s.winner?.team === "village" ? "Het Dorp" : s.winner?.team === "wolves" ? "De Weerwolven" : "";
-  $(id).innerHTML = `<div class="winnerStage ${defeated.length?'hasDefeated':''}" style="${winnerSizing}"><h3>${esc(s.winner?.title || 'Einde')}</h3><div class="winnerLayout"><section class="winnerMainGroup">${groupTitle?`<h3 class="winnerGroupTitle">${esc(groupTitle)}</h3>`:""}<div class="winnerCards winnerMainCards">${main.map(p=>winnerPlayerCard(p,false)).join('')}</div></section>${defeatedHtml}</div></div>`;
+  $(id).innerHTML = `<div class="winnerStage ${defeated.length?'hasDefeated':''}" style="${winnerSizing}"><h3>${esc(winnerScoreTitle(s.winner))}</h3><div class="winnerLayout"><section class="winnerMainGroup">${groupTitle?`<h3 class="winnerGroupTitle">${esc(groupTitle)}</h3>`:""}<div class="winnerCards winnerMainCards">${main.map(p=>winnerPlayerCard(p,false)).join('')}</div></section>${defeatedHtml}</div></div>`;
 }
 
 
@@ -564,13 +796,17 @@ if(screenTestMode){
     if(event.data?.type==="wakkerdam-screen-test-cleanup"){
       if(event.data.sessionId&&event.data.sessionId!==screenTestSession) return;
       clearTimeout(winnerTransitionTimer);
+      clearTimeout(winnerTransitionEndTimer);
       clearTimeout(hunterTransitionTimer);
       clearTimeout(hunterTransitionEndTimer);
       clearTimeout(resizeTimer);
       if(viewerRenderFrame!==null) cancelAnimationFrame(viewerRenderFrame);
       viewerRenderFrame=null;
       queuedRenderState=null;
-      document.body.classList.remove("winnerTransitionBlack","forceReducedMotion");
+      winnerStorm?.destroy();
+      winnerStorm=null;
+      lastStormWinnerKey="";
+      document.body.classList.remove("winnerTransitionBlack","winnerTransitionVillage","winnerTransitionWolves","winnerTransitionPiper","winnerTransitionLovers","winnerTransitionOther","forceReducedMotion");
       window.parent?.postMessage({type:"wakkerdam-screen-test-cleanup-result",surface:"info",sessionId:screenTestSession,requestId:event.data.requestId,diagnostics:{controllers:0,listeners:0,timers:0,animationFrames:0,activePointers:0,warningOverlay:false,scrollLocked:false}},"*");
       return;
     }

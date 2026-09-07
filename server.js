@@ -19,7 +19,7 @@ const {
   hostPeekView,
 } = require("./peek-system");
 
-const VERSION = "0.3.57";
+const VERSION = "0.3.72";
 const PORT = process.env.PORT || 3000;
 const VOTE_REVEAL_MS = 3000;
 const RESULT_REVEAL_FALLBACK_MS = 5000;
@@ -143,7 +143,7 @@ const ROLES = {
     max: 1,
     emoji: "👁️",
     order: 33,
-    desc: "Krijgt tijdens de gezamenlijke wolvenfase één van drie interactieve manieren om voorzichtig te spieken. Roekeloos kijken kan de wolven een vage aanwijzing geven."
+    desc: "Krijgt tijdens de gezamenlijke wolvenfase één van drie interactieve manieren om voorzichtig te spieken. Onrustig kijken waarschuwt de wolven; bij volledige betrapping ontdekken zij haar identiteit."
   },
   fox: {
     id: "fox",
@@ -306,6 +306,7 @@ function newGame() {
 }
 
 let game = newGame();
+let activeScreenTest = null;
 
 function uid(prefix = "p") {
   return `${prefix}_${Math.random().toString(36).slice(2, 8)}_${Date.now().toString(36).slice(-4)}`;
@@ -1715,7 +1716,7 @@ function simulateBotPeek(girl) {
   session.botSeenWolfKeys = shuffledWolves.slice(0, count).map(player => player.key);
   if (Math.random() < 0.08) {
     session.risk = 100;
-    triggerDetection(session, Math.random() < 0.72 ? "minor" : "major");
+    triggerDetection(session, "major");
   } else {
     session.risk = 18 + Math.floor(Math.random() * 48);
   }
@@ -3715,6 +3716,25 @@ function kickPlayer(key) {
   return { ok: true };
 }
 
+function kickAllPlayers() {
+  const removed = Object.values(game.players);
+  if (!removed.length) return { ok: false, error: "Er zijn geen spelers om te verwijderen." };
+  for (const player of removed) {
+    if (!player.socketId) continue;
+    const playerSocket = io.sockets.sockets.get(player.socketId);
+    if (!playerSocket) continue;
+    playerSocket.emit("join_denied", "Alle spelers zijn door de host uit deze lobby verwijderd.");
+    playerSocket.leave("player");
+  }
+  const lobbyId = game.lobbyId;
+  const selectedRoleCounts = { ...game.selectedRoleCounts };
+  game = newGame();
+  game.lobbyId = lobbyId;
+  game.selectedRoleCounts = selectedRoleCounts;
+  logPublic(`De host heeft alle ${removed.length} spelers uit de lobby verwijderd.`, "debug");
+  return { ok: true, count: removed.length };
+}
+
 function createTestPlayer() {
   if (game.started) return { ok: false, error: "Testspelers kun je alleen in de lobby toevoegen." };
   const key = uid("testplayer");
@@ -3759,11 +3779,74 @@ function createTestPlayer() {
 
 io.on("connection", (socket) => {
   socket.emit("state", publicState());
+  if (activeScreenTest?.sessionId) {
+    socket.emit("screen_test_mode", { active: true, sessionId: activeScreenTest.sessionId });
+    for (const surface of ["player", "info"]) {
+      const previewState = activeScreenTest.previews?.[surface];
+      if (previewState) {
+        socket.emit("screen_test_preview", {
+          sessionId: activeScreenTest.sessionId,
+          surface,
+          state: previewState,
+          viewport: activeScreenTest.viewport || "auto",
+        });
+      }
+    }
+  }
 
   socket.on("register_host", () => {
     socket.join("host");
     socket.emit("host_state", hostState());
     socket.emit("peek_host_state", hostPeekView(game.peek));
+  });
+
+  socket.on("host_screen_test_open", ({ sessionId } = {}) => {
+    if (!socket.rooms.has("host")) return;
+    const normalizedSessionId = String(sessionId || "").trim();
+    if (!normalizedSessionId) return;
+    activeScreenTest = {
+      sessionId: normalizedSessionId,
+      hostSocketId: socket.id,
+      previews: {},
+      viewport: "auto",
+      openedAt: Date.now(),
+    };
+    io.emit("screen_test_mode", { active: true, sessionId: normalizedSessionId });
+  });
+
+  socket.on("host_screen_test_preview", ({ sessionId, surface, state, viewport } = {}) => {
+    if (!socket.rooms.has("host") || !activeScreenTest) return;
+    if (activeScreenTest.hostSocketId !== socket.id || activeScreenTest.sessionId !== String(sessionId || "")) return;
+    if (!["player", "info"].includes(surface) || !state || typeof state !== "object") return;
+    activeScreenTest.previews[surface] = state;
+    activeScreenTest.viewport = ["auto", "phone", "phoneWide", "tablet", "monitor"].includes(viewport)
+      ? viewport
+      : "auto";
+    io.emit("screen_test_preview", {
+      sessionId: activeScreenTest.sessionId,
+      surface,
+      state,
+      viewport: activeScreenTest.viewport,
+    });
+  });
+
+  socket.on("host_screen_test_close", ({ sessionId } = {}) => {
+    if (!socket.rooms.has("host") || !activeScreenTest) return;
+    if (activeScreenTest.hostSocketId !== socket.id || activeScreenTest.sessionId !== String(sessionId || "")) return;
+    const closedSessionId = activeScreenTest.sessionId;
+    activeScreenTest = null;
+    io.emit("screen_test_mode", { active: false, sessionId: closedSessionId });
+  });
+
+  socket.on("screen_test_player_event", ({ sessionId, eventName, payload } = {}) => {
+    if (!activeScreenTest) return;
+    if (activeScreenTest.sessionId !== String(sessionId || "")) return;
+    if (!["player_action", "player_preview", "peek_interaction", "peek_instruction_ack"].includes(eventName)) return;
+    io.to("host").emit("screen_test_player_event", {
+      sessionId: activeScreenTest.sessionId,
+      eventName,
+      payload: payload && typeof payload === "object" ? payload : {},
+    });
   });
 
   socket.on("register_viewer", () => {
@@ -4163,6 +4246,12 @@ io.on("connection", (socket) => {
     emitAll();
   });
 
+  socket.on("host_kick_all_players", () => {
+    const result = kickAllPlayers();
+    if (!result.ok) socket.emit("host_error", result.error);
+    emitAll();
+  });
+
   socket.on("host_manual_kill", ({ key, cause } = {}) => {
     const p = getPlayer(key);
     if (!p || !p.alive) return;
@@ -4213,10 +4302,20 @@ io.on("connection", (socket) => {
   socket.on("host_reset", () => { resetGameKeepPlayers(); emitAll(); });
 
   socket.on("disconnect", () => {
+    if (activeScreenTest?.hostSocketId === socket.id) {
+      const closedSessionId = activeScreenTest.sessionId;
+      activeScreenTest = null;
+      io.emit("screen_test_mode", { active: false, sessionId: closedSessionId });
+    }
     const key = game.socketToKey[socket.id];
     const p = key ? game.players[key] : null;
     if (p && game.peek?.session?.girlKey === p.key && game.peek.session.interaction?.active) {
-      applyPeekInteraction(game.peek, { kind: "hold_stop" }, {
+      const stopKind = {
+        eyelids: "hold_stop",
+        mirror: "mirror_stop",
+        fog: "fog_brush_stop",
+      }[game.peek.session.mode] || "hold_stop";
+      applyPeekInteraction(game.peek, { kind: stopKind }, {
         players: peekPlayers(),
         isWolfKey: targetKey => isWolfPackMember(game.players[targetKey]),
       });

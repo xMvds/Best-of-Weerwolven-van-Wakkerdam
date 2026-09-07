@@ -4,7 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
   <title>Wakkerdam Online Helper — Speler</title>
-  <link rel="stylesheet" href="/style.css?v=0.3.57" />
+  <link rel="stylesheet" href="/style.css?v=0.3.72" />
+  <link rel="stylesheet" href="/fog-effect.css?v=0.3.72" />
 </head>
 <body class="playerScreen">
   <div class="bg"></div>
@@ -35,9 +36,16 @@
     <button id="openHostFromPlayer" class="btn ghost" type="button">Open Hostscherm</button>
   </div>
   <div id="toast" class="toast hidden"></div>
+  <section id="remoteDevicePreview" class="remoteDevicePreview hidden" aria-label="Player testformaat">
+    <span id="remoteDevicePreviewLabel" class="remoteDevicePreviewLabel"></span>
+    <div id="remoteDeviceViewport" class="remoteDeviceViewport">
+      <iframe id="remoteDeviceFrame" title="Playerpagina in gekozen testresolutie"></iframe>
+    </div>
+  </section>
   <script src="/socket.io/socket.io.js"></script>
-  <script src="/peek-system.js?v=0.3.57"></script>
-  <script src="/peek-mechanics.js?v=0.3.57"></script>
-  <script src="/player.js?v=0.3.57"></script>
+  <script src="/peek-system.js?v=0.3.72"></script>
+  <script src="/fog-effect.js?v=0.3.72"></script>
+  <script src="/peek-mechanics.js?v=0.3.72"></script>
+  <script src="/player.js?v=0.3.72"></script>
 </body>
 </html>

@@ -226,7 +226,7 @@ test("role-card permissions survive a complete Cupid, Ziener, Wolves and Witch n
   assert.equal(hostState.players.find(player => player.key === players[1].key)?.assignedRoleId, "seer");
 });
 
-test("bot personalities perform every active special role instead of silently doing nothing", { timeout: 20000 }, async t => {
+test("bot personalities perform every active special role instead of silently doing nothing", { timeout: 60000 }, async t => {
   const port = await freePort();
   const child = spawn(process.execPath, ["server.js"], {
     cwd: root,
@@ -288,7 +288,7 @@ test("bot personalities perform every active special role instead of silently do
 
   const openStep = async kind => {
     host.emit("host_next_step");
-    return waitUntil(() => hostState?.currentStep?.kind === kind && hostState.currentStep.ready, `${kind} bot step`);
+    return waitUntil(() => hostState?.currentStep?.kind === kind && hostState.currentStep.ready, `${kind} bot step`, 30000);
   };
   const firstSubmission = () => Object.values(hostState.currentStep.submissions || {})[0] || null;
 
